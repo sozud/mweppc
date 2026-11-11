@@ -22,6 +22,12 @@ jobs:
           docker run --rm -v "$PWD/build:/out" mwccpsp
           sudo chown "$(id -u):$(id -g)" build/mwccpsp
 
+      - name: Smoke test
+        run: |
+          printf 'int f(int x) { return x + 1; }\n' > t.c
+          build/mwccpsp -c -O4,p t.c -o t.o
+          file t.o | grep -q 'ELF 32-bit LSB relocatable, MIPS'
+
       - name: Package
         run: |
           cp build/mwccpsp mwccpsp-native64-linux-amd64
@@ -33,16 +39,9 @@ jobs:
           path: mwccpsp-native64-linux-amd64.tar.gz
 
   macos:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-13
-            arch: x86_64
-            goarch: amd64
-          - runner: macos-14
-            arch: arm64
-            goarch: arm64
-    runs-on: ${{ matrix.runner }}
+    # an Apple Silicon runner builds both: the build only compiles with
+    # clang -arch, it never runs the binary it makes
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -55,17 +54,33 @@ jobs:
           tar -xzf mwccpsp_219.tar.gz -C orig/PSP_3_0_1
 
       - name: Build
-        run: python3 tools/mwccpsp/native_build.py --arch ${{ matrix.arch }} -o build/mwccpsp
+        run: |
+          python3 tools/mwccpsp/native_build.py --arch arm64 -o build/mwccpsp-native64-darwin-arm64
+          python3 tools/mwccpsp/native_build.py --arch x86_64 -o build/mwccpsp-native64-darwin-amd64
+          file build/mwccpsp-native64-darwin-*
+
+      - name: Smoke test
+        run: |
+          printf 'int f(int x) { return x + 1; }\n' > t.c
+          build/mwccpsp-native64-darwin-arm64 -c -O4,p t.c -o t.o
+          file t.o | grep -q 'ELF 32-bit LSB relocatable, MIPS'
+          # the x86_64 build runs only where Rosetta is installed
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            build/mwccpsp-native64-darwin-amd64 -c -O4,p t.c -o t2.o
+            cmp t.o t2.o
+          fi
 
       - name: Package
         run: |
-          cp build/mwccpsp mwccpsp-native64-darwin-${{ matrix.goarch }}
-          tar -czf mwccpsp-native64-darwin-${{ matrix.goarch }}.tar.gz mwccpsp-native64-darwin-${{ matrix.goarch }}
+          cd build
+          for a in arm64 amd64; do
+            tar -czf mwccpsp-native64-darwin-$a.tar.gz mwccpsp-native64-darwin-$a
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mwccpsp-native64-darwin-${{ matrix.goarch }}
-          path: mwccpsp-native64-darwin-${{ matrix.goarch }}.tar.gz
+          name: mwccpsp-native64-darwin
+          path: build/mwccpsp-native64-darwin-*.tar.gz
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

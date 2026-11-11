@@ -63,6 +63,9 @@ def main():
             os.path.join(glue, "glue.o"),
             *ldflags,
             *native_glue.LINK,
+            # packed tables hold pointers at 2-byte alignment, which arm64
+            # chained fixups cannot relocate
+            *(["-Wl,-no_fixup_chains"] if sys.platform == "darwin" and a.arch == "arm64" else []),
         ],
         check=True,
     )
