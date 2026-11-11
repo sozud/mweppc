@@ -7,11 +7,19 @@
 extern "C" {
 #endif
 
+#if MWCCPSP
+extern CInt64 cint64_negone;
+extern CInt64 cint64_zero;
+extern CInt64 cint64_one;
+extern CInt64 cint64_max;
+extern CInt64 cint64_min;
+#else
 extern const CInt64 cint64_negone;
 extern const CInt64 cint64_zero;
 extern const CInt64 cint64_one;
 extern const CInt64 cint64_max;
 extern const CInt64 cint64_min;
+#endif
 
 HEADER_INLINE Boolean CInt64_IsNegative(const CInt64* n) {
     return (n->hi & 0x80000000) != 0;
@@ -19,6 +27,13 @@ HEADER_INLINE Boolean CInt64_IsNegative(const CInt64* n) {
 HEADER_INLINE UInt32 CInt64_GetULong(const CInt64* n) {
     return n->lo;
 }
+#if MWCCPSP
+// 3.0.1: real functions (CInt64.c, src/psp/CInt64.c)
+extern void CInt64_SetLong(CInt64* pN, SInt32 n);
+extern void CInt64_SetULong(CInt64* pN, UInt32 n);
+extern Boolean CInt64_IsZero(CInt64* n);
+extern Boolean CInt64_IsOne(CInt64* n);
+#else
 HEADER_INLINE void CInt64_SetLong(CInt64* pN, SInt32 n) {
     pN->lo = n;
     pN->hi = (n < 0) ? 0xFFFFFFFF : 0;
@@ -34,6 +49,7 @@ HEADER_INLINE Boolean CInt64_IsZero(CInt64* n) {
 HEADER_INLINE Boolean CInt64_IsOne(CInt64* n) {
     return n->hi == 0 && n->lo == 1;
 }
+#endif
 
 extern void CInt64_Init(void);
 extern CInt64 CInt64_Not(CInt64 input);
@@ -67,6 +83,10 @@ extern CInt64 CInt64_Xor(CInt64 lhs, CInt64 rhs);
 extern CInt64 CInt64_Or(CInt64 lhs, CInt64 rhs);
 extern void CInt64_ConvertInt32(CInt64* i);
 extern void CInt64_ConvertUInt32(CInt64* i);
+#if MWCCPSP
+extern void CInt64_ConvertUInt64(CInt64* i);
+extern void CInt64_ConvertInt64(CInt64* i);
+#endif
 extern void CInt64_ConvertInt16(CInt64* i);
 extern void CInt64_ConvertUInt16(CInt64* i);
 extern void CInt64_ConvertInt8(CInt64* i);

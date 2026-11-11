@@ -1,0 +1,39 @@
+# Units from mweppc that are not part of mwccpsp: the PPC backend (the MIPS
+# backend has some files of the same name and is written separately), the
+# 2.4.7 global optimizer (3.0.1 has only the Iro* optimizer), the CodeWarrior
+# plugin glue, and Objective-C. They stay in src/ for reference.
+src/compiler/backend/BE_elf.c
+src/compiler/backend/BE_symbol.c
+src/compiler/backend/CodeGen.c
+src/compiler/backend/Coloring.c
+src/compiler/backend/DWARF.c
+src/compiler/backend/Exceptions.c
+src/compiler/backend/FuncLevelAsmPPC.c
+src/compiler/backend/InlineAsmPPC.c
+src/compiler/backend/InstrSelection.c
+src/compiler/backend/InterferenceGraph.c
+src/compiler/backend/Intrinsics.c
+src/compiler/backend/LiveVariables.c
+src/compiler/backend/ObjGen_PPC_EABI.c
+src/compiler/backend/Operands.c
+src/compiler/backend/PCodeAssembly.c
+src/compiler/backend/PCodeUtilities.c
+src/compiler/backend/Peephole.c
+src/compiler/backend/RegisterInfo.c
+src/compiler/backend/SFPE_PPC_EABI.c
+src/compiler/backend/Scheduler.c
+src/compiler/backend/StackFrame.c
+src/compiler/backend/Switch.c
+src/compiler/backend/TOC.c
+src/compiler/driver/CCompiler.c
+src/compiler/driver/CodeGenOptPPC.c
+src/compiler/frontend/CObjC.c
+src/compiler/optimizer/CopyPropagation.c
+src/compiler/optimizer/GlobalOptimizer.c
+src/compiler/optimizer/LoopOptimization.c
+src/compiler/backend/PCode.c
+src/compiler/backend/CMachine.c
+src/compiler/driver/cc-eabi-ppc.c
+src/compiler/driver/cc-eabi-ppc-mw.c
+src/driver/libimp-eabi-ppc.c
+src/compiler/driver/ParserGlue-eabi-ppc-cc.c

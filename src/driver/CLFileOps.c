@@ -15,10 +15,16 @@
 #include "driver/cmdline.h"
 #include "driver/CWPlugins.h"
 #include "driver/DropInCompilerLinker.h"
+#if MWCCPSP
+#include "driver/FileHandles.h"
+#endif
 #include "driver/Files.h"
 #include "driver/Generic.h"
 #include "driver/MacSpecs.h"
 #include "driver/Memory.h"
+#if MWCCPSP
+#include "driver/MemUtils.h"
+#endif
 #include "driver/MsDos.h"
 #include "driver/oslib.h"
 #include "driver/pref_structs.h"
@@ -27,7 +33,128 @@
 #include <string.h>
 
 static void set_bytes(UInt32 size, int* amount, const char** unit);
+#if MWCCPSP
 
+static UInt32 TEXTDATA_SIZE(OSHandle* h) {
+    UInt32 size;
+    OS_GetHandleSize(h, &size);
+    return size;
+}
+#endif
+
+#if MWCCPSP
+extern int __stdcall func_00409690(const OSSpec* from, const OSSpec* to); // rename
+extern Boolean func_00416B10(const OSSpec* spec, Boolean decorate); // show a text file
+
+// 0x41C480: text output comes in a handle or in the temporary file
+// file->tempfss. Make-style dependency output (-M without writing to disk)
+// reads the file into a handle; otherwise the file is renamed to the output
+// or shown, then deleted.
+static int OutputTextData(File* file, SInt16 stage, OSType maccreator, OSType mactype) {
+    int ret;
+    Boolean fromTemp;
+    OSFileHandle fh;
+    int err;
+
+    ret = 0;
+    fromTemp = FALSE;
+
+    if (!file->textdata && !OS_Status(&file->tempfss)) {
+        if (stage == CmdLineStageMask_Dp && !(optsCmdLine.toDisk & CmdLineStageMask_Dp)) {
+            fromTemp = TRUE;
+        } else {
+            fromTemp = FALSE;
+        }
+        if (fromTemp) {
+            err = OS_NewFileHandle(&file->tempfss, NULL, FALSE, &fh);
+            if (err) {
+                CLReportOSError(
+                    CLStr93, err, OS_SpecToString(&file->tempfss, STSbuf, sizeof(STSbuf))
+                );
+                return 0;
+            }
+            file->textdata = &fh.hand;
+        }
+    }
+
+    if (file->textdata) {
+        if (stage != CmdLineStageMask_Dp || optsCmdLine.toDisk & CmdLineStageMask_Dp) {
+            if (!(file->writeToDisk & stage)) {
+                ret = ShowHandle(file->textdata, FALSE);
+            } else {
+                if (optsCmdLine.verbose) {
+                    CLReport(
+                        CLStr15,
+                        OS_SpecToStringRelative(&file->outfss, NULL, STSbuf, sizeof(STSbuf))
+                    );
+                }
+                ret = WriteHandleToFile(&file->outfss, file->textdata, maccreator, mactype);
+                file->wroteToDisk |= stage;
+            }
+        } else {
+            if (optsCompiler.outMakefile[0]) {
+                ret =
+                    AppendHandleToFile(&clState.makefileSpec, file->textdata, maccreator, mactype);
+            } else {
+                ret = ShowHandle(file->textdata, FALSE);
+            }
+        }
+
+        if (fromTemp) {
+            OS_FreeFileHandle(&fh);
+            OS_Delete(&file->tempfss);
+        } else {
+            OS_FreeHandle(file->textdata);
+            file->textdata = NULL;
+        }
+    } else if (!OS_Status(&file->tempfss)) {
+        if (file->writeToDisk & stage) {
+            if (optsCmdLine.verbose) {
+                CLReport(
+                    CLStr15, OS_SpecToStringRelative(&file->outfss, NULL, STSbuf, sizeof(STSbuf))
+                );
+            }
+            OS_Delete(&file->outfss);
+            err = func_00409690(&file->tempfss, &file->outfss);
+            if (err) {
+                CLReportOSError(
+                    CLStr8, err, OS_SpecToString(&file->outfss, STSbuf, sizeof(STSbuf))
+                );
+            } else {
+                OS_SetMacFileCreatorAndType(&file->outfss, maccreator, mactype);
+                ret = 1;
+            }
+            file->wroteToDisk |= stage;
+        } else {
+            ret = func_00416B10(&file->tempfss, FALSE);
+            OS_Delete(&file->tempfss);
+        }
+    } else {
+        const char* doing;
+        switch (stage) {
+            case CmdLineStageMask_Pp:
+                doing = "preprocessing";
+                break;
+            case CmdLineStageMask_Ds:
+                doing = "disassembling";
+                break;
+            case CmdLineStageMask_Dp:
+                doing = "dependency-mapping";
+                break;
+            case CmdLineStageMask_Cg:
+                doing = "compiling";
+                break;
+            default:
+                doing = "processing";
+                break;
+        }
+        CLReportError(CLStr96, doing, file->srcfilename);
+        ret = 0;
+    }
+
+    return ret;
+}
+#else
 static int OutputTextData(File* file, SInt16 stage, OSType maccreator, OSType mactype) {
     int ret = 0;
     SInt32 size;
@@ -63,7 +190,170 @@ static int OutputTextData(File* file, SInt16 stage, OSType maccreator, OSType ma
 
     return ret;
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: with -gccdep the dependency file is named after the object and goes
+// in its directory; a plugin without an extension for an output gets a
+// default one
+int GetOutputFile(File* file, SInt16 stage) {
+    int err;
+    char tempoutfilename[260];
+    char* targetoutfilename;
+    Boolean specifiedName;
+    const char* ext;
+    const CWObjectFlags* cof;
+    char tmpname[260];
+    char* env;
+    char* extptr;
+    char* fnptr;
+    char text[256];
+    char* inname;
+    char* basename;
+    OSPathSpec tmppath;
+    OSPathSpec* outdir;
+
+    outdir = &gTarg->outputDirectory;
+    if (optsCmdLine.toDisk & stage) {
+        file->writeToDisk |= stage;
+    }
+
+    if (file->outfileowner == stage) {
+        targetoutfilename = file->outfilename;
+        specifiedName = file->outfilename[0] && (file->tempOnDisk & stage) == 0;
+        if (specifiedName) {
+            file->writeToDisk |= stage;
+            file->tempOnDisk &= ~stage;
+        }
+    } else {
+        targetoutfilename = tempoutfilename;
+        specifiedName = FALSE;
+    }
+
+    if (stage == CmdLineStageMask_Dp && optsCompiler.gccDepends) {
+        basename = file->outfilename[0] ? file->outfilename : file->srcfilename;
+    } else {
+        basename = file->srcfilename;
+    }
+
+    if (!(stage & (optsCmdLine.toDisk | file->writeToDisk | file->tempOnDisk))) {
+        if ((stage == CmdLineStageMask_Cg) &&
+            (optsCmdLine.stages & CmdLineStageMask_Ds) &&
+            (optsCmdLine.state == OptsCmdLineState_Compile) &&
+            optsCompiler.keepObjects) {
+            file->writeToDisk |= stage;
+        } else {
+            file->tempOnDisk |= stage;
+        }
+    }
+
+    if (!specifiedName && (stage & (optsCmdLine.toDisk | file->writeToDisk | file->tempOnDisk))) {
+        cof = Plugin_CL_GetObjectFlags(file->compiler);
+        if (stage == CmdLineStageMask_Pp) {
+            ext = optsCompiler.ppFileExt[0] ? optsCompiler.ppFileExt : cof->ppFileExt;
+            if (!ext) {
+                ext = ".pp";
+            }
+        } else if (stage == CmdLineStageMask_Ds) {
+            ext = optsCompiler.disFileExt[0] ? optsCompiler.disFileExt : cof->disFileExt;
+            if (!ext) {
+                ext = ".dis";
+            }
+        } else if (stage == CmdLineStageMask_Dp) {
+            ext = optsCompiler.depFileExt[0] ? optsCompiler.depFileExt : cof->depFileExt;
+            if (!ext) {
+                ext = ".dep";
+            }
+        } else if (stage == CmdLineStageMask_Cg) {
+            ext = optsCompiler.objFileExt[0] ? optsCompiler.objFileExt : cof->objFileExt;
+            if (!ext) {
+                ext = ".cod";
+            }
+            if (!(file->objectflags & 0x80000000) && !specifiedName) {
+                ext = NULL;
+            }
+        } else {
+            ext = NULL;
+        }
+
+        if (ext && ext[0]) {
+            if (ext[0] != '.') {
+                snprintf(text, sizeof(text), ".%s", ext);
+            } else {
+                strncpy(text, ext, sizeof(text) - 1);
+                text[sizeof(text) - 1] = 0;
+            }
+            if ((file->tempOnDisk & stage) && !(optsCmdLine.stages & CmdLineStageMask_Dp)) {
+                env = getenv("TEMP");
+                if (!env || !env[0] || OS_MakePathSpec(NULL, env, &tmppath)) {
+                    env = getenv("TMP");
+                }
+                if (!env || !env[0] || OS_MakePathSpec(NULL, env, &tmppath)) {
+                    env = getenv("TMPDIR");
+                }
+                if (!env || !env[0] || OS_MakePathSpec(NULL, env, &tmppath)) {
+                    env = ".";
+                }
+                snprintf(
+                    tmpname, sizeof(tmpname), "%s%c%s", env, OS_PATHSEP, OS_GetFileNamePtr(basename)
+                );
+                inname = tmpname;
+            } else if (!optsCompiler.relPathInOutputDir) {
+                inname = OS_GetFileNamePtr(basename);
+            } else {
+                inname = basename;
+            }
+
+            fnptr = OS_GetFileNamePtr(inname);
+            extptr = strrchr(fnptr, '.');
+            if (!extptr || ext[0] == '.') {
+                extptr = fnptr + strlen(fnptr);
+            }
+
+            if (extptr - fnptr + strlen(text) >= sizeof(text)) {
+                extptr = &fnptr[sizeof(text) - 1] - strlen(text);
+            }
+
+            snprintf(targetoutfilename, 260, "%.*s%s", extptr - inname, inname, text);
+        } else {
+            *targetoutfilename = 0;
+            file->writeToDisk &= ~stage;
+            file->tempOnDisk &= ~stage;
+        }
+    }
+
+    if (stage & (file->writeToDisk | file->tempOnDisk)) {
+        if (stage == CmdLineStageMask_Dp && optsCompiler.gccDepends) {
+            outdir = &file->outfss.path;
+        }
+        err = OS_MakeSpecWithPath(
+            outdir, targetoutfilename, !optsCompiler.relPathInOutputDir, &file->outfss
+        );
+        if (!err) {
+            if (OS_EqualSpec(&file->srcfss, &file->outfss)) {
+                if (specifiedName) {
+                    CLReportError(CLStr102, targetoutfilename);
+                    file->writeToDisk &= ~stage;
+                    file->tempOnDisk &= ~stage;
+                    return FALSE;
+                }
+                file->writeToDisk &= ~stage;
+                file->tempOnDisk &= ~stage;
+            }
+        } else {
+            CLReportOSError(
+                CLStr9,
+                err,
+                targetoutfilename,
+                OS_PathSpecToString(&gTarg->outputDirectory, STSbuf, sizeof(STSbuf))
+            );
+        }
+        return err == 0;
+    }
+
+    return TRUE;
+}
+#else
 int GetOutputFile(File* file, SInt16 stage) {
     int err;
     char tempoutfilename[260];
@@ -205,6 +495,7 @@ int GetOutputFile(File* file, SInt16 stage) {
 
     return TRUE;
 }
+#endif
 
 static int SyntaxCheckFile(File* file) {
     if (!SendCompilerRequest(file->compiler, file, 0)) {
@@ -213,6 +504,33 @@ static int SyntaxCheckFile(File* file) {
     return TRUE;
 }
 
+#if MWCCPSP
+// 0x41CE80: OutputTextData handles the temporary file and the error
+static int PreprocessFile(File* file) {
+    const CWObjectFlags* cof;
+
+    cof = Plugin_CL_GetObjectFlags(file->compiler);
+    if (!(file->dropinflags & kCanpreprocess)) {
+        CLReportWarning(CLStr53, Plugin_GetDropInName(file->compiler), file->srcfilename);
+        return TRUE;
+    }
+
+    if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Pp)) {
+        return FALSE;
+    }
+
+    if (!GetOutputFile(file, CmdLineStageMask_Pp)) {
+        return FALSE;
+    }
+
+    return OutputTextData(
+        file,
+        CmdLineStageMask_Pp,
+        optsCompiler.ppFileCreator ? optsCompiler.ppFileCreator : cof->ppFileCreator,
+        optsCompiler.ppFileType ? optsCompiler.ppFileType : cof->ppFileType
+    );
+}
+#else
 static int PreprocessFile(File* file) {
     const CWObjectFlags* cof;
 
@@ -242,6 +560,7 @@ static int PreprocessFile(File* file) {
     CLReportError(CLStr96, "preprocessing", file->srcfilename);
     return FALSE;
 }
+#endif
 
 static int DependencyMapFile(File* file, Boolean compileifnecessary) {
     OSHandle mf;
@@ -258,8 +577,16 @@ static int DependencyMapFile(File* file, Boolean compileifnecessary) {
         return FALSE;
     }
 
+#if MWCCPSP
+    {
+        OSHandle* h = xmalloc(NULL, sizeof(OSHandle));
+        Deps_ListDependencies(&gTarg->incls, file, h);
+        file->textdata = h;
+    }
+#else
     Deps_ListDependencies(&gTarg->incls, file, &mf);
     file->textdata = OS_CreateMacHandle(&mf);
+#endif
 
     if (!GetOutputFile(file, CmdLineStageMask_Dp)) {
         return FALSE;
@@ -350,6 +677,12 @@ int StoreObjectFile(File* file) {
     return FALSE;
 }
 
+#if MWCCPSP
+extern void func_0041C200(File* file); // frees the object data
+#endif
+#if MWCCPSP
+
+#endif
 static int CompileFile(File* file) {
     int ret = TRUE;
 
@@ -381,6 +714,34 @@ static int CompileFile(File* file) {
         file->browseFileID = 0;
     }
 
+#if MWCCPSP
+    // 3.0.1: the plugin's kind says what it made; an object it wrote itself
+    // (or one already written) counts; outside -c the object data is freed
+    if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Cg)) {
+        return FALSE;
+    }
+    if (file->dropinflags & kGeneratesrsrcs) {
+        file->hasresources = TRUE;
+    } else if (file->dropinflags & kGeneratescode) {
+        file->hasobjectcode = TRUE;
+    }
+    if ((
+            !file->hasobjectcode ||
+            (!file->objectdata && !file->objectOnDisk && !(file->wroteToDisk & CmdLineStageMask_Cg))
+        ) &&
+        (file->dropinflags & kGeneratescode) &&
+        (file->objectUsage & CmdLineStageMask_Cg)) {
+        CLReportError(CLStr96, "compiling", file->srcfilename);
+        ret = FALSE;
+    } else if (optsCmdLine.state == OptsCmdLineState_Compile) {
+        if (!StoreObjectFile(file)) {
+            ret = FALSE;
+        }
+    } else {
+        func_0041C200(file);
+    }
+    return ret;
+#endif
     if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Cg)) {
         ret = FALSE;
     } else {
@@ -456,7 +817,11 @@ static int DisassembleFile(File* file) {
 
         if (gTarg->linker && !(gTarg->linkerDropinFlags & cantDisassemble)) {
             if (SendDisassemblerRequest(gTarg->linker, file)) {
+#if MWCCPSP
+                if (file->textdata && TEXTDATA_SIZE(file->textdata) > 0) {
+#else
                 if (file->textdata && GetHandleSize(file->textdata) > 0) {
+#endif
                     const CWObjectFlags* cof = Plugin_CL_GetObjectFlags(file->compiler);
                     return OutputTextData(
                         file,
@@ -472,7 +837,11 @@ static int DisassembleFile(File* file) {
         }
         if (gTarg->preLinker && !(gTarg->preLinkerDropinFlags & cantDisassemble)) {
             if (SendDisassemblerRequest(gTarg->preLinker, file)) {
+#if MWCCPSP
+                if (file->textdata && TEXTDATA_SIZE(file->textdata) > 0) {
+#else
                 if (file->textdata && GetHandleSize(file->textdata) > 0) {
+#endif
                     const CWObjectFlags* cof = Plugin_CL_GetObjectFlags(file->compiler);
                     return OutputTextData(
                         file,
@@ -597,7 +966,11 @@ static void DumpFileAndPathInfo(void) {
     } else {
         for (i = 0; i < Paths_Count(&gTarg->userPaths); i++) {
             Path* path = Paths_GetPath(&gTarg->userPaths, i);
+#if MWCCPSP
+            OS_ASSERT(1358, path != NULL);
+#else
             OS_ASSERT(1024, path != NULL);
+#endif
 
             CLReport(
                 CLStr85,
@@ -612,7 +985,11 @@ static void DumpFileAndPathInfo(void) {
                 UInt16 j;
                 for (j = 0; j < Paths_Count(path->recursive); j++) {
                     Path* sub = Paths_GetPath(path->recursive, j);
+#if MWCCPSP
+                    OS_ASSERT(1373, sub);
+#else
                     OS_ASSERT(1039, sub);
+#endif
                     CLReport(CLStr85, "\t", OS_PathSpecToString(sub->spec, STSbuf, sizeof(STSbuf)));
                 }
             }
@@ -629,7 +1006,11 @@ static void DumpFileAndPathInfo(void) {
 
     for (i = 0; i < Paths_Count(&gTarg->sysPaths); i++) {
         Path* path = Paths_GetPath(&gTarg->sysPaths, i);
+#if MWCCPSP
+        OS_ASSERT(1388, path != NULL);
+#else
         OS_ASSERT(1054, path != NULL);
+#endif
 
         CLReport(
             CLStr85,
@@ -644,7 +1025,11 @@ static void DumpFileAndPathInfo(void) {
             UInt16 j;
             for (j = 0; j < Paths_Count(path->recursive); j++) {
                 Path* sub = Paths_GetPath(path->recursive, j);
+#if MWCCPSP
+                OS_ASSERT(1403, sub);
+#else
                 OS_ASSERT(1069, sub);
+#endif
                 CLReport(CLStr85, "\t", OS_PathSpecToString(sub->spec, STSbuf, sizeof(STSbuf)));
             }
         }
@@ -855,7 +1240,11 @@ int LinkProject(void) {
                 return Result_Failed;
             }
             if (gTarg->targetinfo->outputType == linkOutputFile) {
+#if MWCCPSP
+                outfile = gTarg->targetinfo->outfile;
+#else
                 fss = gTarg->targetinfo->outfile;
+#endif
             }
             if (gTarg->targetinfo->outputType != linkOutputNone) {
                 if (!SendLinkerRequest(
@@ -877,11 +1266,18 @@ int LinkProject(void) {
         }
 
         if (!optsLinker.keepLinkerOutput && gTarg->targetinfo->outputType == linkOutputFile) {
+#if MWCCPSP
+            if (optsCmdLine.verbose > 1) {
+                CLReport(CLStr19, OS_SpecToString(&outfile, STSbuf, sizeof(STSbuf)));
+            }
+            OS_Delete(&outfile);
+#else
             if (optsCmdLine.verbose > 1) {
                 OS_FSSpec_To_OSSpec(&fss, &outfile);
                 CLReport(CLStr19, OS_SpecToString(&outfile, STSbuf, sizeof(STSbuf)));
             }
             FSpDelete(&fss);
+#endif
         }
     }
 

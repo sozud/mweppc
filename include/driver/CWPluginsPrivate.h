@@ -13,6 +13,50 @@ extern "C" {
 #endif
 
 #pragma pack(push, 2)
+#if MWCCPSP
+// 3.0.1: the plugin's target info with shell specs (0xE22 bytes; the
+// CWCompilerLinkerContext constructor, 0x41A8A0/0x41A9C0)
+typedef struct PluginTargetInfo {
+    short outputType;
+    OSSpec outfile; // +2
+    OSSpec symfile; // +0x206
+    OSSpec runfile; // +0x40A
+    SInt16 linkType; // +0x60E
+    UInt8 canRun;
+    UInt8 canDebug;
+    UInt32 targetCPU; // +0x612
+    UInt32 targetOS; // +0x616
+    Boolean runHelperIsRegKey; // +0x61A
+    Boolean debugHelperIsRegKey; // +0x61B
+    char helpers[0x602]; // args/runHelperName/debugHelperName (not passed on)
+    OSSpec linkAgainstFile; // +0xC1E
+} PluginTargetInfo;
+
+// The CWTargetInfo a plugin sees: specs in its API's format (API 1 FSSpec,
+// API 2 260-byte path), filled by CWGetTargetInfo.
+#define PLUGIN_TARGET_INFO(name, specsize) \
+    typedef struct name { \
+        short outputType; \
+        char outfile[specsize]; \
+        char symfile[specsize]; \
+        char runfile[specsize]; \
+        SInt16 linkType; \
+        UInt8 canRun; \
+        UInt8 canDebug; \
+        UInt32 targetCPU; \
+        UInt32 targetOS; \
+        Boolean runHelperIsRegKey; \
+        Boolean debugHelperIsRegKey; \
+        char helpers[0x602]; \
+        char linkAgainstFile[specsize]; \
+    } name;
+PLUGIN_TARGET_INFO(PluginTargetInfo1, 0x46)
+PLUGIN_TARGET_INFO(PluginTargetInfo2, 0x104)
+#undef PLUGIN_TARGET_INFO
+#endif
+#if MWCCPSP
+
+#endif
 struct CWPluginPrivateContext {
 #ifdef __cplusplus
     CWPluginPrivateContext(SInt32 thePluginType, SInt32 totalSize = 0);
@@ -23,14 +67,26 @@ struct CWPluginPrivateContext {
     SInt32 apiVersion;
     void* shellContext;
     void* pluginStorage;
+#if MWCCPSP
+    // 3.0.1 (CWPluginsPrivate.cpp): the shell keeps its own path specs and
+    // 32-bit OS errors; shellSignature is at +0x418, callbacks at +0x484
+    OSSpec projectFile;
+    OSSpec outputFileDirectory;
+#else
     CWFileSpec projectFile;
     CWFileSpec outputFileDirectory;
+#endif
     SInt32 shellSignature;
     SInt32 pluginType;
     SInt32 numFiles;
     SInt32 numOverlayGroups;
+#if MWCCPSP
+    SInt32 callbackOSError;
+    SInt32 pluginOSError;
+#else
     OSErr callbackOSError;
     OSErr pluginOSError;
+#endif
     CWIDEInfo* shellInfo;
     struct IDEAccessPathList* accessPathList;
     SInt32 dontEatEvents;
@@ -45,7 +101,11 @@ struct CWCompilerLinkerContext : CWPluginPrivateContext {
     ~CWCompilerLinkerContext();
 
     SInt32 whichfile;
+#if MWCCPSP
+    OSSpec sourcefile; // +0x48C (CWCompilerLinkerContext::CWCompilerLinkerContext 0x42CB..)
+#else
     CWFileSpec sourcefile;
+#endif
     const char* sourcetext;
     SInt32 sourcetextsize;
     Boolean precompile;
@@ -62,8 +122,16 @@ struct CWCompilerLinkerContext : CWPluginPrivateContext {
     void* targetStorage;
     SInt32 reservedcompiler[7];
     CWMemHandle texthandle;
+#if MWCCPSP
+    UInt8 targetinfo_V7[0x720]; // +0x6E2; its 3.0.1 layout is not known yet
+#else
     CWTargetInfoV7 targetinfo_V7;
+#endif
+#if MWCCPSP
+    struct PluginTargetInfo* targetinfo; // 0xE22 bytes
+#else
     CWTargetInfo* targetinfo;
+#endif
     const char* commandLineArgs;
     CWFileSpec* workingDirectorySpec;
     SInt32 numEnvironmentVariables;
@@ -207,6 +275,12 @@ extern CW_CALLBACK CWAllocMemHandle(
     CWPluginContext context, SInt32 size, Boolean useTempMemory, CWMemHandle* handle
 );
 extern CW_CALLBACK CWFreeMemHandle(CWPluginContext context, CWMemHandle handle);
+#if MWCCPSP
+extern CW_CALLBACK CWAllocateMemory(
+    CWPluginContext context, SInt32 size, Boolean isPermanent, void** ptr
+);
+extern CW_CALLBACK CWResizeMemHandle(CWPluginContext context, CWMemHandle handle, SInt32 newSize);
+#endif
 extern CW_CALLBACK CWLockMemHandle(
     CWPluginContext context, CWMemHandle handle, Boolean moveHi, void** ptr
 );

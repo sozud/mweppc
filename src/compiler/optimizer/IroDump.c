@@ -21,12 +21,108 @@
 #include <string.h>
 
 static FILE* DumpFile;
+#if MWCCPSP
+static char* nodenames[IRO_MAXEXPR];
+#else
 static char* nodenames[MAXEXPR];
+#endif
 
 char* IRO_NodeName(ENodeType nodetype) {
     return nodenames[nodetype];
 }
 
+#if MWCCPSP // 3.0.1 entries, generated from the original's stores
+void IRO_InitializeNodeNamesArray(void) {
+    int i;
+    for (i = 0; i < IRO_MAXEXPR; i++) {
+        nodenames[i] = "";
+    }
+
+    nodenames[EPOSTINC] = "EPOSTINC";
+    nodenames[EPOSTDEC] = "EPOSTDEC";
+    nodenames[EPREINC] = "EPREINC";
+    nodenames[EPREDEC] = "EPREDEC";
+    nodenames[EINDIRECT] = "EINDIRECT";
+    nodenames[EMONMIN] = "EMONMIN";
+    nodenames[EBINNOT] = "EBINNOT";
+    nodenames[ELOGNOT] = "ELOGNOT";
+    nodenames[EFORCELOAD] = "EFORCELOAD";
+    nodenames[EMUL] = "EMUL";
+    nodenames[EMULV] = "EMULV";
+    nodenames[EDIV] = "EDIV";
+    nodenames[EMODULO] = "EMODULO";
+    nodenames[EADDV] = "EADDV";
+    nodenames[ESUBV] = "ESUBV";
+    nodenames[EADD] = "EADD";
+    nodenames[ESUB] = "ESUB";
+    nodenames[ESHL] = "ESHL";
+    nodenames[ESHR] = "ESHR";
+    nodenames[ELESS] = "ELESS";
+    nodenames[EGREATER] = "EGREATER";
+    nodenames[ELESSEQU] = "ELESSEQU";
+    nodenames[EGREATEREQU] = "EGREATEREQU";
+    nodenames[EEQU] = "EEQU";
+    nodenames[ENOTEQU] = "ENOTEQU";
+    nodenames[EAND] = "EAND";
+    nodenames[EXOR] = "EXOR";
+    nodenames[EOR] = "EOR";
+    nodenames[ELAND] = "ELAND";
+    nodenames[ELOR] = "ELOR";
+    nodenames[EASS] = "EASS";
+    nodenames[EMULASS] = "EMULASS";
+    nodenames[EDIVASS] = "EDIVASS";
+    nodenames[EMODASS] = "EMODASS";
+    nodenames[EADDASS] = "EADDASS";
+    nodenames[ESUBASS] = "ESUBASS";
+    nodenames[ESHLASS] = "ESHLASS";
+    nodenames[ESHRASS] = "ESHRASS";
+    nodenames[EANDASS] = "EANDASS";
+    nodenames[EXORASS] = "EXORASS";
+    nodenames[EORASS] = "EORASS";
+    nodenames[ECOMMA] = "ECOMMA";
+    nodenames[EMIN] = "EMIN";
+    nodenames[EMAX] = "EMAX";
+    nodenames[EPMODULO] = "EPMODULO";
+    nodenames[EROTL] = "EROTL";
+    nodenames[EROTR] = "EROTR";
+    nodenames[EBCLR] = "EBCLR";
+    nodenames[EBTST] = "EBTST";
+    nodenames[EBSET] = "EBSET";
+    nodenames[ETYPCON] = "ETYPCON";
+    nodenames[EBITFIELD] = "EBITFIELD";
+    nodenames[EINTCONST] = "EINTCONST";
+    nodenames[EFLOATCONST] = "EFLOATCONST";
+    nodenames[ESTRINGCONST] = "ESTRINGCONST";
+    nodenames[ECOND] = "ECOND";
+    nodenames[EFUNCCALL] = "EFUNCCALL";
+    nodenames[EFUNCCALLP] = "EFUNCCALLP";
+    nodenames[EOBJREF] = "EOBJREF";
+    nodenames[ENULLCHECK] = "ENULLCHECK";
+    nodenames[EPRECOMP] = "EPRECOMP";
+    nodenames[ELABEL] = "ELABEL";
+    nodenames[ESCOPEBEGIN] = "ESCOPEBEGIN";
+    nodenames[ESCOPEEND] = "ESCOPEEND";
+    nodenames[EMFPOINTER] = "EMFPOINTER";
+    nodenames[ETEMP] = "ETEMP";
+    nodenames[ELOCOBJ] = "ELOCOBJ";
+    nodenames[EARGOBJ] = "EARGOBJ";
+    nodenames[ESETCONST] = "ESETCONST";
+    nodenames[ENEWEXCEPTION] = "ENEWEXCEPTION";
+    nodenames[ENEWEXCEPTIONARRAY] = "ENEWEXCEPTIONARRAY";
+    nodenames[EINITTRYCATCH] = "EINITTRYCATCH";
+    nodenames[EOBJACCESS] = "EOBJACCESS";
+    nodenames[ETEMPLDEP] = "ETEMPLDEP";
+    nodenames[EPOINTERSTAR] = "EPOINTERSTAR";
+    nodenames[EDOTSTAR] = "EDOTSTAR";
+    nodenames[ECTORINIT] = "ECTORINIT";
+    nodenames[ESTMT] = "ESTMT";
+    nodenames[EINSTRUCTION] = "EINSTRUCTION";
+    nodenames[EDEFINE] = "EDEFINE";
+    nodenames[EREUSE] = "EREUSE";
+    nodenames[EASSBLK] = "EASSBLK";
+    nodenames[ECONDASS] = "ECONDASS";
+}
+#else
 void IRO_InitializeNodeNamesArray(void) {
     int i;
     for (i = 0; i < MAXEXPR; i++) {
@@ -110,6 +206,7 @@ void IRO_InitializeNodeNamesArray(void) {
     nodenames[EVECTOR128CONST] = "EVECTOR128CONST";
     nodenames[ECONDASS] = "ECONDASS";
 }
+#endif
 
 static void DumpENode(ENode* enode) {
     char buf[64];
@@ -374,6 +471,59 @@ void IRO_DumpBits(char* name, BitVector* bv) {
     fprintf(DumpFile, "\n");
 }
 
+#if MWCCPSP
+// 3.0.1 logs each phase with the ticks since the function started; the flow
+// graph is dumped when asked or under copts.opt_alwaysdumpopts.
+static UInt32 IRO_DumpTicks;
+
+void IRO_ResetDumpTicks(void) {
+    IRO_DumpTicks = COS_GetTicks();
+}
+
+void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
+    if (!dumpGraph && !copts.opt_alwaysdumpopts) {
+        IRO_Dump(
+            "Optimizing function %s after %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+    } else {
+        IRO_Dump(
+            "Dumping function %s after %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+        IRO_Dump(
+            "--------------------------------------------------------------------------------\n"
+        );
+        IRO_DumpFlowgraph();
+    }
+}
+
+void IRO_DumpBeforePhase(char* str, Boolean dumpGraph) {
+    if (!dumpGraph && !copts.opt_alwaysdumpopts) {
+        IRO_Dump(
+            "Optimizing function %s before %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+    } else {
+        IRO_Dump(
+            "Dumping function %s before %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+        IRO_Dump(
+            "--------------------------------------------------------------------------------\n"
+        );
+        IRO_DumpFlowgraph();
+    }
+}
+#else
 void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
     if (dumpGraph) {
         IRO_Dump(
@@ -387,6 +537,7 @@ void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
         IRO_DumpFlowgraph();
     }
 }
+#endif
 
 void IRO_LogForFunction(char* name) {
     if (FunctionName) {
@@ -550,6 +701,35 @@ void IRO_DumpDf(void) {
     }
 }
 
+#if MWCCPSP
+// 0x557340: logging is on
+Boolean func_00557340(void) {
+    return IRO_Log && DumpFile;
+}
+
+// 0x5754A0
+void IRO_DumpExprs(void) {
+    IROExpr* expr;
+
+    if (!func_00557340()) {
+        return;
+    }
+    IRO_Dump("Expressions\n\n");
+    for (expr = IRO_FirstExpr; expr; expr = expr->next) {
+        IRO_Dump(
+            "%4d: %d FN:%d CE:%d NS:%d ",
+            expr->index,
+            expr->linear->index,
+            expr->node->index,
+            expr->couldError,
+            expr->notSubable
+        );
+        IRO_DumpBits("Depends: ", expr->depends);
+        IRO_Dump("\n");
+    }
+    IRO_Dump("\n");
+}
+#else
 void IRO_DumpExprs(void) {
     IROExpr* expr;
 
@@ -573,7 +753,34 @@ void IRO_DumpExprs(void) {
     }
     fprintf(DumpFile, "\n");
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: the back end may name the log (IRO_GetLogFileNameHook); otherwise
+// the source path's extension (not a directory's dot) becomes ".log".
+void IRO_SetupDump(void) {
+    char name[256];
+    int i;
+
+    if (IRO_Log) {
+        if (IRO_GetLogFileNameHook) {
+            IRO_GetLogFileNameHook(name, sizeof(name));
+        } else {
+            COS_FileGetPathName(name, &cparams.sourcefile, NULL);
+            for (i = strlen(name) - 1; i >= 0 && name[i] != '/' && name[i] != '\\'; i--) {
+                if (name[i] == '.') {
+                    name[i] = 0;
+                    break;
+                }
+            }
+            strncat(name, ".log", 255 - strlen(name));
+        }
+        if ((DumpFile = fopen(name, "wt")) == NULL) {
+            IRO_Log = FALSE;
+        }
+    }
+}
+#else
 void IRO_SetupDump(void) {
     char name[256];
     int i;
@@ -592,10 +799,14 @@ void IRO_SetupDump(void) {
         }
     }
 }
+#endif
 
 void IRO_CleanupDump(void) {
     if (DumpFile) {
         fclose(DumpFile);
+#if MWCCPSP
+        DumpFile = NULL;
+#endif
     }
 }
 

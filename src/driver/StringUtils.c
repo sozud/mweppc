@@ -63,7 +63,11 @@ char* mvprintf(char* mybuf, unsigned int len, const char* format, va_list va) {
     int ret;
     char* buf;
 
+#if MWCCPSP
+    OS_ASSERT(136, mybuf != NULL);
+#else
     OS_ASSERT(134, mybuf != NULL);
+#endif
 
     maxlen = len - 1;
     buf = mybuf;

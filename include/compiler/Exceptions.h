@@ -26,10 +26,18 @@ typedef enum ExceptionActionType {
     EAT_SPECIFICATION,
     EAT_TERMINATE,
     EAT_DESTROYBASE,
+#if MWCCPSP
+    // 3.0.1 has two more kinds (CExcept_ActionNeedsDestruction 0x4E1CF0);
+    // the second carries its answer in a byte at +8
+    EAT_UNK18,
+    EAT_UNK19,
+#endif
     EAT_NACTIONS
 } ExceptionActionType;
 
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(push, 2)
+#endif
 struct ExceptionAction {
     struct ExceptionAction* prev;
     union {
@@ -114,9 +122,15 @@ struct ExceptionAction {
             Object* unexp_info_object;
         } specification;
     } data;
+#if MWCCPSP
+    UInt8 type; // ExceptionActionType; 3.0.1 reads it as a byte (0x4A1A40, removeunusedlabels)
+#else
     ExceptionActionType type;
+#endif
 };
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(pop)
+#endif
 
 extern void initializeexceptiontables(void);
 extern int countexceptionactionregisters(ExceptionAction* actions);

@@ -73,18 +73,31 @@ enum {
     OBJECT_EXPORT = 0x40,
     OBJECT_LIB_EXPORT = 0x60
 };
+#if MWCCPSP
+// 3.0.1: natural alignment, and every object's access is a single byte
+typedef UInt8 ObjAccess;
+#else
 #pragma pack(push, 2)
+#endif
 struct ObjectList {
     ObjectList* next;
     Object* object;
 };
 struct ObjBase {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
 };
 struct ObjEnumConst {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     ObjEnumConst* next;
     HashNameNode* name;
     Type* type;
@@ -92,18 +105,30 @@ struct ObjEnumConst {
 };
 struct ObjNameSpace {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     NameSpace* nspace;
 };
 struct ObjType {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     Type* type;
     UInt32 qual;
 };
 struct ObjMemberVar {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     Boolean anonunion;
     Boolean has_path;
     ObjMemberVar* next;
@@ -114,12 +139,20 @@ struct ObjMemberVar {
 };
 struct ObjTypeTag {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     Type* type;
 };
 struct ObjMemberVarPath {
     UInt8 otype;
+#if MWCCPSP
+    ObjAccess access;
+#else
     AccessType access;
+#endif
     Boolean anonunion;
     Boolean has_path;
     ObjMemberVar* next;
@@ -139,11 +172,22 @@ struct InlineXRef {
         SInt32 varoffset;
     } xref[1];
 };
+#if MWCCPSP
+#pragma pack(push, 2) // Object and VarInfo below are laid out under it
+#endif
 struct Object {
     UInt8 otype;
+#if MWCCPSP
+    // 3.0.1: access and section are single bytes (CParser_NewObject: access
+    // at +1, section at +3; sizeof(Object) is 0x40)
+    UInt8 access;
+    UInt8 datatype;
+    UInt8 section;
+#else
     AccessType access;
     UInt8 datatype;
     UInt16 section;
+#endif
     NameSpace* nspace;
     HashNameNode* name;
     Type* type;
@@ -171,6 +215,17 @@ struct Object {
                     SInt32 size;
                 } switchtable;
             } u;
+#if MWCCPSP
+            // 3.0.1: the link name follows the value (CMangler_GetLinkName
+            // reads it at +0x30, a switch table's size is at +0x2C); there
+            // is no register info (CParser_UpdateObject does not copy it).
+            HashNameNode* linkname;
+            Boolean islocalstatic; // +0x34 (add_aliased_locals_to_worst_case)
+            union {
+                VarInfo* info;
+                struct InterruptGenerationRecord* interruptInfo;
+            };
+#else
             union {
                 VarInfo* info;
                 struct InterruptGenerationRecord* interruptInfo;
@@ -183,6 +238,7 @@ struct Object {
             ObjRegInfo reginfo;
 #endif
             Boolean islocalstatic;
+#endif
         } data;
         struct {
             union {
@@ -195,12 +251,21 @@ struct Object {
             TemplFuncInstance* inst;
             struct PTFList* ptfList;
             ObjectList* argList;
+#if !MWCCPSP // 3.0.1: gone, sizeof(Object) is 0x40
             UInt8 interruptflags;
+#endif
         } func;
         struct {
             VarInfo* info;
             SInt32 uid;
+#if MWCCPSP
+            union {
+                struct Object* realObj;
+                SInt32 offset; // 3.0.1: a local's frame offset (0x4A4530)
+            };
+#else
             struct Object* realObj;
+#endif
         } var;
         struct {
             UInt8* data;
@@ -215,11 +280,21 @@ struct Object {
         SInt16 intrinsic;
         ENode* expr;
         UInt32 address;
+#if MWCCPSP
+        struct {
+            struct Object* function; // a label object's function (IRO_CollectAddressedLabels)
+        } label;
+#endif
     } u;
 };
 struct ObjectTemplated {
     Object object;
     Object* parent;
+#if MWCCPSP
+    // 3.0.1: the instance stack when a templated function was first referenced
+    // (CInline_ObjectAddrRef; sizeof is 0x48 in CTemplClass_CopyObject)
+    TemplStack* inststack;
+#endif
 };
 struct VarInfo {
     struct Object* func;
@@ -228,10 +303,17 @@ struct VarInfo {
     SInt16 varnumber;
     Boolean noregister;
     Boolean used;
+#if MWCCPSP
+    UInt8 unk24
+        [2]; // 3.0.1: flags at +0x26, rclass +0x27, reg +0x28, regHi +0x2A (Coloring.c, RegClasses.c)
+#endif
     UInt8 flags;
     UInt8 rclass;
     SInt16 reg;
     SInt16 regHi;
+#if MWCCPSP
+    UInt8 unk2C[4]; // 3.0.1: CodeGen_GetNewVarInfo allocates 0x30
+#endif
 };
 #pragma pack(pop)
 enum {

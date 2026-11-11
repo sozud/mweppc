@@ -40,7 +40,11 @@ static int allocate_license_slot(LP_HANDLE* handle, int autoCheckin) {
         }
         return license_id_counter;
     }
+#if MWCCPSP
+    DO_INTERNAL_ERROR(105, "Out of license space");
+#else
     DO_INTERNAL_ERROR(97, "Out of license space");
+#endif
     return 0;
 }
 
@@ -53,7 +57,11 @@ static int find_license(SInt32 cookie, LP_HANDLE** handle) {
             return index;
         }
     }
+#if MWCCPSP
+    DO_INTERNAL_ERROR(125, "Searched license not found");
+#else
     DO_INTERNAL_ERROR(117, "Searched license not found");
+#endif
     return -1;
 }
 
@@ -77,7 +85,11 @@ static int delete_license(int index) {
         }
         return TRUE;
     }
+#if MWCCPSP
+    DO_INTERNAL_ERROR(162, "Deleted license not valid");
+#else
     DO_INTERNAL_ERROR(154, "Deleted license not valid");
+#endif
     return FALSE;
 }
 
@@ -161,6 +173,20 @@ SInt32 License_Checkout(
     }
     if (vendorcode == NULL) {
         vendorcode = xmalloc(NULL, sizeof(VENDORCODE));
+#if MWCCPSP // FlexLM 8.4 vendor code
+        vendorcode->type = 4;
+        vendorcode->data[0] = 0x9b706081;
+        vendorcode->data[1] = 0x01c8e6a0;
+        vendorcode->keys[1] = 0xa8e04e6e;
+        vendorcode->keys[0] = 0x4305b9b2;
+        vendorcode->keys[3] = 0xdad4fa7a;
+        vendorcode->keys[2] = 0xe1f34d09;
+        vendorcode->flexlm_version = 8;
+        vendorcode->flexlm_revision = 4;
+        vendorcode->flexlm_patch[0] = 0;
+        vendorcode->flexlm_patch[1] = 0;
+        strncpy(vendorcode->behavior_ver, "08.0", sizeof("08.0"));
+#else
         vendorcode->type = 4;
         vendorcode->data[0] = 0x4cf2d709;
         vendorcode->data[1] = 0xd64a5128;
@@ -173,6 +199,7 @@ SInt32 License_Checkout(
         vendorcode->flexlm_patch[0] = 0;
         vendorcode->flexlm_patch[1] = 0;
         strncpy(vendorcode->behavior_ver, "06.0", sizeof("06.0"));
+#endif
     }
     codeHandle.code = vendorcode;
     codeHandle.vendor = "metrowks";

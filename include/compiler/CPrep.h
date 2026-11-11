@@ -6,13 +6,18 @@
 #include "driver/CWPlugins.h"
 #include "driver/DropInCompilerLinker.h"
 #include "driver/Files.h"
+#if MWCCPSP
+#include "driver/COSToolsCLT.h"
+#endif
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#if !MWCCPSP // 3.0.1: natural alignment (is_nextchar, poptokenseq)
 #pragma pack(push, 2)
+#endif
 extern SInt16 tk;
 extern GList pplist;
 #define OPT_OFFSET(optname) ((short)offsetof(CompilerLinkerOptions, optname))
@@ -57,8 +62,15 @@ struct Macro {
     struct HashNameNode* name;
     char* text;
     UInt16 nargs;
+#if MWCCPSP
+    // 3.0.1 swaps these (CPrep_InsertSpecialMacro sets +0xF, insertmacro
+    // clears +0xE)
+    UInt8 isExpanding;
+    Boolean is_special;
+#else
     Boolean is_special;
     UInt8 isExpanding;
+#endif
     struct HashNameNode* names[1];
 };
 struct TokenStack {
@@ -69,9 +81,17 @@ struct TokenStack {
 };
 struct CPrepFileInfo {
     CWFileSpec textfile;
+#if MWCCPSP
+    char* nameNode; // 3.0.1: the path (CTool_GetPathName)
+#else
     struct HashNameNode* nameNode;
+#endif
+#if MWCCPSP
+    struct COSFileTime fileModDate; // 3.0.1: no linedelta
+#else
     SInt32 fileModDate;
     SInt32 linedelta;
+#endif
     char* textbuffer;
     SInt32 textlength;
     SInt32 linenumber;
@@ -84,7 +104,9 @@ struct CPrepFileInfo {
     Boolean unkfield125;
     Boolean isSystemInclude;
 };
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 extern CompilerLinkerParamBlk* cparamblkptr;
 extern CInt64 tkintconst;
 extern struct Float tkfloatconst;
@@ -99,7 +121,11 @@ extern struct Macro** macrohashtable;
 extern UInt8 cprep_nomem_exit;
 extern UInt8 cprep_nostring;
 extern UInt8 cprep_eoltokens;
+#if MWCCPSP
+extern TokenStack tokenstack[256]; // 3.0.1 nests macros 256 deep
+#else
 extern TokenStack tokenstack[128];
+#endif
 extern SInt16 tokenstacklevel;
 extern char* pos;
 extern char* macropos;

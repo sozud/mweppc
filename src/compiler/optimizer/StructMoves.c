@@ -59,7 +59,11 @@ static void load_displaced_address(Operand* opnd, SInt32 offset) {
 static inline SInt32 GetStep(SInt32 len, SInt32 align) {
     SInt32 size = len;
     SInt32 step;
+#if MWCCPSP
+    if (!COPTS_GONE(misaligned_mem_access) && align < 4) {
+#else
     if (!copts.misaligned_mem_access && align < 4) {
+#endif
         if (align <= 0) {
             align = 1;
         }
@@ -104,7 +108,11 @@ static void move_block_via_load_store(Operand* dst, Operand* src, SInt32 len, SI
         coerce_to_addressable(dst);
     }
 
+#if MWCCPSP
+    if (COPTS_GONE(use_fp) && !COPTS_GONE(soft_float) && len == 8) {
+#else
     if (copts.use_fp && !copts.soft_float && len == 8) {
+#endif
         floatReg = used_virtual_registers[RegClass_FPR]++;
         if (src->optype == OpndType_IndirectGPR_ImmOffset) {
             load_store_register(PC_LFD, floatReg, src->reg, src->object, src->immOffset);
@@ -128,7 +136,11 @@ static void move_block_via_load_store(Operand* dst, Operand* src, SInt32 len, SI
     } else {
         a = align;
         size = len;
+#if MWCCPSP
+        if (!COPTS_GONE(misaligned_mem_access) && align < 4) {
+#else
         if (!copts.misaligned_mem_access && align < 4) {
+#endif
             if (align <= 0) {
                 a = 1;
             }
@@ -213,7 +225,11 @@ static void move_block_via_load_store_sequence(
     make_addressable(dst, len, 0);
     make_addressable(src, len, 0);
 
+#if MWCCPSP
+    if (COPTS_GONE(use_fp) && !COPTS_GONE(soft_float) && (align % 8) == 0) {
+#else
     if (copts.use_fp && !copts.soft_float && (align % 8) == 0) {
+#endif
         while (len >= 16) {
             int reg1 = used_virtual_registers[RegClass_FPR]++;
             int reg2 = used_virtual_registers[RegClass_FPR]++;
@@ -233,7 +249,11 @@ static void move_block_via_load_store_sequence(
     }
 
     while (len >= 8) {
+#if MWCCPSP
+        if (COPTS_GONE(use_fp) && !COPTS_GONE(soft_float) && (align % 8) == 0) {
+#else
         if (copts.use_fp && !copts.soft_float && (align % 8) == 0) {
+#endif
             int reg = used_virtual_registers[RegClass_FPR]++;
 
             load_store_register(PC_LFD, reg, src->reg, src->object, src->immOffset + pos);
@@ -421,7 +441,11 @@ static void move_block_via_inline_loop(Operand* dst, Operand* src, SInt32 len, S
          remainder -= width, pos += width) {
         a = align;
         size = remainder;
+#if MWCCPSP
+        if (!COPTS_GONE(misaligned_mem_access) && align < 4) {
+#else
         if (!copts.misaligned_mem_access && align < 4) {
+#endif
             if (align <= 0) {
                 a = 1;
             }
@@ -444,7 +468,11 @@ void move_block(Operand* dst, Operand* src, SInt32 len, SInt32 align) {
 
     if (len == 1 || len == 2 || len == 4) {
         move_block_via_load_store(&myDst, src, len, align);
+#if MWCCPSP
+    } else if (COPTS_GONE(use_fp) && !COPTS_GONE(soft_float) && len == 8 && align == 8) {
+#else
     } else if (copts.use_fp && !copts.soft_float && len == 8 && align == 8) {
+#endif
         move_block_via_load_store(&myDst, src, len, align);
     } else if (len <= 16 || (!copts.optimizesize && len <= 64)) {
         move_block_via_load_store_sequence(&myDst, src, len, align);
@@ -566,7 +594,11 @@ void load_small_block_into_reg(short dstReg, Operand* srcOpnd, Type* type, SInt3
         srcOpnd->immOffset = 0;
     }
 
+#if MWCCPSP
+    if (COPTS_GONE(misaligned_mem_access)) {
+#else
     if (copts.misaligned_mem_access) {
+#endif
         align = 4;
     }
 
@@ -636,7 +668,11 @@ void load_small_block_into_reg_pair(
         srcOpnd->immOffset = 0;
     }
 
+#if MWCCPSP
+    if (COPTS_GONE(misaligned_mem_access)) {
+#else
     if (copts.misaligned_mem_access) {
+#endif
         align = 4;
     }
 
@@ -858,7 +894,11 @@ void store_small_block_from_reg(short srcReg, Operand* dstOpnd, Type* type, SInt
         dstOpnd->immOffset = 0;
     }
 
+#if MWCCPSP
+    if (COPTS_GONE(misaligned_mem_access)) {
+#else
     if (copts.misaligned_mem_access) {
+#endif
         align = 4;
     }
 
@@ -883,7 +923,11 @@ void store_small_block_from_reg_pair(
         dstOpnd->immOffset = 0;
     }
 
+#if MWCCPSP
+    if (COPTS_GONE(misaligned_mem_access)) {
+#else
     if (copts.misaligned_mem_access) {
+#endif
         align = 4;
     }
 

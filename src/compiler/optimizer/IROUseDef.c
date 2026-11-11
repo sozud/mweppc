@@ -21,9 +21,24 @@
 #include "compiler/types.h"
 #include <string.h>
 
+#if MWCCPSP
+ENodeType IRO_NonAssignmentOp[IRO_MAXEXPR];
+#else
 ENodeType IRO_NonAssignmentOp[MAXEXPR];
+#endif
+#if MWCCPSP
+// 3.0.1's folders (IroSelfAssign301.c) truncate or range-check the result
+// against the constant's type (type) and the self-assignment's (type2); the
+// table (0x6078C8) is read by UpdateUseForOtherSelfAssignment there
+typedef Boolean (*AssignmentFoldingFunc)(
+    CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result
+);
+AssignmentFoldingFunc data_006078C8[IRO_MAXEXPR];
+#define AssignmentFoldingFunction data_006078C8
+#else
 typedef CInt64 (*AssignmentFoldingFunc)(CInt64, CInt64);
 static AssignmentFoldingFunc AssignmentFoldingFunction[MAXEXPR];
+#endif
 static SInt32 NumDefs;
 static IRODef* FirstDef;
 static IRODef* LastDef;
@@ -253,7 +268,11 @@ CInt64 IRO_GetSelfAssignmentVal(IROLinear* linear) {
                 CInt64_SetLong(&result, -1);
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(4076);
+#else
                 CError_FATAL(445);
+#endif
         }
 
         if (IS_TYPE_POINTER_ONLY(linear->rtype)) {
@@ -279,10 +298,18 @@ CInt64 IRO_GetSelfAssignmentVal(IROLinear* linear) {
                 result = CInt64_Neg(result);
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(4119);
+#else
                 CError_FATAL(491);
+#endif
         }
     } else {
+#if MWCCPSP
+        CError_FATAL(4124);
+#else
         CError_FATAL(496);
+#endif
     }
 
     return result;
@@ -337,6 +364,102 @@ static IROLinear* IRO_AddTypeConversion(IROLinear* node, Type* type, IROList* li
 }
 #endif
 
+#if MWCCPSP
+// 3.0.1 (0x567C50), called by IROUseDef301.c's inc/dec propagation: the
+// promotions come from 0x55A620/0x55A650, the casts from
+// IRO_MakeTypeConversion, and a folded constant is truncated to its type.
+extern Type* func_0055A620(Type* type); // integral promotion
+extern Type* func_0055A650(Type* type); // the integer type for a pointer type
+extern IROLinear* IRO_MakeTypeConversion(IROLinear* linear, Type* type, IROList* list);
+
+void UpdateUse(IROLinear* linear, CInt64 val, Type* type) {
+    IROLinear* father;
+    IROLinear* repl;
+    IROLinear* operand;
+    IROLinear* sum;
+    IROList list;
+    Type* promoted;
+    Type* constType;
+    CInt64* k;
+
+    if ((father = IRO_LocateFather(linear))) {
+        switch (father->type) {
+            case IROLinearOp1Arg:
+                switch (father->nodetype) {
+                    case EPOSTINC:
+                    case EPOSTDEC:
+                    case EPREINC:
+                    case EPREDEC:
+                        val = CInt64_Add(val, IRO_GetSelfAssignmentVal(father));
+                        father->nodetype = EADDASS;
+                        father->type = IROLinearOp2Arg;
+                        repl = IRO_NewIntConst(
+                            val, type->type == TYPEPOINTER ? func_0055A650(type) : type
+                        );
+                        father->u.diadic.right = repl;
+                        IRO_PasteAfter(repl, repl, linear);
+                        return;
+                    default:
+                        break;
+                }
+                break;
+            case IROLinearOp2Arg:
+                if (IRO_IsIntConstant(father->u.diadic.right)) {
+                    k = &father->u.diadic.right->u.node->data.intval;
+                    switch (father->nodetype) {
+                        case EADD:
+                        case EADDASS:
+                            *k = CInt64_Add(*k, val);
+                            IRO_TruncateValueToType(k, father->u.diadic.right->rtype);
+                            return;
+                        case ESUB:
+                        case ESUBASS:
+                            *k = CInt64_Sub(*k, val);
+                            IRO_TruncateValueToType(k, father->u.diadic.right->rtype);
+                            return;
+                        default:
+                            break;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    IRO_InitList(&list);
+    promoted = type;
+    if ((type->type == TYPEINT && TYPE_INTEGRAL(type)->integral < IT_17) ||
+        type->type == TYPEENUM) {
+        promoted = func_0055A620(type);
+    }
+    constType = type;
+    if (type->type == TYPEPOINTER) {
+        constType = func_0055A650(type);
+    }
+    operand = linear;
+    if (promoted != type) {
+        operand = IRO_MakeTypeConversion(linear, promoted, &list);
+    }
+    if (constType == type) {
+        constType = promoted;
+    }
+    repl = IRO_NewIntConst(val, constType);
+    IRO_AddToList(repl, &list);
+    sum = IRO_NewLinear(IROLinearOp2Arg);
+    sum->index = ++IRO_NumLinear;
+    sum->nodetype = EADD;
+    sum->u.diadic.left = operand;
+    sum->u.diadic.right = repl;
+    sum->rtype = promoted;
+    IRO_AddToList(sum, &list);
+    if (promoted != type) {
+        sum = IRO_MakeTypeConversion(sum, type, &list);
+    }
+    IRO_LocateFather_Cut_And_Paste_Without_Nopping(linear, sum);
+    IRO_PasteAfter(list.head, list.tail, linear);
+}
+#else
 static void UpdateUse(IROLinear* linear, CInt64 val, Type* type) {
 #if VERSION < VERSION_GC_2_5
     IROLinear* father;
@@ -450,7 +573,101 @@ static void UpdateUse(IROLinear* linear, CInt64 val, Type* type) {
     IRO_PasteAfter(list.head, list.tail, linear);
 #endif
 }
+#endif
 
+#if MWCCPSP // 3.0.1 entries, generated from the original's stores
+void IRO_InitializeNonAssignmentOpArray(void) {
+    int i;
+
+    for (i = 0; i < IRO_MAXEXPR; i++) {
+        IRO_NonAssignmentOp[i] = IRO_MAXEXPR;
+    }
+
+    IRO_NonAssignmentOp[EPOSTINC] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPOSTDEC] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPREINC] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPREDEC] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EINDIRECT] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMONMIN] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EBINNOT] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELOGNOT] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EFORCELOAD] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMUL] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMULV] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EDIV] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMODULO] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EADDV] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESUBV] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EADD] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESUB] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESHL] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESHR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELESS] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EGREATER] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELESSEQU] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EGREATEREQU] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EEQU] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ENOTEQU] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EAND] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EXOR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EOR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELAND] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELOR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EASS] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMULASS] = EMUL;
+    IRO_NonAssignmentOp[EDIVASS] = EDIV;
+    IRO_NonAssignmentOp[EMODASS] = EMODULO;
+    IRO_NonAssignmentOp[EADDASS] = EADD;
+    IRO_NonAssignmentOp[ESUBASS] = ESUB;
+    IRO_NonAssignmentOp[ESHLASS] = ESHL;
+    IRO_NonAssignmentOp[ESHRASS] = ESHR;
+    IRO_NonAssignmentOp[EANDASS] = EAND;
+    IRO_NonAssignmentOp[EXORASS] = EXOR;
+    IRO_NonAssignmentOp[EORASS] = EOR;
+    IRO_NonAssignmentOp[ECOMMA] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMIN] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMAX] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPMODULO] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EROTL] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EROTR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EBCLR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EBTST] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EBSET] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ETYPCON] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EBITFIELD] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EINTCONST] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EFLOATCONST] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESTRINGCONST] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ECOND] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EFUNCCALL] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EFUNCCALLP] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EOBJREF] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ENULLCHECK] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPRECOMP] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELABEL] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESCOPEBEGIN] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESCOPEEND] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EMFPOINTER] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ETEMP] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ELOCOBJ] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EARGOBJ] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESETCONST] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ENEWEXCEPTION] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ENEWEXCEPTIONARRAY] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EINITTRYCATCH] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EOBJACCESS] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ETEMPLDEP] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EPOINTERSTAR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EDOTSTAR] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ECTORINIT] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ESTMT] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EINSTRUCTION] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EDEFINE] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EREUSE] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[EASSBLK] = IRO_MAXEXPR;
+    IRO_NonAssignmentOp[ECONDASS] = IRO_MAXEXPR;
+}
+#else
 void IRO_InitializeNonAssignmentOpArray(void) {
     int i;
 
@@ -535,7 +752,39 @@ void IRO_InitializeNonAssignmentOpArray(void) {
     IRO_NonAssignmentOp[EVECTOR128CONST] = MAXEXPR;
     IRO_NonAssignmentOp[ECONDASS] = MAXEXPR;
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: the folders compute in CInt64 and truncate the result to the
+// constant's type (or/xor/and/add) or refuse one that does not fit it
+// (shl/shr/mul) (0x567FC0..0x568320, in IroSelfAssign301.c).
+// Only the nine folding operators are stored.
+extern Boolean IROUseDef_FoldOr(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldXor(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldAnd(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldShr(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldAdd(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldShl(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+extern Boolean IROUseDef_FoldMul(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* result);
+
+void IRO_InitializeAssignmentFoldingFunctionArray(void) {
+    int i;
+
+    for (i = 0; i < IRO_MAXEXPR; i++) {
+        AssignmentFoldingFunction[i] = NULL;
+    }
+
+    AssignmentFoldingFunction[EMULASS] = IROUseDef_FoldMul;
+    AssignmentFoldingFunction[EDIVASS] = IROUseDef_FoldMul;
+    AssignmentFoldingFunction[EADDASS] = IROUseDef_FoldAdd;
+    AssignmentFoldingFunction[ESUBASS] = IROUseDef_FoldAdd;
+    AssignmentFoldingFunction[ESHLASS] = IROUseDef_FoldShl;
+    AssignmentFoldingFunction[ESHRASS] = IROUseDef_FoldShr;
+    AssignmentFoldingFunction[EANDASS] = IROUseDef_FoldAnd;
+    AssignmentFoldingFunction[EXORASS] = IROUseDef_FoldXor;
+    AssignmentFoldingFunction[EORASS] = IROUseDef_FoldOr;
+}
+#else
 void IRO_InitializeAssignmentFoldingFunctionArray(void) {
     int i;
 
@@ -620,7 +869,11 @@ void IRO_InitializeAssignmentFoldingFunctionArray(void) {
     AssignmentFoldingFunction[EVECTOR128CONST] = NULL;
     AssignmentFoldingFunction[ECONDASS] = NULL;
 }
+#endif
 
+#if MWCCPSP // 3.0.1's (0x566AC0) is in IroSelfAssign301.c
+extern void UpdateUseForOtherSelfAssignment(IROLinear* a, IROLinear* b, Type* type);
+#else
 static void UpdateUseForOtherSelfAssignment(IROLinear* a, IROLinear* b, Type* type) {
     CInt64 val;
 #if VERSION < VERSION_GC_2_5
@@ -813,6 +1066,7 @@ static void UpdateUseForOtherSelfAssignment(IROLinear* a, IROLinear* b, Type* ty
     IRO_PasteAfter(list.head, list.tail, a);
 #endif
 }
+#endif // !MWCCPSP
 
 static Boolean PropagateIncsAndDecs(void) {
     IRODef* def;
@@ -1648,6 +1902,7 @@ static void SplitOffRange(VarRecord* var) {
     }
 }
 
+#if !MWCCPSP // 3.0.1's is in IROUseDef301.c (IroLifetime.c in the original)
 void IRO_SplitLifetimes(void) {
     VarRecord* var;
     SInt32 numVars;
@@ -1718,3 +1973,4 @@ skipThisVar:
 
     IRO_CheckForUserBreak();
 }
+#endif

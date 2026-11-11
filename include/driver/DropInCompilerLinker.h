@@ -40,6 +40,9 @@ enum {
     linkOutputDirectory
 };
 
+#if MWCCPSP
+#pragma pack(push, 2) // 3.0.1: reserved1 at +8 (CompilerLinkerParamBlk.recordbrowseinfo at +0x26A)
+#endif
 typedef struct CWBrowseOptions {
     UInt8 recordClasses;
     UInt8 recordEnums;
@@ -51,9 +54,31 @@ typedef struct CWBrowseOptions {
     SInt32 reserved1;
     SInt32 reserved2;
 } CWBrowseOptions;
+#if MWCCPSP
+#pragma pack(pop)
+#endif
 #pragma pack(push, 2)
 typedef UInt32 CWDependencyTag;
 
+#if MWCCPSP && !MWCCPSP_DRIVER
+// 3.0.1's compiler side of the plugin API is older: the record ends at
+// compilecontext and is naturally aligned (0x28 bytes; CompilerLinkerParamBlk
+// .sourcetext at +0x24C). The driver's side has the newer packed record
+// (UCBStoreObjectData reads dependencyCount at +0x2A, objectfile at +0x2C).
+typedef struct CWObjectData {
+    CWMemHandle objectdata;
+    CWMemHandle browsedata;
+    SInt32 reserved1;
+    SInt32 codesize;
+    SInt32 udatasize;
+    SInt32 idatasize;
+    SInt32 compiledlines;
+    Boolean interfaceChanged;
+    UInt8 pad1D[3];
+    SInt32 reserved2;
+    void* compilecontext;
+} CWObjectData;
+#else
 typedef struct CWObjectData {
     CWMemHandle objectdata;
     CWMemHandle browsedata;
@@ -69,6 +94,7 @@ typedef struct CWObjectData {
     short dependencyCount;
     CWFileSpec* objectfile;
 } CWObjectData;
+#endif
 typedef struct CWTargetInfo_V8 {
     short outputType;
     CWFileSpec outfile;

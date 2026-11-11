@@ -15,6 +15,10 @@
 #include "compiler/CPrep.h"
 #include "compiler/CRTTI.h"
 #include "compiler/CScope.h"
+#if MWCCPSP
+#include "compiler/CTemplateTools.h"
+#include "compiler/templates.h"
+#endif
 #include "compiler/CSOM.h"
 #include "compiler/enode.h"
 #include "compiler/objects.h"
@@ -76,9 +80,502 @@ static TypeClass* cclass_dominator_oclass;
 static SInt32 cclass_dominator_ooffset;
 static Object* cclass_dominator_eobject;
 
+#if MWCCPSP
+// 3.0.1 keeps a class's friends in a list beside it instead of in TypeClass
+typedef struct CClassFriendFunc {
+    struct CClassFriendFunc* next;
+    Object* obj;
+} CClassFriendFunc;
+typedef struct CClassFriendClass {
+    struct CClassFriendClass* next;
+    TypeClass* tclass;
+} CClassFriendClass;
+typedef struct CClassFriends {
+    struct CClassFriends* next;
+    TypeClass* tclass;
+    CClassFriendFunc* funcs;
+    CClassFriendClass* classes;
+} CClassFriends;
+static CClassFriends* cclass_friends;
+#endif
+#if MWCCPSP
+
+#endif
 void CClass_Init(void) {
+#if MWCCPSP
+    cclass_friends = NULL;
+#endif
     cclass_thunklist = NULL;
 }
+#if MWCCPSP
+
+void CClass_AddFriend(TypeClass* tclass, Object* friendfunc, TypeClass* friendclass) {
+    CClassFriends* entry;
+    CClassFriendFunc* func;
+    CClassFriendClass* cls;
+
+    entry = cclass_friends;
+    while (1) {
+        if (!entry) {
+            entry = galloc(sizeof(CClassFriends));
+            entry->next = cclass_friends;
+            entry->tclass = tclass;
+            entry->funcs = NULL;
+            entry->classes = NULL;
+            cclass_friends = entry;
+            break;
+        }
+        if (entry->tclass == tclass) {
+            break;
+        }
+        entry = entry->next;
+    }
+
+    if (friendfunc) {
+        func = entry->funcs;
+        while (1) {
+            if (!func) {
+                func = galloc(sizeof(CClassFriendFunc));
+                func->next = entry->funcs;
+                func->obj = friendfunc;
+                entry->funcs = func;
+                break;
+            }
+            if (func->obj == friendfunc) {
+                break;
+            }
+            func = func->next;
+        }
+    }
+
+    if (friendclass) {
+        cls = entry->classes;
+        while (1) {
+            if (!cls) {
+                cls = galloc(sizeof(CClassFriendClass));
+                cls->next = entry->classes;
+                cls->tclass = friendclass;
+                entry->classes = cls;
+                break;
+            }
+            if (cls->tclass == friendclass) {
+                break;
+            }
+            cls = cls->next;
+        }
+    }
+}
+
+// is the current class or function a friend of tclass
+static Boolean CClass_IsCurrentFriend(TypeClass* tclass) {
+    CClassFriends* entry;
+    CClassFriendFunc* func;
+    CClassFriendClass* cls;
+
+    for (entry = cclass_friends; entry; entry = entry->next) {
+        if (entry->tclass == tclass) {
+            for (cls = entry->classes; cls; cls = cls->next) {
+                if (cls->tclass == cscope_currentclass) {
+                    return TRUE;
+                }
+            }
+            for (func = entry->funcs; func; func = func->next) {
+                if (func->obj == cscope_currentfunc) {
+                    return TRUE;
+                }
+            }
+            return FALSE;
+        }
+    }
+    return FALSE;
+}
+
+#endif
+#if MWCCPSP
+// 3.0.1's access checking (0x500ED0..0x5019A0): classes rather than
+// paths, with the current class and function in a context
+
+typedef struct AccessContext {
+    TypeClass* cls;
+    Object* func;
+} AccessContext;
+
+// every base class, depth first
+typedef struct BaseIterator {
+    ClassList* stack[64];
+    int sp;
+} BaseIterator;
+
+Boolean func_00501850(TypeClass* base, TypeClass* derived);
+static UInt8 func_00501750(TypeClass* cls, TypeClass* target, UInt8 access);
+static TypeClass* func_005013E0(BaseIterator* it);
+static Boolean func_00501480(AccessContext* ctx, TypeClass* tclass);
+static Boolean func_00501240(AccessContext* ctx, TypeClass* tclass, TypeClass* base);
+static Boolean func_00500FF0(
+    AccessContext* ctx, TypeClass* objclass, TypeClass* cls, TypeClass* target, UInt8 access
+);
+
+// 0x500ED0: CClass_CheckPathAccess: can the current code reach a member of
+// target (with the given access) through cls (and objclass, the object's
+// class, if known)? Otherwise an error, or a warning without access_errors.
+void func_00500ED0(
+    TypeClass* objclass,
+    TypeClass* cls,
+    TypeClass* target,
+    UInt8 access,
+    Object* obj,
+    HashNameNode* name
+) {
+    AccessContext ctx;
+
+    CError_ASSERT(3432, cls && target);
+    ctx.cls = cscope_currentclass;
+    ctx.func = cscope_currentfunc;
+    if (func_00500FF0(&ctx, objclass, cls, target, access)) {
+        return;
+    }
+    if (copts.access_errors) {
+        if (obj) {
+            CError_Error(ERR_ILLEGAL_ACCESS_FROM_TO_PROTECTED_PRIVATE_MEMBER, cls, 0, obj);
+        } else {
+            CError_Error(
+                ERR_ILLEGAL_ACCESS_FROM_TO_QUALIFIED_MEMBER,
+                cls,
+                0,
+                target,
+                0,
+                name ? name->name : ""
+            );
+        }
+    } else {
+        if (obj) {
+            CError_Warning(ERR_ILLEGAL_ACCESS_FROM_TO_PROTECTED_PRIVATE_MEMBER, cls, 0, obj);
+        } else {
+            CError_Warning(
+                ERR_ILLEGAL_ACCESS_FROM_TO_QUALIFIED_MEMBER,
+                cls,
+                0,
+                target,
+                0,
+                name ? name->name : ""
+            );
+        }
+    }
+}
+
+// 0x500FF0
+static Boolean func_00500FF0(
+    AccessContext* ctx, TypeClass* objclass, TypeClass* cls, TypeClass* target, UInt8 access
+) {
+    CClassFriends* f;
+    BaseIterator it;
+    TypeClass* base;
+
+    switch (func_00501750(cls, target, access)) {
+        case ACCESSPUBLIC:
+            return TRUE;
+        case ACCESSPRIVATE:
+            if (func_00501480(ctx, cls)) {
+                return TRUE;
+            }
+            break;
+        case ACCESSPROTECTED:
+            if (func_00501480(ctx, cls)) {
+                return TRUE;
+            }
+            if (ctx->cls && func_00501850(cls, ctx->cls)) {
+                switch (func_00501750(cls, target, access)) {
+                    case ACCESSPRIVATE:
+                    case ACCESSPROTECTED:
+                        if (!objclass || ctx->cls == objclass) {
+                            return TRUE;
+                        }
+                        break;
+                    case ACCESSNONE:
+                        break;
+                    default:
+                        CError_FATAL(3359);
+                }
+            }
+            if (ctx->func) {
+                for (f = cclass_friends; f; f = f->next) {
+                    if (func_00501850(cls, f->tclass) &&
+                        func_00501480(ctx, f->tclass) &&
+                        (!objclass || f->tclass == objclass)) {
+                        switch (func_00501750(f->tclass, target, access)) {
+                            case ACCESSPRIVATE:
+                            case ACCESSPROTECTED:
+                                return TRUE;
+                            case ACCESSNONE:
+                                break;
+                            default:
+                                CError_FATAL(3389);
+                        }
+                    }
+                }
+            }
+            break;
+        case ACCESSNONE:
+            break;
+        default:
+            CError_FATAL(3403);
+    }
+    it.stack[0] = cls->bases;
+    it.sp = 0;
+    while ((base = func_005013E0(&it))) {
+        if (func_00501240(ctx, cls, base) && func_00500FF0(ctx, objclass, base, target, access)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// 0x501240: can the current code see base, a base class of tclass?
+static Boolean func_00501240(AccessContext* ctx, TypeClass* tclass, TypeClass* base) {
+    AccessContext ctx2;
+    CClassFriends* f;
+    BaseIterator it;
+    TypeClass* scan;
+
+    switch (func_00501750(tclass, base, ACCESSPUBLIC)) {
+        case ACCESSPUBLIC:
+            return TRUE;
+        case ACCESSPRIVATE:
+        case ACCESSPROTECTED:
+            if (func_00501480(ctx, tclass)) {
+                return TRUE;
+            }
+            if (ctx->func) {
+                ctx2.cls = NULL;
+                ctx2.func = ctx->func;
+                for (f = cclass_friends; f; f = f->next) {
+                    if (func_00501850(tclass, f->tclass) && func_00501480(&ctx2, f->tclass)) {
+                        switch (func_00501750(f->tclass, base, ACCESSPUBLIC)) {
+                            case ACCESSPRIVATE:
+                            case ACCESSPROTECTED:
+                                return TRUE;
+                            case ACCESSNONE:
+                                break;
+                            default:
+                                CError_FATAL(3294);
+                        }
+                    }
+                }
+            }
+            break;
+    }
+    it.stack[0] = tclass->bases;
+    it.sp = 0;
+    while ((scan = func_005013E0(&it))) {
+        if (func_00501850(base, scan) &&
+            func_00501240(ctx, scan, base) &&
+            func_00501240(ctx, tclass, scan)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// 0x5013E0: the next base class, depth first
+static TypeClass* func_005013E0(BaseIterator* it) {
+    ClassList* cur;
+
+    for (;;) {
+        if (it->sp < 0) {
+            return NULL;
+        }
+        if ((cur = it->stack[it->sp])) {
+            break;
+        }
+        it->sp--;
+    }
+    if ((it->stack[it->sp] = cur->next)) {
+        if (cur->base->bases) {
+            it->sp++;
+            CError_ASSERT(3231, it->sp < 64);
+            it->stack[it->sp] = cur->base->bases;
+        }
+    } else if (cur->base->bases) {
+        it->stack[it->sp] = cur->base->bases;
+    } else {
+        it->sp--;
+    }
+    return cur->base;
+}
+
+// 0x501480: is the current code (an enclosing class, a friend function or
+// class, or an instance of one) allowed into tclass's private members?
+static Boolean func_00501480(AccessContext* ctx, TypeClass* tclass) {
+    TypeClass* scan;
+    NameSpace* parent;
+    CClassFriends* entry;
+    CClassFriendFunc* ff;
+    CClassFriendClass* fc;
+    TemplFuncInstance* finst;
+    TemplClass* templ;
+    TemplClassInst* cinst;
+    TemplPartialSpec* pspec;
+    TemplClassInst* inst;
+
+    for (scan = ctx->cls; scan; scan = parent->theclass) {
+        if (scan == tclass) {
+            return TRUE;
+        }
+        if (!(parent = scan->nspace->parent)) {
+            break;
+        }
+    }
+    for (entry = cclass_friends; entry; entry = entry->next) {
+        if (entry->tclass == tclass) {
+            break;
+        }
+    }
+    if (entry) {
+        if (ctx->func) {
+            for (ff = entry->funcs; ff; ff = ff->next) {
+                if (ff->obj == ctx->func) {
+                    return TRUE;
+                }
+                CError_ASSERT(3077, IS_TYPE_FUNC(ff->obj->type));
+                if (TYPE_FUNC(ff->obj->type)->flags & FUNC_IS_TEMPL) {
+                    for (finst = CTemplTool_GetFuncTempl(ff->obj)->instances; finst;
+                         finst = finst->next) {
+                        if (finst->object == ctx->func) {
+                            return TRUE;
+                        }
+                    }
+                }
+                if ((ctx->func->qual & Q_IS_TEMPLATED) &&
+                    OBJECT_TEMPL(ctx->func)->parent == ff->obj) {
+                    return TRUE;
+                }
+                CError_ASSERT(3092, IS_TYPE_FUNC(ctx->func->type));
+                if (TYPE_FUNC(ctx->func->type)->flags & FUNC_IS_TEMPL) {
+                    for (finst = CTemplTool_GetFuncTempl(ctx->func)->instances; finst;
+                         finst = finst->next) {
+                        if (finst->object == ff->obj) {
+                            return TRUE;
+                        }
+                    }
+                }
+                if ((ff->obj->qual & Q_IS_TEMPLATED) &&
+                    OBJECT_TEMPL(ff->obj)->parent == ctx->func) {
+                    return TRUE;
+                }
+            }
+        }
+        if (ctx->cls) {
+            for (fc = entry->classes; fc; fc = fc->next) {
+                if (fc->tclass == ctx->cls) {
+                    return TRUE;
+                }
+                if (fc->tclass->flags & CLASS_IS_TEMPL) {
+                    templ = CTemplTool_GetTemplClass(fc->tclass);
+                    for (inst = templ->instances; inst; inst = inst->next) {
+                        if (TYPE_CLASS(inst) == ctx->cls) {
+                            return TRUE;
+                        }
+                    }
+                    for (pspec = templ->pspecs; pspec; pspec = pspec->next) {
+                        if (TYPE_CLASS(pspec->templ) == ctx->cls) {
+                            return TRUE;
+                        }
+                        for (inst = pspec->templ->instances; inst; inst = inst->next) {
+                            if (TYPE_CLASS(inst) == ctx->cls) {
+                                return TRUE;
+                            }
+                        }
+                    }
+                }
+                if (ctx->cls->flags & CLASS_IS_TEMPL) {
+                    templ = CTemplTool_GetTemplClass(ctx->cls);
+                    for (inst = templ->instances; inst; inst = inst->next) {
+                        if (TYPE_CLASS(inst) == fc->tclass) {
+                            return TRUE;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (tclass->flags & CLASS_IS_TEMPL_INST) {
+        cinst = CTemplTool_GetTemplClassInst(tclass);
+        // an instance has its template's friends (3.0.1 reaches the template
+        // through a link at +0x30 of the instance, via func_004AF6A0)
+        if (!cinst->is_specialized && func_00501480(ctx, TYPE_CLASS(cinst->templ))) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// 0x501750: the access to a member of target, declared with access, from
+// cls (a class derived from target): ACCESSNONE if target is not a base
+static UInt8 func_00501750(TypeClass* cls, TypeClass* target, UInt8 access) {
+    ClassList* base;
+    UInt8 a;
+    UInt8 result;
+
+    if (cls == target) {
+        return access;
+    }
+    result = ACCESSNONE;
+    for (base = cls->bases; base; base = base->next) {
+        a = func_00501750(base->base, target, access);
+        if (a == ACCESSNONE || a == ACCESSPRIVATE) {
+            continue;
+        }
+        switch (base->access) {
+            case ACCESSPUBLIC:
+                break;
+            case ACCESSPRIVATE:
+                a = ACCESSPRIVATE;
+                break;
+            case ACCESSPROTECTED:
+                if (a == ACCESSPUBLIC) {
+                    a = ACCESSPROTECTED;
+                }
+                break;
+            case ACCESSNONE:
+                a = ACCESSNONE;
+                break;
+            default:
+                CError_FATAL(3018);
+        }
+        switch (a) {
+            case ACCESSPUBLIC:
+                return ACCESSPUBLIC;
+            case ACCESSPRIVATE:
+                if (result == ACCESSNONE) {
+                    result = ACCESSPRIVATE;
+                }
+                break;
+            case ACCESSPROTECTED:
+                if (result == ACCESSNONE || result == ACCESSPRIVATE) {
+                    result = ACCESSPROTECTED;
+                }
+                break;
+            case ACCESSNONE:
+                break;
+            default:
+                CError_FATAL(3033);
+        }
+    }
+    return result;
+}
+
+// 0x501850: is base a (direct or indirect) base class of derived?
+Boolean func_00501850(TypeClass* base, TypeClass* derived) {
+    ClassList* scan;
+
+    for (scan = derived->bases; scan; scan = scan->next) {
+        if (scan->base == base || func_00501850(base, scan->base)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+#endif
 
 void CClass_GenThunks(void) {
     ThunkList* list;
@@ -190,7 +687,11 @@ UInt8 CClass_GetOverrideKind(TypeFunc* a, TypeFunc* b, Boolean errorflag) {
             case 2:
                 return 2;
             default:
+#if MWCCPSP
+                CError_FATAL(267);
+#else
                 CError_FATAL(225);
+#endif
         }
     }
 
@@ -253,6 +754,19 @@ Object* CClass_DummyDefaultConstructor(TypeClass* tclass) {
 
     for (nsol = CScope_FindName(tclass->nspace, constructor_name_node); nsol; nsol = nsol->next) {
         object = OBJECT(nsol->object);
+#if MWCCPSP
+        // 3.0.1 skips constructor templates
+        if (object->otype == OT_OBJECT &&
+            IS_TYPE_FUNC(object->type) &&
+            !(TYPE_FUNC(object->type)->flags & FUNC_IS_TEMPL)) {
+            CError_ASSERT(392, args = TYPE_FUNC(object->type)->args);
+            args = args->next;
+            if ((tclass->flags & CLASS_HAS_VBASES) && !tclass->sominfo) {
+                CError_ASSERT(396, args);
+                args = args->next;
+            }
+            CError_ASSERT(399, args);
+#else
         if (object->otype == OT_OBJECT && IS_TYPE_FUNC(object->type)) {
             CError_ASSERT(305, args = TYPE_FUNC(object->type)->args);
             args = args->next;
@@ -261,6 +775,7 @@ Object* CClass_DummyDefaultConstructor(TypeClass* tclass) {
                 args = args->next;
             }
             CError_ASSERT(312, args);
+#endif
 
             if (args->dexpr) {
                 if (ctor) {
@@ -429,6 +944,10 @@ Object* CClass_AssignmentOperator(TypeClass* tclass) {
         object = OBJECT(nsol->object);
         if (object->otype == OT_OBJECT &&
             IS_TYPE_FUNC(object->type) &&
+#if MWCCPSP
+            // 3.0.1 (0x503F10): a function template is not the assignment operator
+            !(TYPE_FUNC(object->type)->flags & FUNC_IS_TEMPL) &&
+#endif
             (args = TYPE_FUNC(object->type)->args) &&
             args->next &&
             !args->next->next) {
@@ -458,12 +977,20 @@ Object* CClass_CopyConstructor(TypeClass* tclass) {
     for (nsol = CScope_FindName(tclass->nspace, constructor_name_node); nsol; nsol = nsol->next) {
         object = OBJECT(nsol->object);
         if (object->otype == OT_OBJECT && IS_TYPE_FUNC(object->type)) {
+#if MWCCPSP
+            CError_ASSERT(628, args = TYPE_FUNC(object->type)->args);
+#else
             CError_ASSERT(532, args = TYPE_FUNC(object->type)->args);
+#endif
 
             args = args->next;
 
             if (tclass->flags & CLASS_HAS_VBASES) {
+#if MWCCPSP
+                CError_ASSERT(632, args);
+#else
                 CError_ASSERT(536, args);
+#endif
                 args = args->next;
             }
 
@@ -522,6 +1049,34 @@ Boolean CClass_IsDestructor(Object* obj) {
     return obj && IS_TYPE_FUNC(obj->type) && (TYPE_FUNC(obj->type)->flags & FUNC_IS_DTOR);
 }
 
+#if MWCCPSP
+// 0x503C90: can tclass take a brace initializer: no vtable, bases or
+// user-declared constructor, and only public members
+Boolean func_00503C90(TypeClass* tclass) {
+    NameSpaceObjectList* nsol;
+    ObjMemberVar* ivar;
+
+    if (tclass->vtable || tclass->bases) {
+        return FALSE;
+    }
+    for (nsol = CClass_Constructor(tclass); nsol; nsol = nsol->next) {
+        if (nsol->object->otype == OT_OBJECT &&
+            IS_TYPE_FUNC(OBJECT(nsol->object)->type) &&
+            !(TYPE_FUNC(OBJECT(nsol->object)->type)->flags & FUNC_AUTO_GENERATED)) {
+            return FALSE;
+        }
+    }
+    for (ivar = tclass->ivars; ivar; ivar = ivar->next) {
+        if (ivar->access != ACCESSPUBLIC) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+#endif
+#if MWCCPSP
+
+#endif
 Boolean CClass_IsPODClass(TypeClass* tclass) {
     NameSpaceObjectList* nsol;
     Object* object;
@@ -705,7 +1260,11 @@ static AccessType CClass_GetPathAccess(BClassList* path) {
     ClassList* base;
     TypeClass* tclass;
 
+#if MWCCPSP
+    CError_ASSERT(1024, path);
+#else
     CError_ASSERT(930, path);
+#endif
 
     result = ACCESSPUBLIC;
 
@@ -721,7 +1280,11 @@ static AccessType CClass_GetPathAccess(BClassList* path) {
             }
         }
 
+#if MWCCPSP
+        CError_ASSERT(1033, base);
+#else
         CError_ASSERT(939, base);
+#endif
 
         switch (base->access) {
             case ACCESSPUBLIC:
@@ -741,7 +1304,11 @@ static AccessType CClass_GetPathAccess(BClassList* path) {
             case ACCESSNONE:
                 return ACCESSNONE;
             default:
+#if MWCCPSP
+                CError_FATAL(1054);
+#else
                 CError_FATAL(960);
+#endif
         }
     }
 
@@ -755,7 +1322,11 @@ Boolean CClass_IsMoreAccessiblePath(BClassList* path1, BClassList* path2) {
         case ACCESSNONE:
             return TRUE;
         default:
+#if MWCCPSP
+            CError_FATAL(1072);
+#else
             CError_FATAL(978);
+#endif
         case ACCESSPROTECTED:
             switch (CClass_GetPathAccess(path1)) {
                 case ACCESSPUBLIC:
@@ -765,7 +1336,11 @@ Boolean CClass_IsMoreAccessiblePath(BClassList* path1, BClassList* path2) {
                 case ACCESSNONE:
                     return FALSE;
                 default:
+#if MWCCPSP
+                    CError_FATAL(1081);
+#else
                     CError_FATAL(987);
+#endif
             }
         case ACCESSPRIVATE:
             switch (CClass_GetPathAccess(path1)) {
@@ -776,7 +1351,11 @@ Boolean CClass_IsMoreAccessiblePath(BClassList* path1, BClassList* path2) {
                 case ACCESSNONE:
                     return FALSE;
                 default:
+#if MWCCPSP
+                    CError_FATAL(1091);
+#else
                     CError_FATAL(997);
+#endif
             }
     }
 
@@ -903,7 +1482,11 @@ ENode* CClass_AccessPathCast(BClassList* path, ENode* expr, Boolean reverse) {
             if (base->base == TYPE_CLASS(path->next->type)) {
                 break;
             }
+#if MWCCPSP
+            CError_ASSERT(1251, base = base->next);
+#else
             CError_ASSERT(1157, base = base->next);
+#endif
         }
 
         if (base->is_virtual) {
@@ -915,7 +1498,11 @@ ENode* CClass_AccessPathCast(BClassList* path, ENode* expr, Boolean reverse) {
             if (!base->base->sominfo) {
                 offset = base->offset;
                 if (offset && !canadd(expr, offset)) {
+#if MWCCPSP
+                    expr = makediadicnode(expr, intconstnode(TYPE_UNSIGNED_OFFSET, offset), EADD);
+#else
                     expr = makediadicnode(expr, intconstnode(TYPE(&stunsignedlong), offset), EADD);
+#endif
                     optimizecomm(expr);
                 }
 
@@ -930,7 +1517,11 @@ ENode* CClass_AccessPathCast(BClassList* path, ENode* expr, Boolean reverse) {
                     offset = -offset;
                 }
                 if (!canadd(expr, offset)) {
+#if MWCCPSP
+                    expr = makediadicnode(expr, intconstnode(TYPE_UNSIGNED_OFFSET, offset), EADD);
+#else
                     expr = makediadicnode(expr, intconstnode(TYPE(&stunsignedlong), offset), EADD);
+#endif
                     optimizecomm(expr);
                 }
             }
@@ -1006,12 +1597,20 @@ ENode* CClass_DirectBasePointerCast(ENode* expr, TypeClass* a, TypeClass* b) {
 
     for (vbase = a->vbases; vbase; vbase = vbase->next) {
         if (vbase->base == b) {
+#if MWCCPSP
+            CError_ASSERT(1387, path = CClass_GetBasePath(a, b, &depth, &isambigbase));
+#else
             CError_ASSERT(1273, path = CClass_GetBasePath(a, b, &depth, &isambigbase));
+#endif
             return CClass_AccessPathCast(path, expr, FALSE);
         }
     }
 
+#if MWCCPSP
+    CError_FATAL(1383);
+#else
     CError_FATAL(1277);
+#endif
     return expr;
 }
 
@@ -1067,7 +1666,11 @@ SInt32 CClass_VirtualBaseOffset(TypeClass* tclass, TypeClass* baseclass) {
         }
     }
 
+#if MWCCPSP
+    CError_FATAL(1435);
+#else
     CError_FATAL(1342);
+#endif
     return 0;
 }
 
@@ -1080,7 +1683,11 @@ SInt32 CClass_VirtualBaseVTableOffset(TypeClass* tclass, TypeClass* baseclass) {
         }
     }
 
+#if MWCCPSP
+    CError_FATAL(1452);
+#else
     CError_FATAL(1359);
+#endif
     return 0;
 }
 
@@ -1366,7 +1973,11 @@ static Object* CClass_FindCovariantFunction(Object* func, Type* type) {
         CMangler_GetCovariantFunctionName(func, TYPE_CLASS(type))
     );
 
+#if MWCCPSP
+    CError_ASSERT(1935, nsol && !nsol->next && nsol->object->otype == OT_OBJECT);
+#else
     CError_ASSERT(1754, nsol && !nsol->next && nsol->object->otype == OT_OBJECT);
+#endif
 
     return OBJECT(nsol->object);
 }
@@ -1464,7 +2075,11 @@ static void CClass_AllocVTableRec(OVClass* ovclass) {
     for (ovfunc = ovclass->vfuncs; ovfunc; ovfunc = ovfunc->next) {
         vtbl_offset = ovclass->voffset + TYPE_METHOD(ovfunc->obj->type)->vtbl_index +
             CABI_GetVTableOffset(ovclass->tclass);
+#if MWCCPSP
+        CError_ASSERT(2048, vtbl_offset < vtable_data_size);
+#else
         CError_ASSERT(1867, vtbl_offset < vtable_data_size);
+#endif
 
         if (!(vtable_object_data[vtbl_offset])) {
             if (ovfunc->overrider) {
@@ -1486,13 +2101,21 @@ static void CClass_AllocVTableRec(OVClass* ovclass) {
                 if ((this_delta = ovfunc->overriderclass->offset - ovclass->offset)) {
                     if (!(TYPE_FUNC(object->type)->flags & FUNC_PURE)) {
                         cclass_ovbase = NULL;
+#if MWCCPSP
+                        CError_ASSERT(2080, CClass_IsBaseOf(ovclass, ovfunc->overriderclass));
+#else
                         CError_ASSERT(1899, CClass_IsBaseOf(ovclass, ovfunc->overriderclass));
+#endif
 
                         if (cclass_ovbase && (main_class->flags & CLASS_VBASE_CTOR_OFFSET)) {
                             ctoroffset = ovclass->offset - cclass_ovbase->offset;
                             ctoroffset =
                                 CABI_GetCtorOffsetOffset(cclass_ovbase->tclass, NULL) - ctoroffset;
+#if MWCCPSP
+                            CError_ASSERT(2087, ctoroffset > 0);
+#else
                             CError_ASSERT(1906, ctoroffset > 0);
+#endif
                             object = CClass_ThunkObject(object, this_delta, 0, ctoroffset);
                         } else {
                             object = CClass_ThunkObject(object, this_delta, 0, -1);
@@ -1915,7 +2538,11 @@ void CClass_ClassAction(TypeClass* tclass) {
                 CRTTI_ConstructVTableHeaders(tclass, vtable_object_data, vtable_object_links);
         }
 
+#if MWCCPSP
+        CError_ASSERT(2682, tclass->vtable->object->type->size == tclass->vtable->size);
+#else
         CError_ASSERT(2492, tclass->vtable->object->type->size == tclass->vtable->size);
+#endif
         CInit_DeclareData(
             tclass->vtable->object, vtable_object_data, vtable_object_links, tclass->vtable->size
         );
@@ -1959,10 +2586,18 @@ void CClass_MemberDef(Object* obj, TypeClass* tclass) {
             }
             return;
         case CLASS_ACTION_UNUSED:
+#if MWCCPSP
+            CError_FATAL(2872);
+#else
             CError_FATAL(2682);
+#endif
             return;
         default:
+#if MWCCPSP
+            CError_FATAL(2891);
+#else
             CError_FATAL(2701);
+#endif
             return;
     }
 }
@@ -1971,7 +2606,11 @@ Object* CClass_ThisSelfObject(void) {
     ObjectList* list;
 
     if (cscope_currentfunc && cscope_currentclass) {
+#if MWCCPSP
+        if (CLASS_OBJCINFO(cscope_currentclass)) {
+#else
         if (cscope_currentclass->objcinfo) {
+#endif
             for (list = arguments; list; list = list->next) {
                 if (list->object->name == self_name_node) {
                     return list->object;
@@ -2121,6 +2760,11 @@ static Boolean CClass_CanAccess(BClassList* path, AccessType access) {
             return TRUE;
         }
 
+#if MWCCPSP
+        if (CClass_IsCurrentFriend(tclass)) {
+            return TRUE;
+        }
+#else
         for (cfriend = tclass->friends; cfriend; cfriend = cfriend->next) {
             if (cfriend->isclass) {
                 if (cfriend->u.theclass == cscope_currentclass) {
@@ -2132,6 +2776,7 @@ static Boolean CClass_CanAccess(BClassList* path, AccessType access) {
                 }
             }
         }
+#endif
     }
 
     for (scan = path; scan->next; scan = scan->next) {
@@ -2214,6 +2859,11 @@ void CClass_CheckStaticAccess(BClassList* path, TypeClass* tclass, AccessType ac
                 return;
             }
 
+#if MWCCPSP
+            if (CClass_IsCurrentFriend(tclass)) {
+                return;
+            }
+#else
             for (cfriend = tclass->friends; cfriend; cfriend = cfriend->next) {
                 if (cfriend->isclass) {
                     if (cfriend->u.theclass == cscope_currentclass) {
@@ -2225,6 +2875,7 @@ void CClass_CheckStaticAccess(BClassList* path, TypeClass* tclass, AccessType ac
                     }
                 }
             }
+#endif
         case ACCESSNONE:
             CError_Warning(ERR_ILLEGAL_ACCESS_PROTECTED_PRIVATE_MEMBER);
             return;
@@ -2272,11 +2923,25 @@ static Type* CClass_PointerTypeCopy(Type* type) {
 
     switch (type->type) {
         case TYPEPOINTER:
+#if MWCCPSP
+            copy = galloc(sizeof(TypePointer));
+            *copy = *TYPE_POINTER(type);
+            copy->target = CClass_PointerTypeCopy(copy->target);
+            return TYPE(copy);
+        case TYPEARRAY: {
+            // 3.0.1 array types are bigger (the element count)
+            TypeArray301* acopy = galloc(sizeof(TypeArray301));
+            *acopy = *(TypeArray301*)type;
+            acopy->target = CClass_PointerTypeCopy(acopy->target);
+            return TYPE(acopy);
+        }
+#else
         case TYPEARRAY:
             copy = galloc(sizeof(TypePointer));
             *copy = *TYPE_POINTER(type);
             copy->target = CClass_PointerTypeCopy(copy->target);
             return TYPE(copy);
+#endif
         case TYPEMEMBERPOINTER:
             mcopy = galloc(sizeof(TypeMemberPointer));
             *mcopy = *TYPE_MEMBER_POINTER(type);
@@ -2320,7 +2985,11 @@ Type* CClass_CombineClassAccessQualifiers(
                         TYPE_MEMBER_POINTER(inner)->qual |= qual2;
                         break;
                     default:
+#if MWCCPSP
+                        CError_FATAL(3883);
+#else
                         CError_FATAL(3125);
+#endif
                 }
             }
             break;
@@ -2419,7 +3088,11 @@ static void CClass_OptimizeBitFieldAccess(Type** ptype, SInt32* poffset) {
     if (bitfield->bitlength == 32 && bitfield->offset == 0) {
         if (innertype->size != stsignedlong.size) {
             if (is_unsigned(innertype)) {
+#if MWCCPSP
+                *ptype = TYPE_UNSIGNED_OFFSET;
+#else
                 *ptype = TYPE(&stunsignedlong);
+#endif
             } else {
                 *ptype = TYPE(&stsignedlong);
             }
@@ -2511,7 +3184,11 @@ ENode* CClass_AccessMember(ENode* classexpr, Type* type, UInt32 qual, SInt32 off
 
     if (offset && !canadd(classexpr->data.monadic, offset)) {
         classexpr->data.monadic = makediadicnode(
+#if MWCCPSP
+            classexpr->data.monadic, intconstnode(TYPE(&stunsignedint), offset), EADD
+#else
             classexpr->data.monadic, intconstnode(TYPE(&stunsignedlong), offset), EADD
+#endif
         );
         optimizecomm(classexpr->data.monadic);
     }

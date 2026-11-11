@@ -12,10 +12,35 @@
 #include <setjmp.h>
 #include <string.h>
 
+#if MWCCPSP
+#define ASSERT_FUNCNAME 0,
+#else
+#endif
+#if MWCCPSP
+#define IRO_ASSERT(line, expr) \
+    ((expr) ? (void)0 \
+            : __assertion_failed( \
+                  #expr, "IroPointerAnalysisADTs.c", ASSERT_FUNCNAME(line) + CError_LINE_SHIFT \
+              ))
+#else
 #define IRO_ASSERT(line, expr) \
     ((expr) ? (void)0 \
             : __assertion_failed(#expr, "IroPointerAnalysisADTs.c", (line) + CError_LINE_SHIFT))
+#endif
 
+#if MWCCPSP
+#define IRO_ASSERT_T(line, expr) \
+    ((expr) ? 0 \
+            : (__assertion_failed( \
+                   #expr, "IroPointerAnalysisADTs.c", ASSERT_FUNCNAME(line) + CError_LINE_SHIFT \
+               ), \
+               0))
+#define IRO_ASSERT_MSG(line, expr, text) \
+    ((expr) ? (void)0 \
+            : __assertion_failed( \
+                  text, "IroPointerAnalysisADTs.c", ASSERT_FUNCNAME(line) + CError_LINE_SHIFT \
+              ))
+#else
 #define IRO_ASSERT_T(line, expr) \
     ((expr) \
          ? 0 \
@@ -23,6 +48,7 @@
 #define IRO_ASSERT_MSG(line, expr, text) \
     ((expr) ? (void)0 \
             : __assertion_failed(text, "IroPointerAnalysisADTs.c", (line) + CError_LINE_SHIFT))
+#endif
 #define IRO_DEBUG_CLEAR(obj, size) memset((obj), 0xFF, (size))
 
 HEADER_INLINE UInt32 gcd(UInt32 a, UInt32 b) {

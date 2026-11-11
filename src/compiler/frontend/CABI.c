@@ -35,11 +35,19 @@ short CABI_GetStructResultArgumentIndex(TypeFunc* tfunc) {
 }
 
 Type* CABI_GetSizeTType(void) {
+#if MWCCPSP
+    return TYPE(&stunsignedint);
+#else
     return TYPE(&stunsignedlong);
+#endif
 }
 
 Type* CABI_GetPtrDiffTType(void) {
+#if MWCCPSP
+    return TYPE(&stsignedint);
+#else
     return TYPE(&stsignedlong);
+#endif
 }
 
 SInt16 CABI_StructSizeAlignValue(Type* type, SInt32 size) {
@@ -70,7 +78,11 @@ void CABI_ReverseBitField(TypeBitfield* tbitfield) {
             bits = 64;
             break;
         default:
+#if MWCCPSP
+            CError_FATAL(175);
+#else
             CError_FATAL(172);
+#endif
     }
 
     length = tbitfield->bitlength;
@@ -284,7 +296,11 @@ static void CABI_AllocateVirtualBases(ClassLayout* layout, TypeClass* tclass) {
         size = vbase->offset + CABI_GetBaseSize(vbase->base);
 
         if (vbase->has_override) {
+#if MWCCPSP
+            size += CMach_MemberAlignValue(TYPE_UNSIGNED_OFFSET, size) + 4;
+#else
             size += CMach_MemberAlignValue(TYPE(&stunsignedlong), size) + 4;
+#endif
         }
     }
 
@@ -597,7 +613,11 @@ void CABI_MakeDefaultArgConstructor(TypeClass* tclass, Object* func) {
 }
 
 static Object* CABI_ThisArg(void) {
+#if MWCCPSP
+    CError_ASSERT(1110, arguments && IS_TYPE_POINTER_ONLY(arguments->object->type));
+#else
     CError_ASSERT(931, arguments && IS_TYPE_POINTER_ONLY(arguments->object->type));
+#endif
     return arguments->object;
 }
 
@@ -619,7 +639,11 @@ ENode* CABI_MakeThisExpr(TypeClass* tclass, SInt32 offset) {
     }
 
     if (offset) {
+#if MWCCPSP
+        expr = makediadicnode(expr, intconstnode(TYPE_UNSIGNED_OFFSET, offset), EADD);
+#else
         expr = makediadicnode(expr, intconstnode(TYPE(&stunsignedlong), offset), EADD);
+#endif
     }
 
     return expr;
@@ -759,7 +783,11 @@ static ENode* CABI_GetVBasePtr(TypeClass* tclass, TypeClass* baseclass) {
 
     while ((path = path->next)) {
         if (path->offset) {
+#if MWCCPSP
+            expr = makediadicnode(expr, intconstnode(TYPE_UNSIGNED_OFFSET, path->offset), EADD);
+#else
             expr = makediadicnode(expr, intconstnode(TYPE(&stunsignedlong), path->offset), EADD);
+#endif
         }
         expr = makemonadicnode(expr, EINDIRECT);
     }
@@ -793,7 +821,11 @@ SInt32 CABI_GetCtorOffsetOffset(TypeClass* tclass, TypeClass* baseclass) {
     size = CABI_GetBaseSize(tclass);
     if (baseclass) {
         baseSize = CABI_FindNVBase(tclass, baseclass, 0);
+#if MWCCPSP
+        CError_ASSERT(1357, baseSize >= 0);
+#else
         CError_ASSERT(1178, baseSize >= 0);
+#endif
         size -= baseSize;
     }
 
@@ -801,7 +833,11 @@ SInt32 CABI_GetCtorOffsetOffset(TypeClass* tclass, TypeClass* baseclass) {
     if (tclass->eflags & CLASS_EFLAGS_STRUCT_ALIGN) {
         copts.structalignment = ((tclass->eflags & CLASS_EFLAGS_STRUCT_ALIGN) >> 4) - 1;
     }
+#if MWCCPSP
+    size += CMach_MemberAlignValue(TYPE(&stunsignedint), size);
+#else
     size += CMach_MemberAlignValue(TYPE(&stunsignedlong), size);
+#endif
     copts.structalignment = saveAlignMode;
 
     return size;
@@ -833,11 +869,19 @@ static Statement* CABI_InitVBaseCtorOffsets(Statement* stmt, TypeClass* tclass) 
 
             expr = makediadicnode(
                 create_objectnode(tempObj),
+#if MWCCPSP
+                intconstnode(TYPE_UNSIGNED_OFFSET, ctorOffsetOffset),
+#else
                 intconstnode(TYPE(&stunsignedlong), ctorOffsetOffset),
+#endif
                 EADD
             );
             expr = makemonadicnode(expr, EINDIRECT);
+#if MWCCPSP
+            expr->rtype = TYPE_UNSIGNED_OFFSET;
+#else
             expr->rtype = TYPE(&stunsignedlong);
+#endif
             expr = makediadicnode(
                 expr,
                 makediadicnode(CABI_MakeThisExpr(NULL, vboffset), create_objectnode(tempObj), ESUB),
@@ -888,7 +932,11 @@ static Statement* CABI_InitVTablePtrs(
             if (voffset + CABI_GetVTableOffset(baseclass)) {
                 vtblExpr = makediadicnode(
                     vtblExpr,
+#if MWCCPSP
+                    intconstnode(TYPE_UNSIGNED_OFFSET, voffset + CABI_GetVTableOffset(baseclass)),
+#else
                     intconstnode(TYPE(&stunsignedlong), voffset + CABI_GetVTableOffset(baseclass)),
+#endif
                     EADD
                 );
             }
@@ -896,7 +944,11 @@ static Statement* CABI_InitVTablePtrs(
             pathExpr = CClass_AccessPathCast(&cabi_pathroot, CABI_MakeThisExpr(tclass, 0), FALSE);
             if (baseclass->vtable->offset != 0 && !canadd(pathExpr, baseclass->vtable->offset)) {
                 pathExpr = makediadicnode(
+#if MWCCPSP
+                    pathExpr, intconstnode(TYPE_UNSIGNED_OFFSET, baseclass->vtable->offset), EADD
+#else
                     pathExpr, intconstnode(TYPE(&stunsignedlong), baseclass->vtable->offset), EADD
+#endif
                 );
                 optimizecomm(pathExpr);
             }
@@ -1347,7 +1399,9 @@ static Type* CABI_FindIntegralSizeType(SInt32 size) {
     return NULL;
 }
 
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(2)
+#endif
 typedef struct CopyRegion {
     struct CopyRegion* next;
     Type* type;
@@ -1526,7 +1580,11 @@ static Statement* CABI_CopyConAssignCB(
 
             if (!canadd(expr->data.monadic, regions->start)) {
                 expr->data.monadic = makediadicnode(
+#if MWCCPSP
+                    expr->data.monadic, intconstnode(TYPE_UNSIGNED_OFFSET, regions->start), EADD
+#else
                     expr->data.monadic, intconstnode(TYPE(&stunsignedlong), regions->start), EADD
+#endif
                 );
                 optimizecomm(expr->data.monadic);
             }
@@ -1548,7 +1606,11 @@ static Statement* CABI_CopyConAssignCB(
                             expr = CABI_MakeCopyConArgExpr(tclass, isCopyCtor)->data.monadic;
                             if (!canadd(expr, regions->start)) {
                                 expr = makediadicnode(
+#if MWCCPSP
+                                    expr, intconstnode(TYPE_UNSIGNED_OFFSET, regions->start), EADD
+#else
                                     expr, intconstnode(TYPE(&stunsignedlong), regions->start), EADD
+#endif
                                 );
                                 optimizecomm(expr);
                             }
@@ -1560,7 +1622,11 @@ static Statement* CABI_CopyConAssignCB(
                                 CDecl_NewPointerType(type),
                                 startExpr,
                                 endExpr,
+#if MWCCPSP
+                                intconstnode(TYPE_UNSIGNED_OFFSET, type->size),
+#else
                                 intconstnode(TYPE(&stunsignedlong), type->size),
+#endif
                                 expr,
                                 CABI_ClassInitLoopCallBack
                             );
@@ -1572,7 +1638,11 @@ static Statement* CABI_CopyConAssignCB(
                                 if (!canadd(expr->data.monadic, off)) {
                                     expr->data.monadic = makediadicnode(
                                         expr->data.monadic,
+#if MWCCPSP
+                                        intconstnode(TYPE_UNSIGNED_OFFSET, off),
+#else
                                         intconstnode(TYPE(&stunsignedlong), off),
+#endif
                                         EADD
                                     );
                                     optimizecomm(expr->data.monadic);
@@ -2176,3 +2246,37 @@ ENode* CABI_DestroyObject(
     list->node = intconstnode(TYPE(&stsignedshort), varg);
     return expr;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1: a guard flag for a static local that needs dynamic initialization
+// (named by the mangler, func_0049F480)
+extern void func_0049F480(Object* guard, Object* obj);
+
+// 0x51F0B0: guard = 1
+ENode* CABI_GuardSet(Object* guard) {
+    return makediadicnode(create_objectnode(guard), intconstnode(TYPE(&stsignedchar), 1), EASS);
+}
+
+// 0x51F0E0: the guard's value
+ENode* CABI_GuardTest(Object* guard, Boolean unused) {
+    return create_objectnode(guard);
+}
+
+// 0x51F0F0
+Object* CABI_CreateGuard(Object* obj) {
+    Object* guard;
+
+    CError_ASSERT(189, obj);
+    guard = CParser_NewCompilerDefDataObject();
+    guard->type = TYPE(&stsignedchar);
+    guard->name = CParser_GetUniqueName();
+    guard->sclass = obj->sclass;
+    guard->qual |= obj->qual & (Q_IMPLICIT_WEAK | Q_WEAK);
+    CParser_UpdateObject(guard, NULL);
+    func_0049F480(guard, obj);
+    CInit_DeclareData(guard, NULL, NULL, guard->type->size);
+    return guard;
+}
+#endif

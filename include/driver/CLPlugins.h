@@ -28,9 +28,20 @@ extern DropInFlags* Plugin_GetDropInFlags(Plugin* pl);
 extern OSType Plugin_GetPluginType(Plugin* pl);
 extern const CWObjectFlags* Plugin_CL_GetObjectFlags(Plugin* pl);
 extern Boolean Plugin_CL_MatchesTarget(Plugin* pl, OSType cpu, OSType os, Boolean exact);
+#if MWCCPSP
+extern Boolean Plugin_CL_WriteObjectFile(
+    Plugin* pl,
+    const OSSpec* srcfss,
+    const OSSpec* outfss,
+    OSType creator,
+    OSType type,
+    DriverHandle data
+);
+#else
 extern Boolean Plugin_CL_WriteObjectFile(
     Plugin* pl, FSSpec* srcfss, FSSpec* outfss, OSType creator, OSType type, Handle data
 );
+#endif
 extern Boolean Plugin_CL_GetCompilerMapping(
     Plugin* pl, OSType type, const char* ext, UInt32* flags
 );

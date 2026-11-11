@@ -21,11 +21,78 @@
 #include "driver/MsDos.h"
 #include "driver/oslib.h"
 #include "driver/pref_structs.h"
+#if MWCCPSP
+#include <stdio.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
 extern "C" {
 
+#if MWCCPSP
+extern "C" {
+extern ShellHandleEntry* ShellHandles_Add(
+    CWPluginContext context,
+    void* ptr,
+    Boolean keep2,
+    Boolean isHandle,
+    Boolean keep,
+    Boolean hasMacHandle
+);
+extern ShellHandleEntry* ShellHandles_Find(CWPluginContext context, void* ptr, Boolean isHandle);
+extern void ShellHandles_Remove(CWPluginContext context, void* ptr, Boolean isHandle);
+// 0x41C280: reads an object file the plugin wrote back into memory
+extern Boolean func_0041C280(File* file);
+}
+
+// 0x42B390: the shell's spec; the handle goes to the include cache
+CW_CALLBACK UCBCachePrecompiledHeader(
+    CWPluginContext context, const CWFileSpec* filespec, CWMemHandle pchhandle
+) {
+    OSSpec spec;
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBCachePrecompiledHeader");
+    }
+
+    if (ShellHandles_Find(context, pchhandle, TRUE)) {
+        spec = *reinterpret_cast<const OSSpec*>(filespec);
+        CacheIncludeFile(&spec, reinterpret_cast<OSHandle*>(pchhandle), TRUE);
+        ShellHandles_Remove(context, pchhandle, TRUE);
+        return cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42B420
+CW_CALLBACK UCBLoadObjectData(CWPluginContext context, SInt32 whichfile, CWMemHandle* objectdata) {
+    File* file;
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBLoadObjectData");
+    }
+
+    *objectdata = NULL;
+    if (whichfile == -1) {
+        whichfile = static_cast<CWCompilerLinkerContext*>(context)->whichfile;
+    }
+    file = Files_GetFile(&gTarg->files, whichfile);
+    if (!file) {
+        return cwErrUnknownFile;
+    }
+    if (!file->objectdata && file->objectOnDisk && !func_0041C280(file)) {
+        return cwErrRequestFailed;
+    }
+    if (!file->objectdata) {
+        return cwErrRequestFailed;
+    }
+    *objectdata = reinterpret_cast<CWMemHandle>(file->objectdata);
+    if (!ShellHandles_Find(context, file->objectdata, TRUE)) {
+        ShellHandles_Add(context, file->objectdata, TRUE, TRUE, FALSE, FALSE);
+    }
+    return cwNoErr;
+}
+#else
 CW_CALLBACK UCBCachePrecompiledHeader(
     CWPluginContext context, const CWFileSpec* filespec, CWMemHandle pchhandle
 ) {
@@ -58,7 +125,106 @@ CW_CALLBACK UCBLoadObjectData(CWPluginContext context, SInt32 whichfile, CWMemHa
         return cwErrRequestFailed;
     }
 }
+#endif
 
+#if MWCCPSP
+// 0x428470: UCBFindAndLoadFile with the shell's file info
+extern "C" CW_CALLBACK func_00428470(
+    CWPluginContext context, const char* filename, ShellFileInfo* fileinfo
+);
+
+// 0x42B510
+CW_CALLBACK UCBStoreObjectData(CWPluginContext context, SInt32 whichfile, CWObjectData* object) {
+    File* filedata;
+    ShellFileInfo fi;
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBStoreObjectData");
+    }
+
+    if (CheckForUserBreak()) {
+        return cwErrUserCanceled;
+    }
+
+    if (whichfile == -1) {
+        whichfile = static_cast<CWCompilerLinkerContext*>(context)->whichfile;
+    }
+    filedata = Files_GetFile(&gTarg->files, whichfile);
+    if (!filedata) {
+        return cwErrUnknownFile;
+    }
+
+    if (object->objectfile) {
+        if (filedata->outfileowner && filedata->outfileowner != CmdLineStageMask_Cg) {
+            DO_INTERNAL_ERROR(
+                278, "Cannot store object file spec for '%s'\n", filedata->srcfilename
+            );
+        }
+        filedata->outfss = *reinterpret_cast<const OSSpec*>(object->objectfile);
+        filedata->wroteToDisk |= CmdLineStageMask_Cg;
+        if (optsCmdLine.verbose) {
+            CLReport(
+                CLStr14,
+                filedata->srcfilename,
+                OS_SpecToStringRelative(&filedata->outfss, NULL, STSbuf, sizeof(STSbuf))
+            );
+        }
+        if (!filedata->objectdata) {
+            filedata->objectOnDisk = TRUE;
+        }
+    } else {
+        if (filedata->objectdata &&
+            filedata->objectdata != reinterpret_cast<OSHandle*>(object->objectdata)) {
+            OS_FreeHandle(filedata->objectdata);
+        }
+        if (filedata->browsedata &&
+            filedata->browsedata != reinterpret_cast<OSHandle*>(object->browsedata)) {
+            OS_FreeHandle(filedata->browsedata);
+        }
+        filedata->objectdata = reinterpret_cast<OSHandle*>(object->objectdata);
+        filedata->browsedata = reinterpret_cast<OSHandle*>(object->browsedata);
+        ShellHandles_Remove(context, filedata->objectdata, TRUE);
+        ShellHandles_Remove(context, filedata->browsedata, TRUE);
+        filedata->objectOnDisk = FALSE;
+    }
+
+    filedata->codesize = object->codesize;
+    filedata->udatasize = object->udatasize;
+    filedata->idatasize = object->idatasize;
+    filedata->compiledlines = object->compiledlines;
+    filedata->recompileDependents = object->dependencyCount && object->interfaceChanged;
+    OS_GetTime(&filedata->outmoddate);
+    if (object->reserved1) {
+        filedata->filetype = object->reserved1;
+    }
+
+    if (object->reserved2) {
+        char* newname = reinterpret_cast<char*>(object->reserved2);
+        if (OS_MakeSpec(newname, &filedata->srcfss, NULL) || OS_Status(&filedata->srcfss)) {
+            fi.fullsearch = TRUE;
+            fi.dependencyType = cwNoDependency;
+            fi.isdependentoffile = -1;
+            fi.suppressload = TRUE;
+            if (func_00428470(context, newname, &fi) == cwNoErr) {
+                filedata->srcfss = fi.filespec;
+            } else {
+                char* fnptr = OS_GetFileNamePtr(newname);
+                if (fnptr != newname) {
+                    fi.fullsearch = TRUE;
+                    fi.dependencyType = cwNoDependency;
+                    fi.isdependentoffile = -1;
+                    fi.suppressload = TRUE;
+                    if (func_00428470(context, fnptr, &fi) == cwNoErr) {
+                        filedata->srcfss = fi.filespec;
+                    }
+                }
+            }
+        }
+    }
+
+    return cwNoErr;
+}
+#else
 CW_CALLBACK UCBStoreObjectData(CWPluginContext context, SInt32 whichfile, CWObjectData* object) {
     if (optsCmdLine.verbose > 3) {
         CLPrint("Callback: %s\n", "UCBStoreObjectData");
@@ -134,7 +300,35 @@ CW_CALLBACK UCBStoreObjectData(CWPluginContext context, SInt32 whichfile, CWObje
 
     return cwNoErr;
 }
+#endif
 
+#if MWCCPSP
+// 0x41C200: releases a file's object data
+extern "C" void func_0041C200(File* file);
+
+// 0x42B7D0
+CW_CALLBACK UCBFreeObjectData(CWPluginContext context, SInt32 whichfile, CWMemHandle objectdata) {
+    File* file;
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBFreeObjectData");
+    }
+
+    if (whichfile == -1) {
+        whichfile = static_cast<CWCompilerLinkerContext*>(context)->whichfile;
+    }
+    file = Files_GetFile(&gTarg->files, whichfile);
+    if (!file) {
+        return cwErrUnknownFile;
+    }
+    if (file->objectdata && file->objectdata == reinterpret_cast<OSHandle*>(objectdata)) {
+        ShellHandles_Remove(context, objectdata, TRUE);
+        func_0041C200(file);
+        return cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+#else
 CW_CALLBACK UCBFreeObjectData(CWPluginContext context, SInt32 whichfile, CWMemHandle objectdata) {
     if (optsCmdLine.verbose > 3) {
         CLPrint("Callback: %s\n", "UCBFreeObjectData");
@@ -153,11 +347,16 @@ CW_CALLBACK UCBFreeObjectData(CWPluginContext context, SInt32 whichfile, CWMemHa
         return cwErrInvalidParameter;
     }
 }
+#endif
 
 CW_CALLBACK UCBDisplayLines(CWPluginContext context, SInt32 nlines) {
     ShowWorking(12);
 
+#if MWCCPSP
+    if (optsCmdLine.verbose > 5) {
+#else
     if (optsCmdLine.verbose > 3) {
+#endif
         CLPrint("Callback: %s\n", "UCBDisplayLines");
     }
 
@@ -175,7 +374,11 @@ CW_CALLBACK UCBBeginSubCompile(
         CLPrint("Callback: %s\n", "UCBBeginSubCompile");
     }
 
+#if MWCCPSP
+    DO_INTERNAL_ERROR(427, "UCBBeginSubCompile not implemented");
+#else
     DO_INTERNAL_ERROR(372, "UCBBeginSubCompile not implemented");
+#endif
     return cwErrRequestFailed;
 }
 
@@ -184,7 +387,11 @@ CW_CALLBACK UCBEndSubCompile(CWPluginContext subContext) {
         CLPrint("Callback: %s\n", "UCBEndSubCompile");
     }
 
+#if MWCCPSP
+    DO_INTERNAL_ERROR(439, "UCBEndSubCompile not implemented");
+#else
     DO_INTERNAL_ERROR(384, "UCBEndSubCompile not implemented");
+#endif
     return cwErrRequestFailed;
 }
 
@@ -209,7 +416,11 @@ CW_CALLBACK UCBGetPrecompiledHeaderSpec(
     }
 
     file = Files_GetFile(&gTarg->files, c->whichfile);
+#if MWCCPSP
+    OS_ASSERT(475, file != NULL);
+#else
     OS_ASSERT(420, file != NULL);
+#endif
 
     cof = Plugin_CL_GetObjectFlags(file->compiler);
     if (!file->outfilename[0]) {
@@ -257,7 +468,11 @@ CW_CALLBACK UCBGetPrecompiledHeaderSpec(
             CLReport(CLStr59, OS_SpecToStringRelative(&outfss, NULL, STSbuf, sizeof(STSbuf)));
         }
 
+#if MWCCPSP
+        SHELL_SPEC_FROM_OSSPEC(&outfss, pchspec);
+#else
         OS_OSSpec_To_FSSpec(&outfss, pchspec);
+#endif
     } else {
         err = OS_MakeSpecWithPath(&gTarg->outputDirectory, file->outfilename, FALSE, &outfss);
         if (err) {
@@ -265,7 +480,11 @@ CW_CALLBACK UCBGetPrecompiledHeaderSpec(
             return cwErrRequestFailed;
         }
 
+#if MWCCPSP
+        SHELL_SPEC_FROM_OSSPEC(&outfss, pchspec);
+#else
         OS_OSSpec_To_FSSpec(&outfss, pchspec);
+#endif
 
         if (intarget) {
             CLReport(
@@ -282,7 +501,11 @@ CW_CALLBACK UCBGetResourceFile(CWPluginContext context, CWFileSpec* filespec) {
         CLPrint("Callback: %s\n", "UCBGetResourceFile");
     }
 
+#if MWCCPSP
+    DO_INTERNAL_ERROR(569, "UCBGetResourceFile not implemented");
+#else
     DO_INTERNAL_ERROR(514, "UCBGetResourceFile not implemented");
+#endif
     return cwErrRequestFailed;
 }
 
@@ -293,7 +516,11 @@ CW_CALLBACK UCBPutResourceFile(
         CLPrint("Callback: %s\n", "UCBPutResourceFile");
     }
 
+#if MWCCPSP
+    DO_INTERNAL_ERROR(584, "UCBPutResourceFile not implemented");
+#else
     DO_INTERNAL_ERROR(529, "UCBPutResourceFile not implemented");
+#endif
     return cwErrRequestFailed;
 }
 
@@ -339,7 +566,11 @@ CW_CALLBACK UCBLookUpUnit(
     }
 
     srcfile = Files_GetFile(&gTarg->files, c->whichfile);
+#if MWCCPSP
+    OS_ASSERT(646, srcfile != NULL);
+#else
     OS_ASSERT(591, srcfile != NULL);
+#endif
 
     *unitdata = NULL;
     *unitdatalength = 0;
@@ -363,7 +594,11 @@ CW_CALLBACK UCBLookUpUnit(
         return cwErrFileNotFound;
     }
 
+#if MWCCPSP
+    SHELL_SPEC_TO_OSSPEC(&includeinfo.filespec, &unitspec);
+#else
     OS_FSSpec_To_OSSpec(&includeinfo.filespec, &unitspec);
+#endif
     sbmspec = unitspec;
     err = UnitNameToSBMName(&sbmspec, srcfile);
     if (err) {
@@ -404,7 +639,15 @@ CW_CALLBACK UCBLookUpUnit(
         return cwErrFileNotFound;
     }
 
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+    sbmspec = includeinfo.filespec;
+#else
+    SHELL_SPEC_TO_OSSPEC(&includeinfo.filespec, &sbmspec);
+#endif
+#else
     OS_FSSpec_To_OSSpec(&includeinfo.filespec, &sbmspec);
+#endif
     if (includeinfo.filedatatype != cwFileTypePrecompiledHeader) {
         CLPrint(
             "UCBLookUpUnit:  file '%s' does not appear to be precompiled\n",
@@ -485,8 +728,10 @@ CW_CALLBACK UCBStoreUnit(
     char unitname[260];
     OSSpec sbmspec;
     int err;
+#if !MWCCPSP
     Handle h;
     OSHandle unithand;
+#endif
     OSFileHandle fhand;
     CWCompilerLinkerContext* c;
     File* srcfile;
@@ -507,7 +752,11 @@ CW_CALLBACK UCBStoreUnit(
         }
 
         srcfile = Files_GetFile(&gTarg->files, c->whichfile);
+#if MWCCPSP
+        OS_ASSERT(845, srcfile != NULL);
+#else
         OS_ASSERT(791, srcfile != NULL);
+#endif
 
         if (optsCompiler.sbmPath[0]) {
             err = OS_MakeSpecWithPath(&clState.sbmPathSpec, unitname, TRUE, &sbmspec);
@@ -553,9 +802,15 @@ CW_CALLBACK UCBStoreUnit(
             );
         }
 
+#if MWCCPSP
+        // 3.0.1: the unit data is an OSHandle; the shell forgets it
+        ShellHandles_Remove(context, unitdata, TRUE);
+        err = OS_NewFileHandle(&sbmspec, (OSHandle*)unitdata, TRUE, &fhand);
+#else
         UCBSecretDetachHandle(context, unitdata, &h);
         OS_DestroyMacHandle(h, &unithand);
         err = OS_NewFileHandle(&sbmspec, &unithand, TRUE, &fhand);
+#endif
         if (err || (err = OS_FreeFileHandle(&fhand))) {
             CLReportOSError(
                 CLStr18,
@@ -619,7 +874,11 @@ CW_CALLBACK UCBOSErrorMessage(CWPluginContext context, const char* message, OSEr
     if (optsCmdLine.verbose > 3) {
         CLPrint("Callback: %s\n", "UCBOSErrorMessage");
     }
+#if MWCCPSP
+    if (errorcode == cwNoErr) {
+#else
     if (!errorcode) {
+#endif
         return cwNoErr;
     }
     if (CheckForUserBreak()) {
@@ -648,7 +907,11 @@ CW_CALLBACK UCBGetModifiedFiles(
     }
 
     *modifiedFileCount = 0;
+#if MWCCPSP
+    DO_INTERNAL_ERROR(1002, "CWGetModifiedFiles not implemented!\n");
+#else
     DO_INTERNAL_ERROR(949, "CWGetModifiedFiles not implemented!\n");
+#endif
     return cwNoErr;
 }
 
@@ -668,7 +931,15 @@ CW_CALLBACK UCBGetSuggestedObjectFileSpec(
         return cwErrRequestFailed;
     }
 
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+    *fileSpec = file->outfss;
+#else
+    SHELL_SPEC_FROM_OSSPEC(&file->outfss, fileSpec);
+#endif
+#else
     OS_OSSpec_To_FSSpec(&file->outfss, fileSpec);
+#endif
     return cwNoErr;
 }
 
@@ -684,10 +955,22 @@ CW_CALLBACK UCBGetStoredObjectFileSpec(
         return cwErrUnknownFile;
     }
     if (file->outfileowner != CmdLineStageMask_Cg) {
+#if MWCCPSP
+        DO_INTERNAL_ERROR(1046, "Lost stored object file spec for '%s'\n", file->srcfilename);
+#else
         DO_INTERNAL_ERROR(993, "Lost stored object file spec for '%s'\n", file->srcfilename);
+#endif
         return cwErrRequestFailed;
     } else {
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+        *fileSpec = file->outfss;
+#else
+        SHELL_SPEC_FROM_OSSPEC(&file->outfss, fileSpec);
+#endif
+#else
         OS_OSSpec_To_FSSpec(&file->outfss, fileSpec);
+#endif
         return cwNoErr;
     }
 }
@@ -719,8 +1002,13 @@ CWCompilerLinkerCallbacks sCompilerLinkerCallbacks = {
 
 CWCompilerLinkerContext::CWCompilerLinkerContext()
     : CWPluginPrivateContext(clState.plugintype, sizeof(CWCompilerLinkerContext)) {
+#if MWCCPSP
+    targetinfo = static_cast<PluginTargetInfo*>(xmalloc("context", sizeof(PluginTargetInfo)));
+    memset(targetinfo, 0, sizeof(PluginTargetInfo));
+#else
     targetinfo = static_cast<CWTargetInfo*>(xmalloc("context", sizeof(CWTargetInfo)));
     memset(targetinfo, 0, sizeof(CWTargetInfo));
+#endif
 
     if (gTarg) {
         targetinfo->targetCPU = gTarg->cpu;
@@ -750,5 +1038,23 @@ CWCompilerLinkerContext::CWCompilerLinkerContext()
 }
 
 CWCompilerLinkerContext::~CWCompilerLinkerContext() {
+#if MWCCPSP
+    // 3.0.1 also frees what the linker request filled in
+    SInt32 i;
+
+    if (commandLineArgs) {
+        xfree((void*)commandLineArgs);
+    }
+    if (workingDirectorySpec) {
+        xfree(workingDirectorySpec);
+    }
+    if (environmentVariables) {
+        for (i = 0; i < numEnvironmentVariables; i++) {
+            xfree((void*)environmentVariables[i].name);
+            xfree((void*)environmentVariables[i].value);
+        }
+        xfree(environmentVariables);
+    }
+#endif
     xfree(targetinfo);
 }

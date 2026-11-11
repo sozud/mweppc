@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(push, 2)
+#endif
 
 typedef enum SOMMethodState {
     SOMMS_Deleted,
@@ -30,7 +32,9 @@ struct SOMInfo {
     UInt8 oidl_callstyle;
 };
 
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(pop)
+#endif
 
 #ifdef __cplusplus
 }

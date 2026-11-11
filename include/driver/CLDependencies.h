@@ -37,9 +37,20 @@ extern struct CPrepFileInfo** CLT_filestack;
 
 extern Boolean Incls_Initialize(Incls* incls, Target* targ);
 extern void Incls_Terminate(Incls* incls);
+#if MWCCPSP
+extern Boolean Incls_FindFileInPaths(
+    SInt32 specFormat,
+    Incls* incls,
+    char* filename,
+    Boolean fullsearch,
+    OSSpec* spec,
+    SInt32* inclidx
+);
+#else
 extern Boolean Incls_FindFileInPaths(
     Incls* incls, char* filename, Boolean fullsearch, OSSpec* spec, SInt32* inclidx
 );
+#endif
 extern Boolean Deps_Initialize(Deps* deps, Incls* incls);
 extern int Deps_ChangeSpecialAccessPath(OSSpec* srcfss, Boolean initialize);
 extern void Deps_AddDependency(

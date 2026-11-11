@@ -8,9 +8,15 @@
 extern "C" {
 #endif
 
+#if MWCCPSP
+extern short FixTextHandle(DriverHandle txt);
+extern int LoadAndCacheFile(OSSpec* spec, DriverHandle* texthandle, Boolean* precomp);
+extern void CopyFileText(DriverHandle src, char** text, SInt32* textsize);
+#else
 extern short FixTextHandle(Handle txt);
 extern int LoadAndCacheFile(OSSpec* spec, Handle* texthandle, Boolean* precomp);
 extern void CopyFileText(Handle src, char** text, SInt32* textsize);
+#endif
 
 #ifdef __cplusplus
 }

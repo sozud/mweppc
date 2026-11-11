@@ -48,6 +48,19 @@ Type* CDecl_NewStructType(SInt32 size, SInt16 align) {
     return (Type*)tstruct;
 }
 
+#if MWCCPSP
+Type* CDecl_NewArrayType(Type* type, SInt32 size) {
+    TypeArray301* tarray = galloc(sizeof(TypeArray301));
+    memclrw(tarray, sizeof(TypeArray301));
+
+    tarray->type = TYPEARRAY;
+    tarray->size = size;
+    tarray->target = type;
+    tarray->count = type->size ? size / type->size : 0;
+
+    return (Type*)tarray;
+}
+#else
 Type* CDecl_NewArrayType(Type* type, SInt32 size) {
     TypePointer* tarray = galloc(sizeof(TypePointer));
     memclrw(tarray, sizeof(TypePointer));
@@ -59,6 +72,7 @@ Type* CDecl_NewArrayType(Type* type, SInt32 size) {
 
     return (Type*)tarray;
 }
+#endif
 
 Type* CDecl_NewPointerType(Type* type) {
     TypePointer* tptr = galloc(sizeof(TypePointer));
@@ -192,12 +206,20 @@ void CDecl_CompleteType(Type* type) {
 
 Boolean IsCompleteType(Type* type) {
     switch (type->type) {
+#if MWCCPSP
+        // 3.0.1 names the type, for functions too
+        case TYPEVOID:
+        case TYPEFUNC:
+            CError_Error(ERR_ILLEGAL_USE_VOID, type, 0);
+            return FALSE;
+#else
         case TYPEVOID:
             CError_Error(ERR_ILLEGAL_USE_VOID);
             return FALSE;
         case TYPEFUNC:
             CError_Error(ERR_ILLEGAL_TYPE);
             return FALSE;
+#endif
         case TYPESTRUCT:
             if (!type->size) {
                 CError_Error(ERR_ILLEGAL_USE_INCOMPLETE_STRUCT_UNION_CLASS, type, 0);
@@ -220,15 +242,29 @@ Boolean IsCompleteType(Type* type) {
             return TRUE;
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern void func_00500E90(void* list); // walks the list (0x500ED0 per entry)
+extern TemplClass* CTemplTool_GetTemplClass(TypeClass* tclass);
+#endif
 
 Boolean CanAllocObject(Type* type) {
     switch (type->type) {
+#if MWCCPSP
+        case TYPEVOID:
+        case TYPEFUNC:
+            CError_Error(ERR_ILLEGAL_USE_VOID, type, 0); // 3.0.1 names the type
+            return FALSE;
+#else
         case TYPEVOID:
             CError_Error(ERR_ILLEGAL_USE_VOID);
             return FALSE;
         case TYPEFUNC:
             CError_Error(ERR_ILLEGAL_TYPE);
             return FALSE;
+#endif
         case TYPECLASS:
             if (TYPE_CLASS(type)->flags & CLASS_ABSTRACT) {
                 CError_AbstractClassError(TYPE_CLASS(type));
@@ -249,10 +285,12 @@ Boolean CanCreateObject(Type* type) {
             CError_Error(ERR_ILLEGAL_USE_HANDLEOBJECT);
             return FALSE;
         }
+#if !MWCCPSP // no Objective-C in 3.0.1
         if (TYPE_CLASS(type)->objcinfo) {
             CError_Error(ERR_ILLEGAL_USE_OBJECTIVE_C_OBJECT);
             return FALSE;
         }
+#endif
     }
 
     return TRUE;
@@ -490,6 +528,13 @@ static void scandirectdecl1(DeclInfo* declinfo) {
         declinfo->hasArrayDimension = TRUE;
         scandirectdecl1(declinfo);
 
+#if MWCCPSP
+        // 3.0.1: an unsized dimension may not have an unsized element array
+        if (unsized && IS_TYPE_ARRAY(declinfo->thetype) && !declinfo->thetype->size) {
+            CError_Error(ERR_DATA_TYPE_INCOMPLETE);
+            declinfo->thetype = (Type*)&stsignedchar;
+        }
+#endif
         if (!unsized && !CDecl_CheckArrayIntegr(declinfo->thetype)) {
             declinfo->thetype = (Type*)&stsignedchar;
         }
@@ -505,8 +550,25 @@ static void scandirectdecl1(DeclInfo* declinfo) {
             return;
         }
 
+#if MWCCPSP
+        {
+            // 3.0.1: the array size is computed in 64 bits and checked
+            CInt64 size;
+            CInt64 max;
+
+            CInt64_SetULong(&size, declinfo->thetype->size);
+            size = CInt64_Mul(size, len);
+            CInt64_SetULong(&max, 0x7FFFFFFF);
+            if (CInt64_GreaterU(size, max)) {
+                CError_Error(ERR_TYPE_TOO_LARGE, max.lo);
+                size = cint64_one;
+            }
+            declinfo->thetype = CDecl_NewArrayType(declinfo->thetype, size.lo);
+        }
+#else
         declinfo->thetype =
             CDecl_NewArrayType(declinfo->thetype, declinfo->thetype->size * CInt64_GetULong(&len));
+#endif
     } else if (tk == '(') {
         if (!copts.cplusplus ||
             !declinfo->name ||
@@ -626,7 +688,11 @@ static Boolean CDecl_ParseOperatorDecl(DeclInfo* declinfo) {
     }
 
     declinfo->operator_token = 0;
+#if MWCCPSP
+    if (!CPARSER_PARSEOPNAME(
+#else
     if (!CParser_ParseOperatorName(
+#endif
             &declinfo->operator_token, declinfo->parserOption && cscope_current->theclass, FALSE
         )) {
         return FALSE;
@@ -844,7 +910,18 @@ static void scandirectdeclarator(DeclInfo* declinfo, NameSpace* nspace) {
     Boolean isOperator;
 
     if (nspace) {
+#if MWCCPSP
+        // 3.0.1: with +0x66 set the qualifying namespace is only recorded
+        // (in +0x10) and the scope is left as it is
+        if (!declinfo->unk66[0]) {
+            CScope_SetNameSpaceScope(nspace, &scopesave);
+        } else {
+            CScope_GetScope(&scopesave);
+            declinfo->unk10 = nspace;
+        }
+#else
         CScope_SetNameSpaceScope(nspace, &scopesave);
+#endif
     }
 
     if (tk == '(') {
@@ -971,6 +1048,9 @@ static void scandirectdeclarator(DeclInfo* declinfo, NameSpace* nspace) {
 
     if (nspace) {
         CScope_RestoreScope(&scopesave);
+#if MWCCPSP
+        declinfo->unk10 = NULL;
+#endif
     }
 }
 
@@ -1078,7 +1158,11 @@ void CDecl_ScanPointer(DeclInfo* declinfo, NameSpace* nspace, Boolean scanDeclar
                     break;
                 }
             case TK_COLON_COLON:
+#if MWCCPSP
+                if (CSCOPE_PARSEQUALNS(&pr, TRUE, FALSE)) {
+#else
                 if (CScope_ParseQualifiedNameSpace(&pr, TRUE, FALSE)) {
+#endif
                     if ((nspace = pr.nspace)) {
                         if (nspace->theclass && tk == '*') {
                             continue;
@@ -1121,6 +1205,71 @@ static void CDecl_TemplatePTM(DeclInfo* declinfo, Type* type) {
     declinfo->thetype = (Type*)tmemp;
 }
 
+#if MWCCPSP
+// 3.0.1 (0x4C1120): no asm register variables here; a template type is
+// tried before a namespace, and a qualified declarator may carry attributes
+void scandeclarator(DeclInfo* declinfo) {
+    NameResult pr;
+    NameSpace* nspace;
+
+    switch (tk) {
+        case '&':
+            if (!copts.cplusplus) {
+                break;
+            }
+        case '*':
+            CDecl_ScanPointer(declinfo, NULL, TRUE);
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(NULL, declinfo);
+            }
+            return;
+        case TK_IDENTIFIER:
+            if (!copts.cplusplus) {
+                break;
+            }
+        case TK_COLON_COLON:
+            if (CSCOPE_PARSEQUALNS(&pr, TRUE, FALSE)) {
+                if (pr.type && IS_TYPE_TEMPLATE(pr.type)) {
+                    if (declinfo->templateParameters &&
+                        CTempl_IsQualifiedMember(declinfo, pr.type, &nspace)) {
+                        scandirectdeclarator(declinfo, nspace);
+                        return;
+                    }
+                    if (declinfo->templateParameters && tk == TK_OPERATOR) {
+                        declinfo->templateType = pr.type;
+                        return;
+                    }
+                    if ((tk = lex()) == TK_COLON_COLON && (tk = lex()) == '*') {
+                        CDecl_TemplatePTM(declinfo, pr.type);
+                        tk = lex();
+                        break;
+                    }
+                    if (declinfo->templateParameters) {
+                        declinfo->templateType = pr.type;
+                        return;
+                    }
+                }
+                nspace = pr.nspace;
+                if (nspace) {
+                    if (nspace->theclass && tk == '*') {
+                        CDecl_ScanPointer(declinfo, nspace, TRUE);
+                        return;
+                    }
+                    scandirectdeclarator(declinfo, nspace);
+                    goto attributes;
+                }
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            break;
+    }
+
+    scandirectdeclarator(declinfo, NULL);
+attributes:
+    if (tk == TK_UU_ATTRIBUTE_UU) {
+        CParser_ParseAttribute(NULL, declinfo);
+    }
+}
+#else
 void scandeclarator(DeclInfo* declinfo) {
     NameResult pr;
     NameSpace* nspace;
@@ -1184,6 +1333,7 @@ void scandeclarator(DeclInfo* declinfo) {
         CParser_ParseAttribute(NULL, declinfo);
     }
 }
+#endif
 
 void conversion_type_name(DeclInfo* declinfo) {
     DeclInfo subdeclinfo;
@@ -1199,7 +1349,11 @@ void conversion_type_name(DeclInfo* declinfo) {
             break;
         case TK_IDENTIFIER:
         case TK_COLON_COLON:
+#if MWCCPSP
+            if (CSCOPE_PARSEQUALNS(&pr, FALSE, FALSE)) {
+#else
             if (CScope_ParseQualifiedNameSpace(&pr, FALSE, FALSE)) {
+#endif
                 NameSpace* nspace = pr.nspace;
                 if (nspace && nspace->theclass && tk == '*') {
                     CDecl_ScanPointer(&subdeclinfo, nspace, FALSE);
@@ -1544,7 +1698,13 @@ static void CDecl_MergeArrayArgFlags(FuncArg* a, FuncArg* b) {
     }
 }
 
+#if MWCCPSP
+static inline void CDecl_FuncRedeclCheck(
+    Object* obj, DeclInfo* declinfo, Boolean isNew
+) { // inlined in 3.0.1
+#else
 static void CDecl_FuncRedeclCheck(Object* obj, DeclInfo* declinfo, Boolean isNew) {
+#endif
     if (declinfo->storageclass == TK_STATIC && obj->sclass != TK_STATIC) {
         if (copts.cplusplus) {
             CError_Error(ERR_INCONSISTENT_LINKAGE_EXTERN_OBJECT_REDECLARED_AS);
@@ -1566,6 +1726,77 @@ static void CDecl_FuncRedeclCheck(Object* obj, DeclInfo* declinfo, Boolean isNew
     }
 }
 
+#if MWCCPSP
+extern Boolean oldstylecompatible(FuncArg* arg);
+extern void func_004E0C30(
+    TypeFunc* a, UInt32* aqual, TypeFunc* b, UInt32* bqual
+); // exception specs (3.0.1)
+
+// CDecl_AddThisPointerArgument as 3.0.1 inlines it into CDecl_GetFunctionObject
+static inline void CDecl_AddThisPointerArgumentInline(TypeFunc* tfunc, TypeClass* tclass) {
+    Type* ptype;
+    FuncArg* arg;
+
+    ptype = CDecl_NewPointerType(tclass->sominfo == NULL ? (Type*)tclass : &stvoid);
+    TYPE_POINTER(ptype)->qual = Q_CONST;
+
+    arg = CParser_NewFuncArg();
+    arg->name = this_name_node;
+    arg->type = ptype;
+    if (tfunc->flags & FUNC_CONST) {
+        arg->qual |= Q_CONST;
+    }
+    if (tfunc->flags & FUNC_VOLATILE) {
+        arg->qual |= Q_VOLATILE;
+    }
+    arg->next = tfunc->args;
+    tfunc->args = arg;
+}
+
+// 0x4C08F0: is a C redeclaration of a function the same function? An
+// old-style definition with parameter names matches a prototype with the
+// same number of (promotion-compatible) parameters. Name not known.
+static Boolean CDecl_IsSameCFunction(TypeFunc* a, TypeFunc* b, FuncArg* names, Boolean hasNames) {
+    FuncArg* args;
+
+    if (!IS_TYPE_FUNC(b) || !IS_TYPE_FUNC(a)) {
+        return FALSE;
+    }
+    if (!is_typesame(a->functype, b->functype)) {
+        return FALSE;
+    }
+    if (a->qual != b->qual) {
+        return FALSE;
+    }
+    if ((a->flags & FUNC_CALL_CONV_MASK) != (b->flags & FUNC_CALL_CONV_MASK)) {
+        return FALSE;
+    }
+    if (b->args == &oldstyle) {
+        return oldstylecompatible(a->args);
+    }
+    if (a->args != &oldstyle) {
+        return is_arglistsame(a->args, b->args);
+    }
+    if (!hasNames) {
+        return oldstylecompatible(b->args);
+    }
+    args = b->args;
+    while (1) {
+        if (!args) {
+            if (names) {
+                return FALSE;
+            }
+            return oldstylecompatible(b->args);
+        }
+        if (!names) {
+            return FALSE;
+        }
+        args = args->next;
+        names = names->next;
+    }
+}
+
+#endif
 Object* CDecl_GetFunctionObject(
     DeclInfo* declinfo, NameSpace* nspace, Boolean* firstDecl, Boolean matchTemplate
 ) {
@@ -1605,6 +1836,135 @@ Object* CDecl_GetFunctionObject(
             break;
     }
 
+#if MWCCPSP
+    if (nspace2->theclass) {
+        CError_ASSERT(2272, declinfo->name);
+        if (!nspace2->theclass->size) {
+            CDecl_CompleteType(TYPE(nspace2->theclass));
+        }
+        if (!(list = CScope_GetLocalObject(nspace2, declinfo->name))) {
+            // 3.0.1: a templated conversion operator
+            if (declinfo->isConversionOperator && nspace2->theclass) {
+                ConversionIterator iter;
+                Object* conv;
+                Object* inst;
+
+                CError_ASSERT(2281, IS_TYPE_FUNC(declinfo->thetype));
+                CExpr_ConversionIteratorInit(&iter, nspace2->theclass);
+                while ((conv = CExpr_ConversionIteratorNext(&iter))) {
+                    if ((TYPE_FUNC(conv->type)->flags & 0x100000) &&
+                        (inst = CTempl_DeduceFromConversion(
+                             conv,
+                             TYPE_FUNC(declinfo->thetype)->functype,
+                             TYPE_FUNC(declinfo->thetype)->qual
+                         ))) {
+                        declinfo->requireTemplateClassMember = FALSE;
+                        declinfo->templateFunction = CTemplTool_GetFuncTempl(conv);
+                        return inst;
+                    }
+                }
+            }
+            CError_Error(ERR_UNDEFINED_IDENTIFIER, declinfo->name->name);
+            return NULL;
+        }
+
+        obj = OBJECT(list->object);
+        type = obj->type;
+        if (!IS_TYPE_FUNC(type) && obj->sclass != TK_USING) {
+            CError_Error(
+                ERR_IDENTIFIER_REDECLARED_WAS_DECLARED_AS_NOW,
+                CError_GetObjectName(obj),
+                type,
+                obj->qual,
+                declinfo->thetype,
+                declinfo->qual
+            );
+            return NULL;
+        }
+
+        if (declinfo->has_expltargs) {
+            return CTempl_TemplateFunctionCheck(declinfo, list);
+        }
+
+        if (declinfo->requireTemplateClassMember ||
+            (list->next && list->next->object->otype == OT_OBJECT)) {
+            if (TYPE_FUNC(declinfo->thetype)->flags & (FUNC_CONST | FUNC_VOLATILE)) {
+                TypeMemberFunc* tmeth = galloc(sizeof(TypeMemberFunc));
+                memclrw(tmeth, sizeof(TypeMemberFunc));
+                *TYPE_FUNC(tmeth) = *TYPE_FUNC(declinfo->thetype);
+                tmeth->theclass = nspace2->theclass;
+                tmeth->flags |= FUNC_METHOD;
+                CDecl_AddThisPointerArgumentInline(TYPE_FUNC(tmeth), nspace2->theclass);
+                declinfo->thetype = TYPE(tmeth);
+                obj = CDecl_OverloadFunctionObject(
+                    list, declinfo, NULL, OverloadMode_Member, matchTemplate
+                );
+                if (!obj) {
+                    return NULL;
+                }
+            } else {
+                obj = CDecl_OverloadFunctionObject(
+                    list, declinfo, NULL, OverloadMode_MemberWithoutThis, matchTemplate
+                );
+                if (!obj) {
+                    return NULL;
+                }
+                if (!TYPE_METHOD(obj->type)->is_static) {
+                    CDecl_AddThisPointerArgumentInline(
+                        TYPE_FUNC(declinfo->thetype), nspace2->theclass
+                    );
+                }
+            }
+        } else {
+            if (TYPE_METHOD(type)->is_static) {
+                if (nspace2->theclass->sominfo) {
+                    CSOM_FixNewDeleteFunctype(TYPE_FUNC(declinfo->thetype));
+                }
+            } else {
+                CDecl_AddThisPointerArgumentInline(TYPE_FUNC(declinfo->thetype), nspace2->theclass);
+            }
+
+            if (copts.cpp_extensions) {
+                declinfo->qual |= obj->qual & (Q_PASCAL | Q_CONST);
+                TYPE_FUNC(declinfo->thetype)->qual |=
+                    TYPE_FUNC(obj->type)->qual & (Q_PASCAL | Q_CONST);
+                TYPE_FUNC(declinfo->thetype)->flags |=
+                    TYPE_FUNC(obj->type)->flags & (FUNC_FLAGS_4000000 | FUNC_FLAGS_10000000);
+            }
+
+            if (!is_typesame(declinfo->thetype, obj->type) ||
+                (declinfo->qual & (Q_PASCAL | Q_CONST)) != (obj->qual & (Q_PASCAL | Q_CONST))) {
+                newtype.method = *TYPE_METHOD(obj->type);
+                newtype.func = *TYPE_FUNC(declinfo->thetype);
+                newtype.method.flags |= FUNC_METHOD;
+                CError_Error(
+                    ERR_IDENTIFIER_REDECLARED_WAS_DECLARED_AS_NOW,
+                    CError_GetObjectName(obj),
+                    obj->type,
+                    obj->qual,
+                    &newtype.method,
+                    declinfo->qual
+                );
+            }
+
+            if (TYPE_FUNC(declinfo->thetype)->exspecs || TYPE_FUNC(obj->type)->exspecs) {
+                func_004E0C30(
+                    TYPE_FUNC(declinfo->thetype), &declinfo->qual, TYPE_FUNC(obj->type), &obj->qual
+                );
+                CExcept_CompareSpecifications(
+                    TYPE_FUNC(declinfo->thetype)->exspecs, TYPE_FUNC(obj->type)->exspecs
+                );
+            }
+        }
+
+        CDecl_FuncRedeclCheck(obj, declinfo, FALSE);
+        if (declinfo->requireTemplateClassMember) {
+            if (obj->nspace->theclass && !(obj->nspace->theclass->flags & CLASS_IS_TEMPL_INST)) {
+                CError_Error(ERR_ILLEGAL_EXPLICIT_TEMPLATE_SPECIALIZATION);
+            }
+            declinfo->requireTemplateClassMember = FALSE;
+        }
+#else
     if (nspace2->theclass) {
         CError_ASSERT(2018, declinfo->name);
         if (!nspace2->theclass->size) {
@@ -1706,6 +2066,7 @@ Object* CDecl_GetFunctionObject(
             }
             declinfo->requireTemplateClassMember = FALSE;
         }
+#endif
     } else {
         if (TYPE_FUNC(declinfo->thetype)->flags & (FUNC_VOLATILE | FUNC_CONST)) {
             CError_Error(ERR_ILLEGAL_CV_FUNCTION_QUALIFIER_SEQUENCE);
@@ -1736,7 +2097,16 @@ Object* CDecl_GetFunctionObject(
                 }
             } else {
                 obj = OBJECT(list->object);
+#if MWCCPSP
+                if (!CDecl_IsSameCFunction(
+                        TYPE_FUNC(declinfo->thetype),
+                        TYPE_FUNC(obj->type),
+                        declinfo->parameterNames,
+                        declinfo->hasParameterNames
+                    ) ||
+#else
                 if (!is_typesame(declinfo->thetype, obj->type) ||
+#endif
                     (declinfo->qual & (Q_CONST | Q_PASCAL)) != (obj->qual & (Q_CONST | Q_PASCAL))) {
                     CError_Error(
                         ERR_IDENTIFIER_REDECLARED_WAS_DECLARED_AS_NOW,
@@ -1781,13 +2151,20 @@ Object* CDecl_GetFunctionObject(
 
             CheckDefaultArgs(TYPE_FUNC(obj->type)->args);
             CScope_AddObject(nspace2, declinfo->name, OBJ_BASE(obj));
+#if MWCCPSP
+            func_00500E90(declinfo->unk44list);
+#endif
         }
     }
 
     return obj;
 }
 
+#if MWCCPSP
+void CDecl_TypedefDeclarator(DeclInfo* declinfo, AccessType access) {
+#else
 void CDecl_TypedefDeclarator(DeclInfo* declinfo) {
+#endif
     NameSpaceObjectList* list;
     ObjType* objt;
     NameSpace* nspace;
@@ -1824,7 +2201,11 @@ void CDecl_TypedefDeclarator(DeclInfo* declinfo) {
                 CError_Error(ERR_ILLEGAL_NAME_OVERLOADING);
                 return;
             default:
+#if MWCCPSP
+                CError_FATAL(2511);
+#else
                 CError_FATAL(2221);
+#endif
         }
     }
 
@@ -1851,15 +2232,28 @@ void CDecl_TypedefDeclarator(DeclInfo* declinfo) {
         objt = galloc(sizeof(ObjType));
         memclrw(objt, sizeof(ObjType));
         objt->otype = OT_TYPE;
+#if MWCCPSP
+        objt->access = access;
+#else
         objt->access = ACCESSPUBLIC;
+#endif
         objt->type = declinfo->thetype;
         objt->qual = declinfo->qual;
         CScope_AddObject(nspace, declinfo->name, OBJ_BASE(objt));
+#if MWCCPSP
+        func_00500E90(declinfo->unk44list);
+#endif
 
         if (nspace->theclass &&
             (nspace->theclass->flags & CLASS_IS_TEMPL) &&
             CTemplTool_IsTemplateArgumentDependentType(declinfo->thetype)) {
+#if MWCCPSP
+            CTemplClass_RegisterObjectDef(
+                CTemplTool_GetTemplClass(nspace->theclass), OBJ_BASE(objt)
+            );
+#else
             CTemplClass_RegisterObjectDef(TEMPL_CLASS(nspace->theclass), OBJ_BASE(objt));
+#endif
         }
 
         if (copts.cplusplus) {
@@ -1933,7 +2327,11 @@ static void CDecl_DataDeclarator(DeclInfo* declinfo, AccessType access, Boolean 
                 CError_Error(ERR_ILLEGAL_USE_NON_STATIC_MEMBER);
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(2629);
+#else
                 CError_FATAL(2346);
+#endif
         }
     }
 
@@ -1968,6 +2366,18 @@ static void CDecl_DataDeclarator(DeclInfo* declinfo, AccessType access, Boolean 
         tk != '=') {
         declinfo->storageclass = TK_EXTERN;
     }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+    // 3.0.1 also requires a complete type for a defined non-array object
+    if (!IS_TYPE_ARRAY(declinfo->thetype) &&
+        declinfo->storageclass != TK_EXTERN &&
+        !declinfo->is_extern_c &&
+        !isMember) {
+        IsCompleteType(declinfo->thetype);
+    }
+#endif
 
     if (obj) {
         if ((!obj->type->size || !declinfo->thetype->size) &&
@@ -2033,11 +2443,20 @@ static void CDecl_DataDeclarator(DeclInfo* declinfo, AccessType access, Boolean 
         obj = CParser_NewGlobalDataObject(declinfo);
         obj->access = access;
         CScope_AddObject(nspace, declinfo->name, OBJ_BASE(obj));
+#if MWCCPSP
+        func_00500E90(declinfo->unk44list);
+#endif
 
         if (nspace->theclass &&
             (nspace->theclass->flags & CLASS_IS_TEMPL) &&
             CTemplTool_IsTemplateArgumentDependentType(declinfo->thetype)) {
+#if MWCCPSP
+            CTemplClass_RegisterObjectDef(
+                CTemplTool_GetTemplClass(nspace->theclass), OBJ_BASE(obj)
+            );
+#else
             CTemplClass_RegisterObjectDef(TEMPL_CLASS(nspace->theclass), OBJ_BASE(obj));
+#endif
         }
 
         if (isMember && nspace->theclass && cparamblkptr->browseoptions.recordClasses) {
@@ -2076,8 +2495,16 @@ static void CDecl_DataDeclarator(DeclInfo* declinfo, AccessType access, Boolean 
         tk = lex();
         expr = CExpr_IntegralConstOrDepExpr();
         if (IS_TYPE_TEMPLATE(obj->type) || !ENODE_IS(expr, EINTCONST)) {
+#if MWCCPSP
+            CError_ASSERT(2793, nspace->theclass && (nspace->theclass->flags & CLASS_IS_TEMPL));
+#else
             CError_ASSERT(2491, nspace->theclass && (nspace->theclass->flags & CLASS_IS_TEMPL));
+#endif
+#if MWCCPSP
+            CTemplClass_RegisterObjectInit(CTemplTool_GetTemplClass(nspace->theclass), obj, expr);
+#else
             CTemplClass_RegisterObjectInit(TEMPL_CLASS(nspace->theclass), obj, expr);
+#endif
         } else if ((obj->qual & Q_CONST) && IS_TYPE_INT_OR_ENUM(obj->type)) {
             obj->u.data.u.intconst = expr->data.intval;
             obj->qual |= Q_INLINE_DATA | Q_IMPLICIT_WEAK;
@@ -2145,10 +2572,21 @@ static void CDecl_ParseSpecialMember(DeclInfo* declinfo, Boolean parseDeclarator
     Object* obj;
     NameSpace* savedNSpace;
 
+#if MWCCPSP
+    if (declinfo->resolvedObject) {
+        obj = declinfo->resolvedObject;
+    } else {
+        CError_ASSERT(2908, declinfo->resolvedObjects);
+#else
     if (!(obj = declinfo->resolvedObject)) {
         CError_ASSERT(2609, declinfo->resolvedObjects);
+#endif
         obj = OBJECT(declinfo->resolvedObjects->object);
+#if MWCCPSP
+        CError_ASSERT(2910, obj->otype == OT_OBJECT);
+#else
         CError_ASSERT(2611, obj->otype == OT_OBJECT);
+#endif
     }
 
     if (!obj->nspace->theclass) {
@@ -2199,7 +2637,11 @@ static void CDecl_ParseSpecialMember(DeclInfo* declinfo, Boolean parseDeclarator
             }
             return;
         } else if (TYPE_FUNC(obj->type)->flags & FUNC_CONVERSION) {
+#if MWCCPSP
+            CError_FATAL(2967);
+#else
             CError_FATAL(2668);
+#endif
 
             declinfo->thetype = TYPE_FUNC(obj->type)->functype;
             declinfo->qual |= TYPE_FUNC(obj->type)->qual;
@@ -2292,6 +2734,70 @@ void CDecl_ScanDeclarator(DeclInfo* declinfo) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1 marks a function followed by its body and passes the typedef access
+void scandeclaratorlist(DeclInfo* declinfo) {
+    CScopeSave savescope;
+    Type* type;
+    UInt32 qual;
+    Boolean isFirst;
+
+    if (declinfo->resolvedObjects || declinfo->resolvedObject) {
+        CDecl_ParseSpecialMember(declinfo, TRUE);
+        return;
+    }
+
+    CScope_GetScope(&savescope);
+    CError_ASSERT(3071, declinfo->thetype);
+
+    isFirst = TRUE;
+    while (1) {
+        type = declinfo->thetype;
+        qual = declinfo->qual;
+        declinfo->nspace = NULL;
+        declinfo->operator_token = 0;
+        if (IS_TYPE_FUNC(type)) {
+            declinfo->thetype = galloc(sizeof(TypeFunc));
+            *TYPE_FUNC(declinfo->thetype) = *TYPE_FUNC(type);
+        }
+        declinfo->name = NULL;
+        scandeclarator(declinfo);
+        if (!declinfo->name) {
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            break;
+        }
+
+        if (declinfo->storageclass != TK_TYPEDEF) {
+            if (IS_TYPE_FUNC(declinfo->thetype)) {
+                if (tk == '{') {
+                    declinfo->hasParameterNames = TRUE; // +0x50 in 3.0.1's layout
+                }
+                if (!CDecl_FunctionDeclarator(declinfo, NULL, isFirst, TRUE)) {
+                    return;
+                }
+            } else {
+                CDecl_DataDeclarator(declinfo, ACCESSPUBLIC, FALSE);
+            }
+        } else {
+            CDecl_TypedefDeclarator(declinfo, ACCESSPUBLIC);
+        }
+
+        CScope_RestoreScope(&savescope);
+        declinfo->thetype = type;
+        declinfo->qual = qual;
+
+        if (tk != ',') {
+            break;
+        }
+        tk = lex();
+        isFirst = FALSE;
+    }
+
+    if (tk != ';') {
+        CError_Error(ERR_SEMICOLON_EXPECTED);
+    }
+}
+#else
 void scandeclaratorlist(DeclInfo* declinfo) {
     CScopeSave savescope;
     Type* type;
@@ -2350,6 +2856,7 @@ void scandeclaratorlist(DeclInfo* declinfo) {
         CError_Error(ERR_SEMICOLON_EXPECTED);
     }
 }
+#endif
 
 static TypeIntegral* CDecl_FindSignedType(short size) {
     if (stsignedchar.size == size) {
@@ -2864,6 +3371,223 @@ static Type* CDecl_FindUnderlyingType(short size, CInt64* minimum, CInt64* maxim
     return NULL;
 }
 
+#if MWCCPSP
+extern TemplClass* func_004AF260(
+    void
+); // cscope_currentclass if it is a class template (CTemplateTools.c)
+extern Boolean func_004AF320(void); // TemplContext.c: parsing in a template context
+
+// 3.0.1 (0x4BE250): inside a template, a value that depends on template
+// arguments gives the enumerator a template-dependent type (TypeTemplDep
+// kind 7 with the enum and the expression) instead of registering it with
+// the class template; the trailing-comma warning also honours gcc_extensions
+static TypeEnum* CDecl_ParseEnumList(TypeEnum* tenum, HashNameNode* name) {
+    Type* basetype;
+    AccessType access;
+    TemplClass* tmclass;
+    ObjEnumConst* oec;
+    Boolean has_template_value;
+    Boolean any_template_value;
+    Boolean in_template;
+    Boolean overflowed;
+    Boolean is_first;
+    CInt64 val;
+    CInt64 minimum;
+    CInt64 maximum;
+    CPrepFileInfo* fileinfo;
+    SInt32 offset;
+    ENode* expr;
+    Type* underlying;
+    ObjEnumConst* last;
+    TypeTemplDep* ttd;
+
+    if (!tenum) {
+        tenum = galloc(sizeof(TypeEnum));
+        memclrw(tenum, sizeof(TypeEnum));
+        tenum->type = TYPEENUM;
+        tenum->nspace = cscope_current;
+
+        if (name) {
+            tenum->enumname = name;
+            CScope_DefineTypeTag(cscope_current, name, TYPE(tenum));
+        }
+
+        if (!cscope_current->is_global) {
+            while (!(tenum->nspace = tenum->nspace->parent)->is_global) {}
+            if (tenum->enumname) {
+                tenum->enumname = CParser_AppendUniqueNameFile(tenum->enumname->name);
+            }
+        }
+    }
+
+    if (func_004AF320()) {
+        if (func_004AF260()) {
+            CTemplClass_RegisterEnumType(CTemplTool_GetTemplClass(cscope_currentclass), tenum);
+        }
+        in_template = TRUE;
+    } else {
+        in_template = FALSE;
+    }
+
+    access = cscope_current->theclass ? global_access : ACCESSPUBLIC;
+    has_template_value = FALSE;
+    last = NULL;
+    is_first = TRUE;
+    any_template_value = FALSE;
+    val = cint64_zero;
+    minimum = cint64_zero;
+    maximum = cint64_zero;
+    basetype = copts.enumsalwaysint ? TYPE(&stsignedint) : TYPE(&stsignedchar);
+    tenum->size = basetype->size;
+    tenum->enumtype = basetype;
+
+    do {
+        if ((tk = lex()) != TK_IDENTIFIER) {
+            if (tk == '}') {
+                if ((is_first ||
+                     (copts.warn_extracomma &&
+                      !copts.c9x &&
+                      !copts.cpp_extensions &&
+                      !copts.gcc_extensions)) &&
+                    !copts.cplusplus) {
+                    CError_Warning(ERR_IDENTIFIER_EXPECTED);
+                }
+            } else {
+                CError_Error(ERR_IDENTIFIER_EXPECTED);
+            }
+            break;
+        }
+
+        oec = galloc(sizeof(ObjEnumConst));
+        memclrw(oec, sizeof(ObjEnumConst));
+        oec->otype = OT_ENUMCONST;
+        oec->access = access;
+        oec->name = tkidentifier;
+        CPrep_BrowserFilePosition(&fileinfo, &offset);
+        overflowed = FALSE;
+        if ((tk = lex()) == '=') {
+            tk = lex();
+            if (!in_template) {
+                val = CExpr_IntegralConstExprType(&basetype);
+                has_template_value = FALSE;
+            } else {
+                expr = CExpr_IntegralConstOrDepExpr();
+                if (ENODE_IS(expr, EINTCONST)) {
+                    val = expr->data.intval;
+                    has_template_value = FALSE;
+                    basetype = expr->rtype;
+                } else {
+                    ttd = galloc(sizeof(TypeTemplDep));
+                    memclrw(ttd, sizeof(TypeTemplDep));
+                    ttd->type = TYPETEMPLATE;
+                    ttd->size = 1;
+                    ttd->dtype = 7;
+                    ttd->u.array.type = TYPE(tenum);
+                    ttd->u.array.index = CInline_CopyExpression(expr, CopyModeGlobal);
+                    val = cint64_zero;
+                    has_template_value = TRUE;
+                    any_template_value = TRUE;
+                    basetype = TYPE(ttd);
+                }
+            }
+        } else if (has_template_value) {
+            ttd = galloc(sizeof(TypeTemplDep));
+            memclrw(ttd, sizeof(TypeTemplDep));
+            ttd->type = TYPETEMPLATE;
+            ttd->size = 1;
+            ttd->dtype = 7;
+            ttd->u.array.type = TYPE(tenum);
+            ttd->u.array.index = NULL;
+            val = cint64_zero;
+            basetype = TYPE(ttd);
+        } else if (!is_first) {
+            if (is_unsigned(basetype)) {
+                val = CInt64_Add(val, cint64_one);
+                if (CInt64_IsZero(&val)) {
+                    overflowed = TRUE;
+                }
+            } else if (!CInt64_IsNegative(&val)) {
+                val = CInt64_Add(val, cint64_one);
+                if (CInt64_IsNegative(&val)) {
+                    overflowed = TRUE;
+                }
+            } else {
+                val = CInt64_Add(val, cint64_one);
+            }
+        }
+
+        if (!has_template_value) {
+            if (copts.enumsalwaysint) {
+                if (!CInt64_IsInRange(val, stsignedint.size) &&
+                    (copts.ANSIstrict || !CInt64_IsInURange(val, stunsignedint.size))) {
+                    overflowed = TRUE;
+                }
+                basetype = TYPE(&stsignedint);
+            } else if (CInt64_IsNegative(&val) && !is_unsigned(basetype)) {
+                if (CInt64_Less(val, minimum)) {
+                    minimum = val;
+                    if ((underlying = CDecl_FindUnderlyingType(tenum->size, &minimum, &maximum))) {
+                        tenum->size = underlying->size;
+                        tenum->enumtype = underlying;
+                    } else {
+                        overflowed = TRUE;
+                    }
+                }
+            } else {
+                if (CInt64_GreaterU(val, maximum)) {
+                    maximum = val;
+                    if ((underlying = CDecl_FindUnderlyingType(tenum->size, &minimum, &maximum))) {
+                        tenum->size = underlying->size;
+                        tenum->enumtype = underlying;
+                    } else {
+                        overflowed = TRUE;
+                    }
+                }
+            }
+        }
+
+        if (overflowed) {
+            CError_Error(ERR_NUMBER_OUT_RANGE);
+        }
+
+        oec->val = val;
+        oec->type = basetype;
+        CScope_AddObject(cscope_current, oec->name, OBJ_BASE(oec));
+
+        if (last) {
+            last->next = oec;
+        } else {
+            tenum->enumlist = oec;
+        }
+        last = oec;
+
+        if (cparamblkptr->browseoptions.recordEnums) {
+            CPrepFileInfo* f = CPrep_BrowserCurrentFile();
+            if (f->recordbrowseinfo) {
+                CBrowse_NewEnumConstant(
+                    cscope_current, oec->name, f, fileinfo, offset, CPrep_BrowserFileOffset()
+                );
+            }
+        }
+
+        is_first = FALSE;
+    } while (tk == ',');
+
+    if (!any_template_value) {
+        for (oec = tenum->enumlist; oec; oec = oec->next) {
+            oec->type = TYPE(tenum);
+        }
+    }
+
+    if (tk == '}') {
+        tk = lex();
+    } else {
+        CError_ErrorSkip(ERR_RBRACE_EXPECTED);
+    }
+
+    return tenum;
+}
+#else
 static TypeEnum* CDecl_ParseEnumList(TypeEnum* tenum, HashNameNode* name) {
     Type* basetype;
     AccessType access;
@@ -3055,7 +3779,87 @@ static TypeEnum* CDecl_ParseEnumList(TypeEnum* tenum, HashNameNode* name) {
 
     return tenum;
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: the enum body is parsed in the elaborated-name branch; the
+// identifier-with-body path jumps there. defines_tag is set before a body.
+void scanenum(DeclInfo* declinfo) {
+    HashNameNode* name;
+    Type* type;
+    NameResult pr;
+
+    if (tk == '{') {
+        declinfo->defines_tag = TRUE;
+        declinfo->thetype = TYPE(CDecl_ParseEnumList(NULL, NULL));
+        TYPE_ENUM(declinfo->thetype)->enumname = CParser_AppendUniqueNameFile("@enum");
+        return;
+    }
+
+    if (tk == TK_IDENTIFIER) {
+        name = tkidentifier;
+        if (lookahead() == '{') {
+            type = CScope_GetLocalTagType(cscope_current, name);
+            if (type) {
+                lex();
+                goto define_enum;
+            }
+            lex();
+            declinfo->defines_tag = TRUE;
+            declinfo->thetype = TYPE(CDecl_ParseEnumList(NULL, name));
+            goto browse;
+        } else {
+            CError_ASSERT(3999, !copts.cplusplus || tk != ';');
+            tkidentifier = name;
+        }
+    }
+
+    if (CScope_ParseElaborateName(&pr)) {
+        if ((type = pr.type)) {
+            if (!IS_TYPE_ENUM(type)) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            if ((tk = lex()) == '{') {
+define_enum:
+                declinfo->defines_tag = TRUE;
+                if (type->size || !IS_TYPE_ENUM(type)) {
+                    CError_Error(ERR_IDENTIFIER_REDECLARED, name->name);
+                    declinfo->thetype = TYPE(CDecl_ParseEnumList(NULL, NULL));
+                    return;
+                }
+                declinfo->thetype = TYPE(CDecl_ParseEnumList(TYPE_ENUM(type), NULL));
+browse:
+                if (cparamblkptr->browseoptions.recordEnums && declinfo->file->recordbrowseinfo) {
+                    CBrowse_NewEnum(
+                        cscope_current,
+                        TYPE_ENUM(declinfo->thetype)->enumname,
+                        declinfo->file,
+                        declinfo->file2,
+                        declinfo->sourceoffset,
+                        CPrep_BrowserFileOffset()
+                    );
+                }
+                return;
+            }
+            declinfo->thetype = type;
+            return;
+        } else {
+            CError_ASSERT(4013, pr.name);
+            if ((tk = lex()) == '{') {
+                declinfo->defines_tag = TRUE;
+                declinfo->thetype = TYPE(CDecl_ParseEnumList(NULL, pr.name));
+                return;
+            } else {
+                CError_Error(ERR_UNDEFINED_IDENTIFIER, pr.name->name);
+            }
+        }
+    } else {
+        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+    }
+
+    declinfo->thetype = TYPE(&stsignedint);
+}
+#else
 void scanenum(DeclInfo* declinfo) {
     HashNameNode* name;
     Type* type;
@@ -3131,7 +3935,145 @@ define_enum:
 
     declinfo->thetype = TYPE(&stsignedint);
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: flexible array members are accepted here (the last-member check is
+// in scanstructdeclarationlist); a template-dependent bitfield type allows
+// 32 or 64 bits
+void CDecl_ScanStructDeclarator(BigDeclInfo* bde) {
+    ENode* expr;
+    short val;
+    short bits;
+    Boolean is_bitfield;
+    TypeTemplDep* ttempl;
+    TypeBitfield* tbitfield;
+    Type* type;
+
+    bde->declinfo2 = bde->declinfo;
+    bde->declinfo2.name = NULL;
+    bde->declinfo2.operator_token = 0;
+    bde->valid = FALSE;
+    is_bitfield = FALSE;
+
+    if (tk == ':') {
+        type = bde->declinfo2.thetype;
+        bde->declinfo2.name = no_name_node;
+        is_bitfield = TRUE;
+    } else {
+        bde->declinfo2.allowZeroLengthArray = TRUE;
+        bde->declinfo2.unk66[1] = TRUE;
+        scandeclarator(&bde->declinfo2);
+        if (!bde->declinfo2.name) {
+            CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+            return;
+        }
+
+        type = bde->declinfo2.thetype;
+        if ((int)bde->declinfo2.storageclass != TK_STATIC &&
+            (int)bde->declinfo2.storageclass != TK_TYPEDEF) {
+            if (IS_TYPE_ARRAY(type) &&
+                !type->size &&
+                (!copts.ANSIstrict || copts.c9x || copts.gcc_extensions)) {
+                type = TYPE_POINTER(type)->target;
+                while (IS_TYPE_ARRAY(type)) {
+                    type = TYPE_POINTER(type)->target;
+                }
+                if (IsCompleteType(type)) {
+                    bde->valid = TRUE;
+                }
+                return;
+            }
+            if (!IS_TYPE_FUNC(type) && !IsCompleteType(type)) {
+                return;
+            }
+        }
+
+        if (IS_TYPE_CLASS(type) && TYPE_CLASS(type)->sominfo) {
+            CError_Error(ERR_SOM_CLASSES_CANNOT_CLASS_MEMBERS);
+            return;
+        }
+
+        if (tk != ':') {
+            goto not_a_bitfield;
+        }
+    }
+
+    if (!IS_TYPE_INT_OR_ENUM(type)) {
+        if (CTemplTool_IsTemplateArgumentDependentType(type)) {
+            bits = copts.has8bytebitfields ? 64 : 32;
+            goto parse_width;
+        }
+        CError_Error(ERR_ILLEGAL_BITFIELD_DECLARATION);
+        bde->declinfo2.thetype = TYPE(&stunsignedint);
+    } else if (copts.ANSIstrict && !copts.cplusplus) {
+        if (bde->declinfo2.thetype != TYPE(&stsignedint) &&
+            bde->declinfo2.thetype != TYPE(&stunsignedint)) {
+            CError_Error(ERR_ILLEGAL_BITFIELD_DECLARATION);
+            bde->declinfo2.thetype = TYPE(&stunsignedint);
+        }
+    }
+
+    switch (bde->declinfo2.thetype->size) {
+        case 1:
+            bits = 8;
+            break;
+        case 2:
+            bits = 16;
+            break;
+        case 4:
+            bits = 32;
+            break;
+        case 8:
+            if (copts.has8bytebitfields) {
+                bits = 64;
+                break;
+            }
+        default:
+            CError_Error(ERR_ILLEGAL_BITFIELD_DECLARATION);
+            return;
+    }
+
+parse_width:
+    tk = lex();
+    expr = CExpr_IntegralConstOrDepExpr();
+    if (!ENODE_IS(expr, EINTCONST)) {
+        ttempl = CDecl_NewTemplDepType(TEMPLDEP_BITFIELD);
+        ttempl->u.bitfield.type = bde->declinfo2.thetype;
+        ttempl->u.bitfield.size = CInline_CopyExpression(expr, CopyModeGlobal);
+        bde->declinfo2.thetype = TYPE(ttempl);
+        bde->valid = TRUE;
+        return;
+    }
+    val = CInt64_GetULong(&expr->data.intval);
+    if (is_bitfield) {
+        if (val < 0 || val > bits) {
+            CError_Error(ERR_ILLEGAL_BITFIELD_DECLARATION);
+            return;
+        }
+    } else {
+        if (val <= 0 || val > bits) {
+            CError_Error(ERR_ILLEGAL_BITFIELD_DECLARATION);
+            return;
+        }
+    }
+
+    tbitfield = galloc(sizeof(TypeBitfield));
+    memclrw(tbitfield, sizeof(TypeBitfield));
+    tbitfield->type = TYPEBITFIELD;
+    tbitfield->size = bde->declinfo2.thetype->size;
+    tbitfield->bitfieldtype = bde->declinfo2.thetype;
+    tbitfield->bitlength = val;
+    bde->declinfo2.thetype = TYPE(tbitfield);
+
+    if (tk == TK_UU_ATTRIBUTE_UU) {
+        CParser_ParseAttribute(NULL, &bde->declinfo2);
+    }
+
+not_a_bitfield:
+    bde->valid = TRUE;
+}
+#else
 void CDecl_ScanStructDeclarator(BigDeclInfo* bde) {
     ENode* expr;
     short val;
@@ -3268,6 +4210,7 @@ parse_width:
 not_a_bitfield:
     bde->valid = TRUE;
 }
+#endif
 
 static void CDecl_LayoutStruct(TypeStruct* tstruct) {
     StructMember* member;
@@ -3307,7 +4250,11 @@ static void CDecl_LayoutStruct(TypeStruct* tstruct) {
         }
 
         if (!member->name) {
+#if MWCCPSP
+            CError_ASSERT(4211, IS_TYPE_STRUCT(member->type));
+#else
             CError_ASSERT(4129, IS_TYPE_STRUCT(member->type));
+#endif
             innerbase = member->offset;
             innermember = TYPE_STRUCT(member->type)->members;
             removeNoNames = TRUE;
@@ -3399,6 +4346,114 @@ static void CDecl_LayoutStruct(TypeStruct* tstruct) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1: members are read while the next token is not '}' (an empty struct
+// needs #pragma gcc_extensions), a member without a type specifier is an
+// error, and @defs has no Objective-C behind it.
+static SInt32 scanstructdeclarationlist(TypeStruct* tstruct, Boolean addToBrowse) {
+    SInt32 offset;
+    StructMember* member;
+    BigDeclInfo bde;
+
+    offset = -1;
+    memclrw(&bde, sizeof(BigDeclInfo));
+
+    if (tk == TK_AT_DEFS) {
+        CPrep_NewFileOffsetInfo(&member_fileoffset, NULL);
+        if ((tk = lex()) != '}') {
+            CError_Error(ERR_RBRACE_EXPECTED);
+        }
+    } else {
+        while (tk != '}') {
+            CPrep_NewFileOffsetInfo(&member_fileoffset, NULL);
+            memclrw(&bde.declinfo, sizeof(DeclInfo));
+            CParser_GetDeclSpecs(&bde.declinfo, FALSE);
+            if (bde.declinfo.missingTypeSpecifier) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            if (bde.declinfo.storageclass || bde.declinfo.hasParameterNames) {
+                CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+                tstruct->members = NULL;
+                return -1;
+            }
+
+            if (tk != ';') {
+                while (1) {
+                    CDecl_ScanStructDeclarator(&bde);
+                    if (!CanCreateObject(bde.declinfo2.thetype)) {
+                        CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+                        bde.valid = FALSE;
+                    }
+
+                    if (bde.declinfo2.operator_token) {
+                        CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+                        bde.valid = FALSE;
+                    }
+
+                    if (bde.valid) {
+                        if (bde.declinfo2.name == no_name_node ||
+                            !ismember(tstruct, bde.declinfo2.name)) {
+                            member = galloc(sizeof(StructMember));
+                            memclrw(member, sizeof(StructMember));
+                            member->type = bde.declinfo2.thetype;
+                            member->name = bde.declinfo2.name;
+                            member->qual = bde.declinfo2.qual;
+                            appendmember(tstruct, member);
+
+                            if (addToBrowse) {
+                                CBrowse_AddStructMember(
+                                    member,
+                                    CPrep_BrowserTokenOffset(&member_fileoffset) + 1,
+                                    CPrep_BrowserFileOffset()
+                                );
+                            }
+                        } else {
+                            CError_Error(
+                                ERR_STRUCT_UNION_CLASS_MEMBER_REDEFINED, bde.declinfo2.name->name
+                            );
+                        }
+                    }
+
+                    if (tk != ',') {
+                        break;
+                    }
+                    tk = lex();
+                }
+            } else if (!copts.ANSIstrict && IS_TYPE_STRUCT(bde.declinfo.thetype)) {
+                member = galloc(sizeof(StructMember));
+                memclrw(member, sizeof(StructMember));
+                member->type = bde.declinfo.thetype;
+                appendmember(tstruct, member);
+            } else {
+                CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+            }
+
+            if (tk != ';') {
+                tstruct->members = NULL;
+                CError_Error(ERR_SEMICOLON_EXPECTED);
+                return -1;
+            }
+
+            CPrep_TokenStreamFlush();
+            tk = lex();
+        }
+        if (!tstruct->members && !copts.gcc_extensions) {
+            CError_Error(ERR_ILLEGAL_STRUCT_UNION_ENUM_CLASS_DEFINITION);
+        }
+        CDecl_LayoutStruct(tstruct);
+    }
+
+    if (addToBrowse) {
+        offset = CPrep_BrowserFileOffset();
+        if (tk == ';') {
+            offset++;
+        }
+    }
+
+    tk = lex();
+    return offset;
+}
+#else
 static SInt32 scanstructdeclarationlist(TypeStruct* tstruct, Boolean addToBrowse) {
     SInt32 offset;
     StructMember* member;
@@ -3496,6 +4551,7 @@ static SInt32 scanstructdeclarationlist(TypeStruct* tstruct, Boolean addToBrowse
     tk = lex();
     return offset;
 }
+#endif
 
 static TypeStruct* CDecl_DefineStruct(HashNameNode* name, short stype) {
     TypeStruct* tstruct;
@@ -3541,7 +4597,11 @@ void scanstruct(DeclInfo* declinfo, short structtype) {
             }
 
             tk = lex();
+#if MWCCPSP
+            if (CScope_GetLocalTagType(cscope_current, name) == NULL && (tk == ';' || tk == '{')) {
+#else
             if (!CScope_GetLocalTagType(cscope_current, name) && (tk == ';' || tk == '{')) {
+#endif
                 type = (Type*)CDecl_DefineStruct(name, structtype);
             }
 
@@ -3580,6 +4640,9 @@ void scanstruct(DeclInfo* declinfo, short structtype) {
         CBrowse_BeginStruct(declinfo, TYPE_STRUCT(type), &gl);
     }
 
+#if MWCCPSP
+    declinfo->defines_tag = TRUE;
+#endif
     typecopy = *TYPE_STRUCT(type);
     tk = lex();
     offset = scanstructdeclarationlist(&typecopy, add_to_browse);
@@ -3720,12 +4783,20 @@ static void CDecl_AddFunctionMember(
         declinfo->thetype = (Type*)tfunc;
     } else {
         tfunc = TYPE_METHOD(declinfo->thetype);
+#if MWCCPSP
+        CError_ASSERT(4722, !tclass->sominfo);
+#else
         CError_ASSERT(4644, !tclass->sominfo);
+#endif
     }
 
     CDecl_ExtractClassExportFlags(declinfo, tclass->eflags);
 
+#if MWCCPSP
+    CError_ASSERT(4741, cscope_current == tclass->nspace);
+#else
     CError_ASSERT(4662, cscope_current == tclass->nspace);
+#endif
 
     if (list) {
         obj = CDecl_OverloadFunctionObject(
@@ -3875,6 +4946,7 @@ void CDecl_UnpackDeclInfo(DeclInfo* declinfo, PackedDeclInfo* packed) {
     declinfo->has_expltargs = packed->has_expltargs;
 }
 
+#if !MWCCPSP // 3.0.1: CClass_AddFriend
 void CDecl_AddFriend(TypeClass* tclass, Object* friendfunc, TypeClass* friendclass) {
     ClassFriend* scan;
     ClassFriend* newfriend;
@@ -3911,6 +4983,7 @@ void CDecl_AddFriend(TypeClass* tclass, Object* friendfunc, TypeClass* friendcla
         }
     }
 }
+#endif
 
 static void CDecl_ParseFriendDecl(TypeClass* tclass) {
     DeclInfo declinfo;
@@ -3941,7 +5014,11 @@ static void CDecl_ParseFriendDecl(TypeClass* tclass) {
 
         if (IS_TYPE_CLASS(declinfo.thetype)) {
             if (!(TYPE_CLASS(declinfo.thetype)->flags & CLASS_IS_TEMPL) ||
+#if MWCCPSP
+                CPARSER_CHECKTEMPLCLASSUSAGE((declinfo.thetype), TRUE)) {
+#else
                 CParser_CheckTemplateClassUsage(TEMPL_CLASS(declinfo.thetype), TRUE)) {
+#endif
                 if (!is_templ) {
                     CDecl_AddFriend(tclass, NULL, TYPE_CLASS(declinfo.thetype));
                 } else {
@@ -4483,7 +5560,11 @@ after_various_things:
                     switch (bde.declinfo2.storageclass) {
                         case TK_TYPEDEF:
                             CError_QualifierCheck(bde.declinfo2.qual & Q_VIRTUAL);
+#if MWCCPSP
+                            CDecl_TypedefDeclarator(&bde.declinfo2, access);
+#else
                             CDecl_TypedefDeclarator(&bde.declinfo2);
+#endif
                             break;
                         case TK_STATIC:
                             CError_QualifierCheck(bde.declinfo2.qual & Q_VIRTUAL);
@@ -4734,7 +5815,11 @@ static void CDecl_ParseBaseClassList(TypeClass* tclass, short mode, Boolean is_t
                 tk = lex();
                 break;
             case TK_PROTECTED:
+#if MWCCPSP
+                if (!COPTS_GONE(ARMconform)) {
+#else
                 if (!copts.ARMconform) {
+#endif
                     access = ACCESSPROTECTED;
                     tk = lex();
                 }
@@ -4749,7 +5834,11 @@ static void CDecl_ParseBaseClassList(TypeClass* tclass, short mode, Boolean is_t
             tk = lex();
         }
 
+#if MWCCPSP
+        if (CScope_ParseTypeName(&pr)) {
+#else
         if (CScope_ParseDeclName(&pr)) {
+#endif
             if (!pr.type) {
                 if (!pr.name) {
                     CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
@@ -4764,7 +5853,11 @@ static void CDecl_ParseBaseClassList(TypeClass* tclass, short mode, Boolean is_t
             if (is_templ && CTemplTool_IsTemplateArgumentDependentType(pr.type)) {
                 if (!IS_TYPE_CLASS(pr.type) ||
                     !(TYPE_CLASS(pr.type)->flags & CLASS_IS_TEMPL) ||
+#if MWCCPSP
+                    CPARSER_CHECKTEMPLCLASSUSAGE((pr.type), TRUE)) {
+#else
                     CParser_CheckTemplateClassUsage(TEMPL_CLASS(pr.type), TRUE)) {
+#endif
                     CTemplClass_RegisterBaseClass(TEMPL_CLASS(tclass), pr.type, access, is_virtual);
                     if (is_virtual) {
                         tclass->flags |= CLASS_HAS_VBASES;
@@ -5382,7 +6475,9 @@ static TemplClass* CDecl_SpecializeTemplateClass(TemplClass* tmclass) {
     tmclass->theclass.ivars = NULL;
     tmclass->theclass.bases = NULL;
     tmclass->theclass.vbases = NULL;
+#if !MWCCPSP
     tmclass->theclass.friends = NULL;
+#endif
     tmclass->theclass.vtable = NULL;
     tmclass->members = NULL;
     tmclass->instances = NULL;

@@ -827,8 +827,10 @@ static const char* Unmangle_Type(jmp_buf errorbuf, UnmangleBuffer* ub, const cha
         case 'r':
             what = "long double";
             break;
+#if !MWCCPSP // 3.0.1: no vector types
         case 'X':
             return Unmangle_Vector(errorbuf, ub, p, modifiers);
+#endif
         case 'P':
             return Unmangle_Pointer(errorbuf, ub, p, modifiers, '*');
         case 'R':

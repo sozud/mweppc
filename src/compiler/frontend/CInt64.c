@@ -4,11 +4,20 @@
 #include "x87.h"
 #endif
 
+#if MWCCPSP
+// 3.0.1: plain globals that CInt64_Init sets up (0x4584E0)
+CInt64 cint64_negone;
+CInt64 cint64_zero;
+CInt64 cint64_one;
+CInt64 cint64_max;
+CInt64 cint64_min;
+#else
 const CInt64 cint64_negone = {0xFFFFFFFF, 0xFFFFFFFF};
 const CInt64 cint64_zero = {0, 0};
 const CInt64 cint64_one = {0, 1};
 const CInt64 cint64_max = {0x7FFFFFFF, 0xFFFFFFFF};
 const CInt64 cint64_min = {0x80000000, 0};
+#endif
 
 #define SHIFT_LEFT_ONE(a, b) \
     do { \
@@ -19,8 +28,29 @@ const CInt64 cint64_min = {0x80000000, 0};
         b <<= 1; \
     } while (0)
 
+#if MWCCPSP
+void CInt64_Init(void) {
+    cint64_one.lo = 1;
+    cint64_negone.hi = 0xFFFFFFFF;
+    cint64_max.hi = 0xFFFFFFFF;
+    cint64_negone.lo = 0xFFFFFFFF;
+    cint64_max.lo = 0xFFFFFFFF;
+    cint64_max.hi = 0x7FFFFFFF;
+    cint64_min.hi = 0x80000000;
+}
+#else
 void CInt64_Init(void) {}
+#endif
+#if MWCCPSP
 
+#endif
+#if MWCCPSP
+// 3.0.1's word-by-word operations; one unit with the rest, as in the exe, so
+// they inline into the functions below
+#include "../../psp/CInt64.inc"
+#endif
+
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Not(CInt64 input) {
     CInt64 output;
 
@@ -28,14 +58,18 @@ CInt64 CInt64_Not(CInt64 input) {
 
     return output;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Inv(CInt64 input) {
     CInt64 output;
     output.hi = ~input.hi;
     output.lo = ~input.lo;
     return output;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Add(CInt64 lhs, CInt64 rhs) {
     if (lhs.lo & 0x80000000) {
         if (rhs.lo & 0x80000000) {
@@ -60,18 +94,24 @@ CInt64 CInt64_Add(CInt64 lhs, CInt64 rhs) {
     lhs.hi += rhs.hi;
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Neg(CInt64 input) {
     CInt64 result;
     result = CInt64_Add(CInt64_Inv(input), cint64_one);
     return result;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Sub(CInt64 lhs, CInt64 rhs) {
     lhs = CInt64_Add(lhs, CInt64_Neg(rhs));
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_MulU(CInt64 lhs, CInt64 rhs) {
     CInt64 result;
     CInt64 work1;
@@ -110,7 +150,9 @@ CInt64 CInt64_MulU(CInt64 lhs, CInt64 rhs) {
 
     return result;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Mul(CInt64 lhs, CInt64 rhs) {
     if (CInt64_IsNegative(&rhs)) {
         if (CInt64_IsNegative(&lhs)) {
@@ -123,6 +165,7 @@ CInt64 CInt64_Mul(CInt64 lhs, CInt64 rhs) {
     }
     return CInt64_MulU(lhs, rhs);
 }
+#endif
 
 void CInt64_DivMod(const CInt64* lhs, const CInt64* rhs, CInt64* pDiv, CInt64* pMod) {
     Boolean bad;
@@ -255,6 +298,7 @@ CInt64 CInt64_ModU(CInt64 lhs, CInt64 rhs) {
     return result;
 }
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Shl(CInt64 lhs, CInt64 rhs) {
     UInt32 hi;
     UInt32 lo;
@@ -278,7 +322,9 @@ CInt64 CInt64_Shl(CInt64 lhs, CInt64 rhs) {
     }
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Shr(CInt64 lhs, CInt64 rhs) {
     SInt32 hi;
     UInt32 lo;
@@ -307,7 +353,9 @@ CInt64 CInt64_Shr(CInt64 lhs, CInt64 rhs) {
     }
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_ShrU(CInt64 lhs, CInt64 rhs) {
     UInt32 hi;
     UInt32 lo;
@@ -331,6 +379,7 @@ CInt64 CInt64_ShrU(CInt64 lhs, CInt64 rhs) {
     }
     return lhs;
 }
+#endif
 
 int CInt64_UnsignedCompare(const CInt64* lhs, const CInt64* rhs) {
     if (lhs->hi == rhs->hi) {
@@ -357,46 +406,67 @@ int CInt64_SignedCompare(const CInt64* lhs, const CInt64* rhs) {
     return CInt64_UnsignedCompare(&lhs_, &rhs_);
 }
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_Less(CInt64 lhs, CInt64 rhs) {
     return CInt64_SignedCompare(&lhs, &rhs) < 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_LessU(CInt64 lhs, CInt64 rhs) {
     return CInt64_UnsignedCompare(&lhs, &rhs) < 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_Greater(CInt64 lhs, CInt64 rhs) {
     return CInt64_SignedCompare(&lhs, &rhs) > 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_GreaterU(CInt64 lhs, CInt64 rhs) {
     return CInt64_UnsignedCompare(&lhs, &rhs) > 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_LessEqual(CInt64 lhs, CInt64 rhs) {
     return CInt64_SignedCompare(&lhs, &rhs) <= 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_LessEqualU(CInt64 lhs, CInt64 rhs) {
     return CInt64_UnsignedCompare(&lhs, &rhs) <= 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_GreaterEqual(CInt64 lhs, CInt64 rhs) {
     return CInt64_SignedCompare(&lhs, &rhs) >= 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_GreaterEqualU(CInt64 lhs, CInt64 rhs) {
     return CInt64_UnsignedCompare(&lhs, &rhs) >= 0;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_Equal(CInt64 lhs, CInt64 rhs) {
     return lhs.hi == rhs.hi && lhs.lo == rhs.lo;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_NotEqual(CInt64 lhs, CInt64 rhs) {
     return lhs.hi != rhs.hi || lhs.lo != rhs.lo;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_IsInRange(CInt64 value, short len) {
     CInt64 bound;
 
@@ -442,7 +512,9 @@ Boolean CInt64_IsInRange(CInt64 value, short len) {
         return CInt64_LessEqual(value, bound);
     }
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 Boolean CInt64_IsInURange(CInt64 value, short len) {
     SInt32 hi = value.hi;
     switch (len) {
@@ -458,24 +530,31 @@ Boolean CInt64_IsInURange(CInt64 value, short len) {
             return FALSE;
     }
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_And(CInt64 lhs, CInt64 rhs) {
     lhs.hi &= rhs.hi;
     lhs.lo &= rhs.lo;
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Xor(CInt64 lhs, CInt64 rhs) {
     lhs.hi ^= rhs.hi;
     lhs.lo ^= rhs.lo;
     return lhs;
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 CInt64 CInt64_Or(CInt64 lhs, CInt64 rhs) {
     lhs.hi |= rhs.hi;
     lhs.lo |= rhs.lo;
     return lhs;
 }
+#endif
 
 void CInt64_ConvertInt32(CInt64* i) {
     i->hi = (i->lo & 0x80000000) ? 0xFFFFFFFF : 0;
@@ -485,6 +564,15 @@ void CInt64_ConvertUInt32(CInt64* i) {
     i->hi = 0;
 }
 
+#if MWCCPSP
+// 3.0.1: CInt64 values are 64 bits already
+void CInt64_ConvertUInt64(CInt64* i) {}
+
+void CInt64_ConvertInt64(CInt64* i) {}
+#endif
+#if MWCCPSP
+
+#endif
 void CInt64_ConvertInt16(CInt64* i) {
     i->lo = (SInt16)i->lo;
     i->hi = (i->lo & 0x80000000) ? 0xFFFFFFFF : 0;
@@ -562,12 +650,17 @@ void CInt64_ConvertUFromLongDouble(CInt64* pResult, double value) {
 void CInt64_ConvertFromLongDouble(CInt64* pResult, double value) {
     if (value < 0.0) {
         CInt64_ConvertUFromLongDouble(pResult, -value);
+#if MWCCPSP
+        *pResult = CInt64_NegInline(*pResult);
+#else
         *pResult = CInt64_Neg(*pResult);
+#endif
     } else {
         CInt64_ConvertUFromLongDouble(pResult, value);
     }
 }
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 double CInt64_ConvertUToLongDouble(const CInt64* value) {
 #ifdef __MWERKS__
     Boolean bad;
@@ -609,7 +702,9 @@ double CInt64_ConvertUToLongDouble(const CInt64* value) {
     return X87_UInt64ToDouble(((unsigned long long)value->hi << 32) | value->lo);
 #endif
 }
+#endif
 
+#if !MWCCPSP // 3.0.1: src/psp/CInt64.c
 double CInt64_ConvertToLongDouble(const CInt64* value) {
     CInt64 magnitude;
     if (CInt64_IsNegative(value)) {
@@ -619,7 +714,115 @@ double CInt64_ConvertToLongDouble(const CInt64* value) {
         return CInt64_ConvertUToLongDouble(value);
     }
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: the shifts work in place on *pResult and CInt64_Add is inlined
+char* CInt64_ScanOctString(CInt64* pResult, char* str, Boolean* pFail) {
+    char ch;
+    CInt64 addend;
+
+    *pFail = FALSE;
+    pResult->hi = 0;
+    pResult->lo = 0;
+
+    while ((ch = *str) >= '0' && ch <= '7') {
+        if (pResult->hi & 0xE0000000) {
+            *pFail = TRUE;
+        }
+        SHL_IN_PLACE(pResult, 3);
+        CInt64_SetLong(&addend, ch - '0');
+        *pResult = CInt64_AddInline(*pResult, addend);
+        ++str;
+    }
+
+    return str;
+}
+
+char* CInt64_ScanDecString(CInt64* pResult, char* str, Boolean* pFail) {
+    char ch;
+    CInt64 twice;
+    CInt64 addend;
+    UInt32 hi;
+    UInt32 lo;
+
+    *pFail = FALSE;
+    pResult->hi = 0;
+    pResult->lo = 0;
+
+    while ((ch = *str) >= '0' && ch <= '9') {
+        if (pResult->hi & 0xE0000000) {
+            *pFail = TRUE;
+        }
+
+        hi = pResult->hi << 1;
+        if (pResult->lo & 0x80000000) {
+            hi |= 1;
+        }
+        lo = pResult->lo << 1;
+        twice.hi = hi;
+        twice.lo = lo;
+        pResult->hi = hi;
+        pResult->lo = lo;
+        SHL_IN_PLACE(pResult, 2);
+
+        if (CInt64_IsNegative(pResult)) {
+            *pResult = CInt64_AddInline(*pResult, twice);
+            if (!CInt64_IsNegative(pResult)) {
+                *pFail = TRUE;
+            }
+        } else {
+            *pResult = CInt64_AddInline(*pResult, twice);
+        }
+
+        CInt64_SetLong(&addend, ch - '0');
+        if (CInt64_IsNegative(pResult)) {
+            *pResult = CInt64_AddInline(*pResult, addend);
+            if (!CInt64_IsNegative(pResult)) {
+                *pFail = TRUE;
+            }
+        } else {
+            *pResult = CInt64_AddInline(*pResult, addend);
+        }
+
+        ++str;
+    }
+
+    return str;
+}
+
+char* CInt64_ScanHexString(CInt64* pResult, char* str, Boolean* pFail) {
+    char digit;
+    CInt64 addend;
+
+    *pFail = FALSE;
+    pResult->hi = 0;
+    pResult->lo = 0;
+
+    for (;;) {
+        digit = str[0];
+        if (digit >= '0' && digit <= '9') {
+            digit -= '0';
+        } else if (digit >= 'A' && digit <= 'F') {
+            digit -= 'A' - 10;
+        } else if (digit >= 'a' && digit <= 'f') {
+            digit -= 'a' - 10;
+        } else {
+            break;
+        }
+
+        ++str;
+        if (pResult->hi & 0xF0000000) {
+            *pFail = TRUE;
+        }
+        SHL_IN_PLACE(pResult, 4);
+        CInt64_SetLong(&addend, digit);
+        *pResult = CInt64_AddInline(*pResult, addend);
+    }
+
+    return str;
+}
+#else
 char* CInt64_ScanOctString(CInt64* pResult, char* str, Boolean* pFail) {
     char ch;
     CInt64 addend;
@@ -747,6 +950,10 @@ char* CInt64_ScanHexString(CInt64* pResult, char* str, Boolean* pFail) {
     return str;
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 char* CInt64_ScanBinString(CInt64* pResult, char* str, Boolean* pFail) {
     char digit;
     UInt32 hi;
@@ -850,7 +1057,11 @@ int CInt64_PrintDec(char* output, CInt64 value) {
 
     length = 0;
     if (CInt64_IsNegative(&value)) {
+#if MWCCPSP
+        value = CInt64_NegInline(value);
+#else
         value = CInt64_Neg(value);
+#endif
         *output = '-';
         output++;
         length++;

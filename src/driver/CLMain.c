@@ -22,6 +22,9 @@
 #include "driver/StringExtras.h"
 #include <setjmp.h>
 #include <string.h>
+#if MWCCPSP
+#include "compiler/win32.h"
+#endif
 
 jmp_buf exit_program;
 int numPlugins;
@@ -40,8 +43,17 @@ CLState clState;
 char cmdline_build_date[32];
 char cmdline_build_time[32];
 Project* gProj = &mainProj;
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern CW_CALLBACK CWSetPluginAPI(CWPluginContext context, SInt32 api);
+#endif
 
 static CWPLUGIN_ENTRY(CLT_dummymain)(CWPluginContext context) {
+#if MWCCPSP
+    CWSetPluginAPI(context, 2); // 3.0.1: the plugin API with path-based file specs
+#endif
     return cwNoErr;
 }
 
@@ -272,6 +284,32 @@ static Boolean warnedCompiler;
 static Boolean warnedPCmdLine;
 static int MainInitialized;
 
+#if MWCCPSP
+// 0x408090: the environment block as a NULL-terminated array of copies
+static char** Main_CopyEnvironment(void) {
+    int count;
+    char** envp;
+    char* p;
+    char* block;
+
+    block = GetEnvironmentStrings();
+    count = 0;
+    for (p = block; *p; p += strlen(p) + 1) {
+        count++;
+    }
+    envp = (char**)xmalloc("environment variables", (count + 1) * sizeof(char*));
+    count = 0;
+    for (p = block; *p; p += strlen(p) + 1) {
+        envp[count++] = xstrdup(p);
+    }
+    envp[count] = NULL;
+    FreeEnvironmentStringsA(block);
+    return envp;
+}
+#endif
+#if MWCCPSP
+
+#endif
 int Main_Initialize(int argc, char** argv) {
     char exename[260];
 
@@ -290,12 +328,17 @@ int Main_Initialize(int argc, char** argv) {
     Main_PreParse(&argc, &argv);
     clState.argc = argc;
     clState.argv = argv;
+#if MWCCPSP
+    clState.envp = Main_CopyEnvironment();
+#endif
 
     strcpyn(exename, argv[0], strlen(argv[0]), 260);
     exename[259] = 0;
+#if !MWCCPSP_NATIVE
     if (strlen(exename) < 4 || ustrcmp(exename + strlen(exename) - 4, ".exe")) {
         strcatn(exename, ".exe", 260);
     }
+#endif
 
     IO_Initialize();
     if (!RegisterCmdLineResources()) {
@@ -312,6 +355,9 @@ int Main_Initialize(int argc, char** argv) {
         CLReportError(CLStr2, exename);
     }
 
+#if MWCCPSP
+    Prefs_Initialize();
+#endif
     Plugins_Init();
     if (!RegisterStaticCmdLinePlugin()) {
         CLFatalError("Could not initialize built-in plugins");
@@ -328,6 +374,9 @@ int Main_Initialize(int argc, char** argv) {
 int Main_Terminate(int exitcode) {
     if (MainInitialized) {
         Plugins_Term();
+#if MWCCPSP
+        Prefs_Terminate();
+#endif
         License_Terminate();
         Proj_Terminate(gProj);
         IO_Terminate();
@@ -435,12 +484,34 @@ static int Main_SetupParamBlock(void) {
 
     return Result_Success;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+static double ticksPerSecond = 60.0; // 0x5BF3A8 (named so the pin applies)
+
+// 0x408700: the linkers' drop-in flags as they are now
+static void Main_UpdateLinkerFlags(void) {
+    if (gTarg->linker) {
+        gTarg->linkerDropinFlags = Plugin_GetDropInFlags(gTarg->linker)->dropinflags;
+    }
+    if (gTarg->preLinker) {
+        gTarg->preLinkerDropinFlags = Plugin_GetDropInFlags(gTarg->preLinker)->dropinflags;
+    }
+    if (gTarg->postLinker) {
+        gTarg->postLinkerDropinFlags = Plugin_GetDropInFlags(gTarg->postLinker)->dropinflags;
+    }
+}
+#endif
 
 static int Main_ResolveProject(void) {
     SInt32 startTime;
     SInt32 endTime;
     int err;
 
+#if MWCCPSP
+    Main_UpdateLinkerFlags();
+#endif
     if (optsCmdLine.state == OptsCmdLineState_Unset ||
         optsCmdLine.state == OptsCmdLineState_NoAction) {
         return Result_Success;
@@ -466,7 +537,11 @@ static int Main_ResolveProject(void) {
     endTime = LMGetTicks();
 
     if (optsCmdLine.timeWorking) {
+#if MWCCPSP
+        CLReport(CLStr24, (endTime - startTime) / ticksPerSecond, "resolve", "", "project", "");
+#else
         CLReport(CLStr24, (endTime - startTime) / 60.0, "resolve", "", "project", "");
+#endif
     }
 
     return Result_Success;
@@ -583,6 +658,82 @@ static int UpdatePCmdLineLinkerFromVersion(PCmdLineLinker* given, PCmdLineLinker
     }
 }
 
+#if MWCCPSP
+// 0x408B50: the panel is copied into an OS handle; the first panel that
+// applies decides the result
+static int UpdatePrefPanels(const char* name) {
+    PrefPanel* panel;
+    OSHandle h;
+    int result;
+    void* data;
+
+    if (!name || !ustrcmp(name, "CmdLine Panel")) {
+        if ((panel = Prefs_FindPanel("CmdLine Panel")) && PrefPanel_GetHandle(panel, &h)) {
+            result = TRUE;
+            if (name) {
+                data = OS_LockHandle(&h);
+                result = UpdatePCmdLineFromVersion((PCmdLine*)data, &optsCmdLine);
+                OS_UnlockHandle(&h);
+            }
+            OS_FreeHandle(&h);
+            return result;
+        } else {
+            CLReportError(CLStr91, "CmdLine Panel");
+            return FALSE;
+        }
+    }
+
+    if (!name || !ustrcmp(name, "CmdLine Environment")) {
+        if ((panel = Prefs_FindPanel("CmdLine Environment")) && PrefPanel_GetHandle(panel, &h)) {
+            result = TRUE;
+            if (name) {
+                data = OS_LockHandle(&h);
+                result = UpdatePCmdLineEnvirFromVersion((PCmdLineEnvir*)data, &optsEnvir);
+                OS_UnlockHandle(&h);
+            }
+            OS_FreeHandle(&h);
+            return result;
+        } else {
+            CLReportError(CLStr91, "CmdLine Environment");
+            return FALSE;
+        }
+    }
+
+    if (!name || !ustrcmp(name, "CmdLine Compiler Panel")) {
+        if ((panel = Prefs_FindPanel("CmdLine Compiler Panel")) && PrefPanel_GetHandle(panel, &h)) {
+            result = TRUE;
+            if (name) {
+                data = OS_LockHandle(&h);
+                result = UpdatePCmdLineCompilerFromVersion((PCmdLineCompiler*)data, &optsCompiler);
+                OS_UnlockHandle(&h);
+            }
+            OS_FreeHandle(&h);
+            return result;
+        } else {
+            CLReportError(CLStr91, "CmdLine Compiler Panel");
+            return FALSE;
+        }
+    }
+
+    if (!name || !ustrcmp(name, "CmdLine Linker Panel")) {
+        if ((panel = Prefs_FindPanel("CmdLine Linker Panel")) && PrefPanel_GetHandle(panel, &h)) {
+            result = TRUE;
+            if (name) {
+                data = OS_LockHandle(&h);
+                result = UpdatePCmdLineLinkerFromVersion((PCmdLineLinker*)data, &optsLinker);
+                OS_UnlockHandle(&h);
+            }
+            OS_FreeHandle(&h);
+            return result;
+        } else {
+            CLReportError(CLStr91, "CmdLine Linker Panel");
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+#else
 static int UpdatePrefPanels(const char* name) {
     PrefPanel* panel;
     Handle h;
@@ -642,6 +793,7 @@ static int UpdatePrefPanels(const char* name) {
 
     return TRUE;
 }
+#endif
 
 static int SetupCmdLinePrefPanels(void) {
     int ret;
@@ -662,6 +814,34 @@ static int Main_SetupContext(void) {
 
     Plugins_AddFileTypeMappingsForTarget(0, 0, gTarg->cpu, gTarg->os);
 
+#if MWCCPSP
+    // 3.0.1 fills in the drop-in flags afterwards, in Main_UpdateLinkerFlags
+    gTarg->linker = Plugins_GetLinker(0, gTarg->cpu, gTarg->os);
+    if (!gTarg->linker) {
+        if (Plugins_GetLinker(0, '****', '****') != NULL) {
+            CLFatalError("A linker is compiled in, but does not match the static target!\n");
+        }
+        gTarg->linkerDropinFlags = 0;
+    }
+
+    gTarg->preLinker = Plugins_GetPreLinker(0, gTarg->cpu, gTarg->os);
+    if (!gTarg->preLinker) {
+        if (Plugins_GetPreLinker(0, '****', '****') != NULL) {
+            CLFatalError("A pre-linker is compiled in, but does not match the static target!\n");
+        }
+        gTarg->preLinkerDropinFlags = 0;
+    }
+
+    gTarg->postLinker = Plugins_GetPostLinker(0, gTarg->cpu, gTarg->os);
+    if (!gTarg->postLinker) {
+        if (Plugins_GetPostLinker(0, '****', '****') != NULL) {
+            CLFatalError("A post-linker is compiled in, but does not match the static target!\n");
+        }
+        gTarg->postLinkerDropinFlags = 0;
+    }
+
+    Main_UpdateLinkerFlags();
+#else
     gTarg->linker = Plugins_GetLinker(0, gTarg->cpu, gTarg->os);
     if (gTarg->linker) {
         gTarg->linkerDropinFlags = Plugin_GetDropInFlags(gTarg->linker)->dropinflags;
@@ -692,6 +872,10 @@ static int Main_SetupContext(void) {
         gTarg->postLinkerDropinFlags = 0;
     }
 
+#endif
+#if MWCCPSP
+
+#endif
     if (clState.plugintype == CWDROPINLINKERTYPE) {
         if (!gTarg->preLinker && !gTarg->linker && !gTarg->postLinker) {
             CLFatalError("The linker plugin was not found!");
@@ -703,7 +887,11 @@ static int Main_SetupContext(void) {
 }
 
 int Main_Driver(void) {
+#if MWCCPSP
+    int result;
+#else
     volatile int result;
+#endif
 
     result = setjmp(exit_program);
     if (!result) {

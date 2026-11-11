@@ -151,6 +151,44 @@ CW_CALLBACK CWParserSetNamedPreferences(
     return pc->callbacks->cbParserSetNamedPreferences(pc, panelName, paneldata);
 }
 
+#if MWCCPSP
+extern "C" int func_00415730(CWPluginContext context, const void* pluginspec, OSSpec* spec);
+
+// CWNewAccessPathInfo as an API 2 plugin passes it, and as the shell takes it
+struct PluginNewAccessPathInfo2 {
+    char pathSpec[0x104];
+    SInt32 position;
+    Boolean recursive;
+    CWAccessPathType type;
+};
+struct ShellNewAccessPathInfo {
+    OSSpec pathSpec;
+    SInt32 position;
+    Boolean recursive;
+    CWAccessPathType type;
+};
+#define API2 reinterpret_cast<const PluginNewAccessPathInfo2*>(api)
+
+// 0x421020
+CW_CALLBACK CWParserAddAccessPath(CWPluginContext context, const CWNewAccessPathInfo* api) {
+    CWParserContext* pc;
+    ShellNewAccessPathInfo shellapi;
+    if (!(pc = GetContext(context))) {
+        return cwErrInvalidCallback;
+    }
+    if (!api) {
+        return cwErrInvalidParameter;
+    }
+    shellapi.recursive = API2->recursive;
+    shellapi.type = API2->type;
+    shellapi.position = API2->position;
+    func_00415730(context, API2->pathSpec, &shellapi.pathSpec);
+    return pc->callbacks->cbParserAddAccessPath(
+        pc, reinterpret_cast<CWNewAccessPathInfo*>(&shellapi)
+    );
+}
+#undef API2
+#else
 CW_CALLBACK CWParserAddAccessPath(CWPluginContext context, const CWNewAccessPathInfo* api) {
     CWParserContext* pc;
     if (!(pc = GetContext(context))) {
@@ -161,10 +199,16 @@ CW_CALLBACK CWParserAddAccessPath(CWPluginContext context, const CWNewAccessPath
     }
     return pc->callbacks->cbParserAddAccessPath(pc, api);
 }
+#endif
 
 CW_CALLBACK CWParserSwapAccessPaths(CWPluginContext context) {
     CWParserContext* pc;
+#if MWCCPSP
+    pc = GetContext(context);
+    if (!pc) {
+#else
     if (!(pc = GetContext(context))) {
+#endif
         return cwErrInvalidCallback;
     }
     return pc->callbacks->cbParserSwapAccessPaths(pc);
@@ -178,7 +222,17 @@ CW_CALLBACK CWParserSetOutputFileDirectory(CWPluginContext context, const CWFile
     if (!idefss) {
         return cwErrInvalidParameter;
     }
+#if MWCCPSP
+    {
+        OSSpec spec;
+        func_00415730(context, idefss, &spec);
+        return pc->callbacks->cbParserSetOutputFileDirectory(
+            pc, reinterpret_cast<CWFileSpec*>(&spec)
+        );
+    }
+#else
     return pc->callbacks->cbParserSetOutputFileDirectory(pc, idefss);
+#endif
 }
 
 CW_CALLBACK CWParserSetFileOutputName(

@@ -15,7 +15,36 @@ typedef struct FSSpec {
     SInt32 parID;
     UInt8 name[64];
 } FSSpec;
+#if MWCCPSP && MWCCPSP_DRIVER && !MWCCPSP_DRIVER_PLUGIN && !MWCCPSP_MAC_FILESPEC
+// 3.0.1's shell side names files by its own OSSpec (0x204 bytes): a
+// CWFileInfo's filespec, an access path's pathSpec (records of 0x20E). The
+// plugin API wrappers convert to the plugin's format (PluginSpecs.c).
+#define CWFileSpec OSSpec
+#define CW_SHELL_OSSPEC 1 // shell code copies specs instead of converting them
+#elif MWCCPSP && !MWCCPSP_MAC_FILESPEC
+// 3.0.1 uses the Windows plugin API: a file is named by its path (the
+// compiler's side of the interface)
+typedef struct CWFileSpec {
+    char path[260];
+} CWFileSpec;
+#if MWCCPSP_DRIVER
+#define CW_PLUGIN_PATHSPEC 1 // the parser plugin converts with API 2
+#endif
+#else
 typedef struct FSSpec CWFileSpec;
+#endif
+#if MWCCPSP
+
+// the shell's spec from/to an OSSpec: a copy when the shell's CWFileSpec is
+// an OSSpec (3.0.1), else the Mac conversion
+#if CW_SHELL_OSSPEC
+#define SHELL_SPEC_FROM_OSSPEC(oss, cws) (*(cws) = *(oss), 0)
+#define SHELL_SPEC_TO_OSSPEC(cws, oss) (*(oss) = *(cws), 0)
+#else
+#define SHELL_SPEC_FROM_OSSPEC(oss, cws) OS_OSSpec_To_FSSpec((oss), (cws))
+#define SHELL_SPEC_TO_OSSPEC(cws, oss) OS_FSSpec_To_OSSpec((cws), (oss))
+#endif
+#endif
 
 typedef struct Point {
     SInt16 v;

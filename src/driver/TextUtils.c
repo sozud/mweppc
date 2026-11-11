@@ -9,7 +9,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#if MWCCPSP
+StringPtr __stdcall c2pstr(char* s) {
+#else
 StringPtr c2pstr(char* s) {
+#endif
     unsigned int len;
 
     len = strlen(s);

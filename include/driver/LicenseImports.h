@@ -15,6 +15,9 @@ typedef struct VENDORCODE {
     short flexlm_revision;
     char flexlm_patch[2];
     char behavior_ver[5];
+#if MWCCPSP
+    char unk27[0x27C - 0x27]; // 3.0.1 links FlexLM 8: VENDORCODE is 0x27C bytes
+#endif
 } VENDORCODE;
 
 typedef struct LPCODE_HANDLE {

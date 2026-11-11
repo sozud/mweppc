@@ -28,6 +28,10 @@
 #include "driver/pref_structs.h"
 #include "driver/StringUtils.h"
 #include <stdio.h>
+#if MWCCPSP_NATIVE
+extern "C" FILE* win32_fopen(const char* path, const char* mode);
+#define fopen win32_fopen
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -103,7 +107,11 @@ CW_CALLBACK UCBGetFileInfo(
     }
 
     memset(fileinfo, 0, sizeof(CWProjectFileInfo));
+#if MWCCPSP
+    SHELL_SPEC_FROM_OSSPEC(&file->srcfss, &fileinfo->filespec);
+#else
     OS_OSSpec_To_FSSpec(&file->srcfss, &fileinfo->filespec);
+#endif
     OS_TimeToMac(file->srcmoddate, &fileinfo->moddate);
     Mac_To_ANSI_Time(fileinfo->moddate, &tmptime);
     ANSI_To_Mac_GMT_Time(tmptime, &fileinfo->moddate);
@@ -153,6 +161,242 @@ CW_CALLBACK UCBGetFileInfo(
     return cwNoErr;
 }
 
+#if MWCCPSP
+// 0x428100: a spec for a file name with no directory
+extern "C" void func_00428100(OSSpec* spec, const char* name) {
+    spec->path.s[0] = 0;
+    OS_MakeNameSpec(name, &spec->name);
+}
+
+// 0x428120
+static Boolean FindAndLoad_VirtualFile(
+    CWPluginContext context,
+    const char* filename,
+    ShellFileInfo* fileinfo,
+    OSSpec* spec,
+    Boolean* loaded
+) {
+    VFile* vf;
+    char* fnameptr;
+
+    fnameptr = OS_GetFileNamePtr(const_cast<char*>(filename));
+    vf = VFiles_Find(gTarg->virtualFiles, fnameptr);
+    if (vf) {
+        if (!fileinfo->suppressload) {
+            CopyFileText(
+                &vf->data, const_cast<char**>(&fileinfo->filedata), &fileinfo->filedatalength
+            );
+            *loaded = TRUE;
+        }
+        fileinfo->filedatatype = cwFileTypeText;
+        fileinfo->fileID = 0;
+        fileinfo->alreadyincluded = FALSE;
+        fileinfo->recordbrowseinfo = FALSE;
+        func_00428100(&fileinfo->filespec, fnameptr);
+        OS_MakeFileSpec(fnameptr, spec);
+        if (optsCompiler.printHeaderNames) {
+            CLPrint("%s\n", fnameptr);
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// 0x4281D0
+static Boolean FindAndLoad_AccessPathFile(
+    CWPluginContext context,
+    const char* filename,
+    ShellFileInfo* fileinfo,
+    OSSpec* spec,
+    Boolean* loaded
+) {
+    SInt32 incl;
+    File* depfile;
+    SInt16 id;
+    int ret;
+    char fullpath[260];
+
+    if (Incls_FindFileInPaths(
+            static_cast<shellContextType*>(context->shellContext)->pluginAPI,
+            &gTarg->incls,
+            const_cast<char*>(filename),
+            fileinfo->fullsearch || optsCompiler.noSysPath,
+            spec,
+            &incl
+        )) {
+        if (context->pluginType == CWDROPINCOMPILERTYPE) {
+            depfile = Files_GetFile(
+                &gTarg->files,
+                (fileinfo->isdependentoffile < 0)
+                    ? static_cast<CWCompilerLinkerContext*>(context)->whichfile
+                    : fileinfo->isdependentoffile
+            );
+            if (depfile) {
+                Deps_AddDependency(
+                    &depfile->deps,
+                    incl,
+                    NULL,
+                    FALSE,
+                    fileinfo->dependencyType,
+                    &fileinfo->alreadyincluded
+                );
+            }
+
+            if (optsCompiler.browserEnabled) {
+                ret = Browser_SearchAndAddFile(
+                    &clState.browseTableHandle,
+                    OS_SpecToString(spec, fullpath, sizeof(fullpath)),
+                    &id
+                );
+                if (ret == 0) {
+                    return 2;
+                } else if (ret < 0) {
+                    fileinfo->recordbrowseinfo = TRUE;
+                    fileinfo->fileID = id;
+                } else {
+                    fileinfo->recordbrowseinfo = FALSE;
+                    fileinfo->fileID = id;
+                }
+            } else {
+                fileinfo->recordbrowseinfo = FALSE;
+                fileinfo->fileID = 0;
+            }
+        }
+
+        fileinfo->filespec = *spec;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+// 0x428340
+static Boolean FindAndLoad_MissingFile(
+    CWPluginContext context,
+    const char* filename,
+    ShellFileInfo* fileinfo,
+    OSSpec* spec,
+    Boolean* loaded
+) {
+    File* file;
+    CWCompilerLinkerContext* c;
+
+    if (optsCompiler.ignoreMissingFiles) {
+        if (context->pluginType == CWDROPINCOMPILERTYPE ||
+            context->pluginType == CWDROPINLINKERTYPE) {
+            c = static_cast<CWCompilerLinkerContext*>(context);
+        } else {
+            return FALSE;
+        }
+
+        file = Files_GetFile(&gTarg->files, c->whichfile);
+        OS_ASSERT(504, file != NULL);
+
+        OS_MakeSpecWithPath(&file->srcfss.path, filename, TRUE, spec);
+        Deps_AddDependency(
+            &file->deps,
+            -1,
+            spec,
+            !(fileinfo->fullsearch || optsCompiler.noSysPath),
+            fileinfo->dependencyType,
+            &fileinfo->alreadyincluded
+        );
+
+        fileinfo->fileID = 0;
+        fileinfo->recordbrowseinfo = FALSE;
+        if (!fileinfo->suppressload) {
+            fileinfo->filedata = xstrdup("");
+            fileinfo->filedatalength = 0;
+            fileinfo->filedatatype = cwFileTypeText;
+            *loaded = TRUE;
+        } else {
+            fileinfo->filedata = NULL;
+            fileinfo->filedatalength = 0;
+            fileinfo->filedatatype = cwFileTypeUnknown;
+        }
+
+        fileinfo->filespec = *spec;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+// 0x428470: the shell's file info; the found file is passed on as an OSSpec
+CW_CALLBACK UCBFindAndLoadFile(
+    CWPluginContext context, const char* infilename, CWFileInfo* cwfileinfo
+) {
+    ShellFileInfo* fileinfo = reinterpret_cast<ShellFileInfo*>(cwfileinfo);
+    OSSpec spec;
+    Boolean loaded;
+    char filename[260];
+    char browseinfo[64];
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBFindAndLoadFile");
+    }
+
+    ShowWorking(8);
+    if (CheckForUserBreak()) {
+        return cwErrUserCanceled;
+    }
+
+    if (optsCompiler.canonicalIncludes) {
+        strcpy(filename, infilename);
+    } else if (OS_CanonPath(infilename, filename)) {
+        return cwErrInvalidParameter;
+    }
+
+    loaded = FALSE;
+    if (!FindAndLoad_VirtualFile(context, filename, fileinfo, &spec, &loaded) &&
+        !FindAndLoad_AccessPathFile(context, filename, fileinfo, &spec, &loaded) &&
+        !FindAndLoad_MissingFile(context, filename, fileinfo, &spec, &loaded)) {
+        return cwErrFileNotFound;
+    }
+
+    if (optsCompiler.printHeaderNames) {
+        CLPrint("%s\n", OS_SpecToStringRelative(&spec, NULL, STSbuf, sizeof(STSbuf)));
+    }
+
+    if (context->pluginType == CWDROPINCOMPILERTYPE) {
+        if (optsCmdLine.verbose > 2) {
+            sprintf(browseinfo, " (browse fileID %d)", fileinfo->fileID);
+            CLReport(
+                CLStr21,
+                fileinfo->alreadyincluded ? "Included" : "Including",
+                OS_SpecToString(&spec, STSbuf, sizeof(STSbuf)),
+                fileinfo->recordbrowseinfo ? browseinfo : ""
+            );
+        } else if (optsCmdLine.verbose > 1 && !fileinfo->alreadyincluded) {
+            CLReport(CLStr21, "Including", OS_SpecToString(&spec, STSbuf, sizeof(STSbuf)), "");
+        }
+    } else {
+        fileinfo->fileID = 0;
+        fileinfo->recordbrowseinfo = FALSE;
+        fileinfo->alreadyincluded = FALSE;
+    }
+
+    if (!loaded) {
+        if (!fileinfo->suppressload) {
+            // the shell spec: UCBGetFileText takes it in 3.0.1
+            return UCBGetFileText(
+                context,
+                reinterpret_cast<const CWFileSpec*>(&fileinfo->filespec),
+                &fileinfo->filedata,
+                &fileinfo->filedatalength,
+                &fileinfo->filedatatype
+            );
+        } else {
+            fileinfo->filedata = NULL;
+            fileinfo->filedatalength = 0;
+            fileinfo->filedatatype = cwFileTypeUnknown;
+            return cwNoErr;
+        }
+    } else {
+        return cwNoErr;
+    }
+}
+#else
 static Boolean FindAndLoad_VirtualFile(
     CWPluginContext context,
     const char* filename,
@@ -377,7 +621,66 @@ CW_CALLBACK UCBFindAndLoadFile(
         return cwNoErr;
     }
 }
+#endif
 
+#if MWCCPSP
+// 0x428720: the shell spec (an OSSpec); unknown files may be virtual files
+CW_CALLBACK UCBGetFileText(
+    CWPluginContext context,
+    const CWFileSpec* filespec,
+    const char** text,
+    SInt32* textLength,
+    short* filedatatype
+) {
+    OSHandle* texthandle;
+    Boolean precomp;
+    OSSpec spec;
+    VFile* vf;
+    char filename[260];
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBGetFileText");
+    }
+
+    spec = *reinterpret_cast<const OSSpec*>(filespec);
+    if (LoadAndCacheFile(&spec, &texthandle, &precomp)) {
+        OS_NameSpecToString(
+            &reinterpret_cast<const OSSpec*>(filespec)->name, filename, sizeof(filename)
+        );
+        vf = VFiles_Find(gTarg->virtualFiles, filename);
+        if (!vf) {
+            return cwErrFileNotFound;
+        }
+        CopyFileText(&vf->data, const_cast<char**>(text), textLength);
+        *filedatatype = cwFileTypeText;
+        OS_MakeFileSpec(filename, &spec);
+        return cwNoErr;
+    }
+
+    if (texthandle) {
+        if (!precomp) {
+            CopyFileText(texthandle, const_cast<char**>(text), textLength);
+            FreeIncludeFile(texthandle);
+        } else {
+            *text = static_cast<char*>(OS_LockHandle(texthandle));
+            if (OS_GetHandleSize(texthandle, reinterpret_cast<UInt32*>(textLength))) {
+                return cwErrRequestFailed;
+            }
+        }
+    }
+
+    if (texthandle) {
+        if (!precomp) {
+            *filedatatype = cwFileTypeText;
+        } else {
+            *filedatatype = cwFileTypePrecompiledHeader;
+        }
+    } else {
+        *filedatatype = cwFileTypeUnknown;
+    }
+    return cwNoErr;
+}
+#else
 CW_CALLBACK UCBGetFileText(
     CWPluginContext context,
     const CWFileSpec* filespec,
@@ -434,6 +737,7 @@ CW_CALLBACK UCBGetFileText(
 
     return cwNoErr;
 }
+#endif
 
 CW_CALLBACK UCBReleaseFileText(CWPluginContext context, const char* text) {
     short callbackResult = 0;
@@ -545,6 +849,21 @@ CW_CALLBACK UCBGetOverlay1Info(
     }
 }
 
+#if MWCCPSP
+// UCBReportMessage's formats by [has line2][line2 ends a line][line1 ends a line]
+static const char* fmts[2][2][2] = {"%\n", "%", "%\n", "%", "%\n%\n", "%%\n", "%\n%", "%%"};
+
+struct ShellMessageRef {
+    OSSpec sourcefile;
+    SInt32 linenumber;
+    short tokenoffset;
+    short tokenlength;
+    SInt32 selectionoffset;
+    SInt32 selectionlength;
+};
+#define SHELLREF reinterpret_cast<const ShellMessageRef*>(msgRef)
+
+#endif
 CW_CALLBACK UCBReportMessage(
     CWPluginContext context,
     const CWMessageRef* msgRef,
@@ -556,13 +875,20 @@ CW_CALLBACK UCBReportMessage(
     if (optsCmdLine.verbose > 4) {
         CLPrint("Callback: %s\n", "UCBReportMessage");
     }
+#if MWCCPSP
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Message type: %d, number: %d\n", errorlevel, errorNumber);
+    }
+#endif
 
     short msgType;
     int eeol;
     char* tptr;
     MessageRef ref;
+#if !MWCCPSP
 
     static const char* fmts[2][2][2] = {"%\n", "%", "%\n", "%", "%\n%\n", "%%\n", "%\n%", "%%"};
+#endif
 
     if (line1 == NULL) {
         line1 = "";
@@ -608,6 +934,18 @@ CW_CALLBACK UCBReportMessage(
             );
         }
     } else {
+#if MWCCPSP
+        // 3.0.1 hands the shell a message ref holding an OSSpec
+        ref.sourcefile = static_cast<CWCompilerLinkerContext*>(context)->sourcefile;
+        ref.errorfile = SHELLREF->sourcefile;
+        ref.sourceline = const_cast<char*>(line2);
+        ref.linenumber = SHELLREF->linenumber;
+
+        ref.tokenoffset = SHELLREF->tokenoffset;
+        ref.tokenlength = SHELLREF->tokenlength;
+        ref.selectionoffset = SHELLREF->selectionoffset;
+        ref.selectionlength = SHELLREF->selectionlength;
+#else
         OS_FSSpec_To_OSSpec(
             &static_cast<CWCompilerLinkerContext*>(context)->sourcefile, &ref.sourcefile
         );
@@ -619,6 +957,7 @@ CW_CALLBACK UCBReportMessage(
         ref.tokenlength = msgRef->tokenlength;
         ref.selectionoffset = msgRef->selectionoffset;
         ref.selectionlength = msgRef->selectionlength;
+#endif
 
         if (ref.tokenoffset < 0) {
             ref.tokenoffset = 0;
@@ -756,6 +1095,19 @@ CW_CALLBACK UCBUserBreak(CWPluginContext context) {
     }
 }
 
+#if MWCCPSP
+extern "C" ShellHandleEntry* ShellHandles_Add(
+    CWPluginContext context,
+    void* ptr,
+    Boolean keep2,
+    Boolean isHandle,
+    Boolean keep,
+    Boolean hasMacHandle
+);
+#endif
+#if MWCCPSP
+
+#endif
 CW_CALLBACK UCBGetNamedPreferences(
     CWPluginContext context, const char* prefsname, CWMemHandle* prefsdata
 ) {
@@ -763,6 +1115,27 @@ CW_CALLBACK UCBGetNamedPreferences(
         CLPrint("Callback: %s\n", "UCBGetNamedPreferences");
     }
 
+#if MWCCPSP
+    // 0x429070: a copy of the panel in an OS handle the request owns
+    PrefPanel* pnl = Prefs_FindPanel(prefsname);
+    if (pnl) {
+        if (optsCmdLine.verbose > 2) {
+            CLReport(CLStr83, prefsname);
+        }
+        OSHandle* h = static_cast<OSHandle*>(xmalloc(NULL, sizeof(OSHandle)));
+        if (!PrefPanel_GetHandle(pnl, h)) {
+            xfree(h);
+            return cwErrRequestFailed;
+        }
+        *prefsdata = reinterpret_cast<CWMemHandle>(h);
+        ShellHandles_Add(context, h, FALSE, TRUE, FALSE, FALSE);
+        return cwNoErr;
+    } else {
+        CLReportError(CLStr91, prefsname);
+        *prefsdata = NULL;
+        return cwErrRequestFailed;
+    }
+#else
     PrefPanel* pnl = Prefs_FindPanel(prefsname);
     if (pnl) {
         if (optsCmdLine.verbose > 2) {
@@ -776,6 +1149,7 @@ CW_CALLBACK UCBGetNamedPreferences(
         *prefsdata = NULL;
         return cwErrRequestFailed;
     }
+#endif
 }
 
 CW_CALLBACK UCBStorePluginData(
@@ -813,7 +1187,11 @@ CW_CALLBACK UCBSetModDate(
     SInt32 idx;
     File* file;
 
+#if MWCCPSP
+    SHELL_SPEC_TO_OSSPEC(filespec, &spec);
+#else
     OS_FSSpec_To_OSSpec(filespec, &spec);
+#endif
     if (!moddate || !*moddate) {
         OS_GetTime(&mdtm);
     } else {
@@ -863,7 +1241,11 @@ CW_CALLBACK UCBAddProjectEntry(
         CLPrint("Callback: %s\n", "UCBAddProjectEntry");
     }
 
+#if MWCCPSP
+    fss = *reinterpret_cast<const OSSpec*>(fileSpec); // 3.0.1: the shell's spec
+#else
     OS_FSSpec_To_OSSpec(fileSpec, &fss);
+#endif
     if (OS_IsDir(&fss)) {
         return cwErrInvalidParameter;
     }
@@ -1070,6 +1452,133 @@ CW_CALLBACK UCBAddProjectEntry(
     return cwNoErr;
 }
 
+#if MWCCPSP
+extern "C" {
+// 0x428100: a shell spec for a file name
+extern "C" void func_00428100(OSSpec* spec, const char* name);
+// 0x4292F0: UCBAddProjectEntry with a shell spec
+extern CW_CALLBACK func_004292F0(
+    CWPluginContext context,
+    const OSSpec* spec,
+    Boolean isSource,
+    const CWNewProjectEntryInfo* entry,
+    SInt32* pos
+);
+}
+
+// 0x429B20: the main output of a compile (preprocessing, requests 1 and 2)
+// becomes the file's text; other documents go to stdout, to a file named
+// after stdout_base, or become virtual files for the parser
+CW_CALLBACK UCBCreateNewTextDocument(
+    CWPluginContext context, const CWNewTextDocumentInfo* docinfo
+) {
+    OSSpec fss;
+    char filename[256];
+    CWNewProjectEntryInfo entry;
+    SInt32 pos;
+    UInt32 size;
+    OSHandle* texth;
+
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBCreateNewTextDocument");
+    }
+
+    if (context->pluginType == CWDROPINCOMPILERTYPE || context->pluginType == CWDROPINLINKERTYPE) {
+        CWCompilerLinkerContext* clcontext = static_cast<CWCompilerLinkerContext*>(context);
+        Boolean isMain = (clcontext->request == reqCompile && clcontext->preprocess) ||
+            clcontext->request == 2 ||
+            clcontext->request == 1;
+        File* file = Files_GetFile(&gTarg->files, clcontext->whichfile);
+        ShellHandles_Remove(context, docinfo->text, TRUE);
+        if (isMain) {
+            if (!file) {
+                return cwErrUnknownFile;
+            }
+            if (file->textdata) {
+                if (!ShowHandle(file->textdata, TRUE)) {
+                    return cwErrRequestFailed;
+                }
+                OS_FreeHandle(file->textdata);
+            }
+            file->textdata = reinterpret_cast<OSHandle*>(docinfo->text);
+            OS_GetTime(&file->outmoddate);
+            return cwNoErr;
+        } else {
+            int len;
+            int i;
+            FILE* stdfile;
+
+            texth = reinterpret_cast<OSHandle*>(docinfo->text);
+            OS_GetHandleSize(texth, &size);
+            if (docinfo->documentname || clState.stdout_base) {
+                len = 0;
+                if (clState.stdout_base) {
+                    strcpy(filename, clState.stdout_base);
+                    len = strlen(clState.stdout_base);
+                    if (docinfo->documentname) {
+                        filename[len++] = '_';
+                    }
+                }
+                for (i = 0; docinfo->documentname[i]; i++) {
+                    filename[len++] =
+                        docinfo->documentname[i] == ' ' ? '_' : docinfo->documentname[i];
+                }
+                filename[len] = 0;
+
+                if (!docinfo->documentname) {
+                    stdfile = fopen(filename, !clState.stdout_written ? "wt" : "at");
+                    clState.stdout_written = TRUE;
+                } else {
+                    stdfile = fopen(filename, "wt");
+                }
+                if (stdfile) {
+                    fwrite(OS_LockHandle(texth), size, 1, stdfile);
+                    fclose(stdfile);
+                    OS_UnlockHandle(texth);
+                    return cwNoErr;
+                }
+            }
+
+            if (!ShowHandle(texth, FALSE)) {
+                return cwErrRequestFailed;
+            }
+            return cwNoErr;
+        }
+    } else if (context->pluginType == CWDROPINPARSERTYPE) {
+        VFile* vf;
+
+        texth = reinterpret_cast<OSHandle*>(docinfo->text);
+        ShellHandles_Remove(context, texth, TRUE);
+        if (docinfo->markDirty) {
+            if (!docinfo->documentname) {
+                return cwErrInvalidParameter;
+            }
+
+            vf = VFile_New(docinfo->documentname, texth);
+            if (!vf) {
+                return cwErrOutOfMemory;
+            }
+            if (!VFiles_Add(&gTarg->virtualFiles, vf)) {
+                return cwErrRequestFailed;
+            }
+
+            entry.position = entry.segment = entry.overlayGroup = entry.overlay = -1;
+            entry.groupPath = NULL;
+            entry.mergeintooutput = entry.weakimport = entry.initbefore = FALSE;
+            func_00428100(&fss, docinfo->documentname);
+            return func_004292F0(context, &fss, TRUE, &entry, &pos);
+        } else {
+            if (!ShowHandle(texth, docinfo->documentname != NULL)) {
+                return cwErrRequestFailed;
+            }
+            return cwNoErr;
+        }
+    } else {
+        DO_INTERNAL_ERROR(1840, "Cannot deal with unexpected document");
+        return cwErrInvalidCallback;
+    }
+}
+#else
 CW_CALLBACK UCBCreateNewTextDocument(
     CWPluginContext context, const CWNewTextDocumentInfo* docinfo
 ) {
@@ -1170,7 +1679,83 @@ CW_CALLBACK UCBCreateNewTextDocument(
         return cwErrInvalidCallback;
     }
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: what a plugin allocates is recorded for the request (ShellHandles_*)
+extern "C" {
+extern ShellHandleEntry* ShellHandles_Add(
+    CWPluginContext context,
+    void* ptr,
+    Boolean keep2,
+    Boolean isHandle,
+    Boolean keep,
+    Boolean hasMacHandle
+);
+extern ShellHandleEntry* ShellHandles_Find(CWPluginContext context, void* ptr, Boolean isHandle);
+extern void ShellHandles_Remove(CWPluginContext context, void* ptr, Boolean isHandle);
+extern CW_CALLBACK CWSetPluginOSError(CWPluginContext context, SInt32 err);
+}
+
+// 0x429F40
+CW_CALLBACK UCBAllocateMemory(
+    CWPluginContext context, SInt32 size, Boolean isPermanent, void** ptr
+) {
+    if (optsCmdLine.verbose > 3) {
+        CLPrint("Callback: %s\n", "UCBAllocateMemory");
+    }
+
+    if (!size) {
+        size = 1;
+    }
+    *ptr = malloc(size);
+    if (!*ptr) {
+        return cwErrOutOfMemory;
+    }
+    ShellHandles_Add(context, *ptr, FALSE, FALSE, isPermanent, FALSE);
+    return cwNoErr;
+}
+
+// 0x429FC0
+CW_CALLBACK UCBFreeMemory(CWPluginContext context, void* ptr, Boolean isPermanent) {
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBFreeMemory");
+    }
+
+    if (ShellHandles_Find(context, ptr, FALSE)) {
+        xfree(ptr);
+        ShellHandles_Remove(context, ptr, FALSE);
+        return cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42A020
+CW_CALLBACK UCBAllocMemHandle(
+    CWPluginContext context, SInt32 size, Boolean useTempMemory, CWMemHandle* memhandle
+) {
+    OSHandle* handle;
+    int err;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBAllocMemHandle");
+    }
+
+    *memhandle = NULL;
+    handle = static_cast<OSHandle*>(malloc(sizeof(OSHandle)));
+    if (!handle) {
+        return cwErrOutOfMemory;
+    }
+    if ((err = OS_NewHandle(size, handle))) {
+        CWSetPluginOSError(context, err);
+        free(handle);
+        return cwErrOutOfMemory;
+    }
+    *memhandle = reinterpret_cast<CWMemHandle>(handle);
+    ShellHandles_Add(context, handle, FALSE, TRUE, FALSE, FALSE);
+    return cwNoErr;
+}
+#else
 CW_CALLBACK UCBAllocateMemory(
     CWPluginContext context, SInt32 size, Boolean isPermanent, void** ptr
 ) {
@@ -1210,7 +1795,94 @@ CW_CALLBACK UCBAllocMemHandle(
     UCBSecretAttachHandle(context, handle, memhandle);
     return cwNoErr;
 }
+#endif
 
+#if MWCCPSP
+// 0x42A0B0: the handles are OSHandles recorded in the request's table
+CW_CALLBACK UCBFreeMemHandle(CWPluginContext context, CWMemHandle memhandle) {
+    ShellHandleEntry* entry;
+    int err;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBFreeMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, memhandle, TRUE))) {
+        err = OS_FreeHandle(static_cast<OSHandle*>(entry->ptr));
+        ShellHandles_Remove(context, memhandle, TRUE);
+        CWSetPluginOSError(context, err);
+        return err ? cwErrRequestFailed : cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42A130
+CW_CALLBACK UCBGetMemHandleSize(CWPluginContext context, CWMemHandle memhandle, SInt32* size) {
+    ShellHandleEntry* entry;
+    int err;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBGetMemHandleSize");
+    }
+
+    if ((entry = ShellHandles_Find(context, memhandle, TRUE))) {
+        err = OS_GetHandleSize(static_cast<OSHandle*>(entry->ptr), reinterpret_cast<UInt32*>(size));
+        CWSetPluginOSError(context, err);
+        return err ? cwErrRequestFailed : cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42A1A0
+CW_CALLBACK UCBResizeMemHandle(CWPluginContext context, CWMemHandle memhandle, SInt32 newSize) {
+    ShellHandleEntry* entry;
+    int err;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBResizeMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, memhandle, TRUE))) {
+        err = OS_ResizeHandle(static_cast<OSHandle*>(entry->ptr), newSize);
+        CWSetPluginOSError(context, err);
+        return err ? cwErrOutOfMemory : cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42A210
+CW_CALLBACK UCBLockMemHandle(
+    CWPluginContext context, CWMemHandle handle, Boolean moveHi, void** ptr
+) {
+    ShellHandleEntry* entry;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBLockMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, handle, TRUE))) {
+        *ptr = OS_LockHandle(static_cast<OSHandle*>(entry->ptr));
+        CWSetPluginOSError(context, *ptr ? 0 : 8);
+        return *ptr ? cwNoErr : cwErrOutOfMemory;
+    }
+    return cwErrInvalidParameter;
+}
+
+// 0x42A290
+CW_CALLBACK UCBUnlockMemHandle(CWPluginContext context, CWMemHandle handle) {
+    ShellHandleEntry* entry;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBUnlockMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, handle, TRUE))) {
+        OS_UnlockHandle(static_cast<OSHandle*>(entry->ptr));
+        return cwNoErr;
+    }
+    return cwErrInvalidParameter;
+}
+#else
 CW_CALLBACK UCBFreeMemHandle(CWPluginContext context, CWMemHandle memhandle) {
     if (optsCmdLine.verbose > 4) {
         CLPrint("Callback: %s\n", "UCBFreeMemHandle");
@@ -1264,6 +1936,7 @@ CW_CALLBACK UCBUnlockMemHandle(CWPluginContext context, CWMemHandle handle) {
     HUnlock(reinterpret_cast<Handle>(handle));
     return cwNoErr;
 }
+#endif
 
 CW_CALLBACK UCBGetTargetName(CWPluginContext context, char* name, short maxLength) {
     if (optsCmdLine.verbose > 3) {
@@ -1340,16 +2013,42 @@ CW_CALLBACK UCBCacheAccessPathList(CWPluginContext context) {
             OS_ASSERT(2010, path);
 
             OS_MakeSpecWithPath(path->spec, NULL, FALSE, &spec);
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+            ap->pathSpec = spec;
+#else
+            SHELL_SPEC_FROM_OSSPEC(&spec, &ap->pathSpec);
+#endif
+#else
             OS_OSSpec_To_FSSpec(&spec, &ap->pathSpec);
+#endif
             ap->recursive = path->recursive != 0;
             if (path->recursive) {
                 ap->subdirectoryCount = Paths_CountRecurse(path->recursive);
                 if (ap->subdirectories) {
                     xfree(ap->subdirectories);
                 }
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+                ap->subdirectories = static_cast<CWFileSpec*>(
+                    xmalloc(NULL, sizeof(CWFileSpec) * ap->subdirectoryCount)
+                );
+                Paths_CopyRecurseFSS(
+                    context->shellContext,
+                    ap->subdirectories,
+                    path->recursive,
+                    ap->subdirectoryCount
+                );
+#else
                 ap->subdirectories =
                     static_cast<FSSpec*>(xmalloc(NULL, sizeof(FSSpec) * ap->subdirectoryCount));
                 Paths_CopyRecurseFSS(ap->subdirectories, path->recursive, ap->subdirectoryCount);
+#endif
+#else
+                ap->subdirectories =
+                    static_cast<FSSpec*>(xmalloc(NULL, sizeof(FSSpec) * ap->subdirectoryCount));
+                Paths_CopyRecurseFSS(ap->subdirectories, path->recursive, ap->subdirectoryCount);
+#endif
             } else {
                 ap->subdirectoryCount = 0;
                 ap->subdirectories = NULL;
@@ -1375,16 +2074,42 @@ CW_CALLBACK UCBCacheAccessPathList(CWPluginContext context) {
             OS_ASSERT(2044, path);
 
             OS_MakeSpecWithPath(path->spec, NULL, FALSE, &spec);
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+            ap->pathSpec = spec;
+#else
+            SHELL_SPEC_FROM_OSSPEC(&spec, &ap->pathSpec);
+#endif
+#else
             OS_OSSpec_To_FSSpec(&spec, &ap->pathSpec);
+#endif
             ap->recursive = path->recursive != 0;
             if (path->recursive) {
                 ap->subdirectoryCount = Paths_CountRecurse(path->recursive);
                 if (ap->subdirectories) {
                     xfree(ap->subdirectories);
                 }
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+                ap->subdirectories = static_cast<CWFileSpec*>(
+                    xmalloc(NULL, sizeof(CWFileSpec) * ap->subdirectoryCount)
+                );
+                Paths_CopyRecurseFSS(
+                    context->shellContext,
+                    ap->subdirectories,
+                    path->recursive,
+                    ap->subdirectoryCount
+                );
+#else
                 ap->subdirectories =
                     static_cast<FSSpec*>(xmalloc(NULL, sizeof(FSSpec) * ap->subdirectoryCount));
                 Paths_CopyRecurseFSS(ap->subdirectories, path->recursive, ap->subdirectoryCount);
+#endif
+#else
+                ap->subdirectories =
+                    static_cast<FSSpec*>(xmalloc(NULL, sizeof(FSSpec) * ap->subdirectoryCount));
+                Paths_CopyRecurseFSS(ap->subdirectories, path->recursive, ap->subdirectoryCount);
+#endif
             } else {
                 ap->subdirectoryCount = 0;
                 ap->subdirectories = NULL;
@@ -1397,6 +2122,72 @@ CW_CALLBACK UCBCacheAccessPathList(CWPluginContext context) {
     return cwNoErr;
 }
 
+#if MWCCPSP
+// 0x42A7C0: records the OS handle behind a Mac handle for the request
+CW_CALLBACK UCBSecretAttachHandle(CWPluginContext context, Handle handle, CWMemHandle* memHandle) {
+    OSHandle* oh;
+    ShellHandleEntry* entry;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBSecretAttachHandle");
+    }
+
+    oh = OS_PeekMacHandle(handle);
+    if ((entry = ShellHandles_Find(context, oh, TRUE))) {
+        if (entry->ptr != oh && !entry->keep2) {
+            OS_FreeHandle(static_cast<OSHandle*>(entry->ptr));
+        }
+        entry->ptr = oh;
+    } else {
+        ShellHandles_Add(context, oh, FALSE, TRUE, FALSE, TRUE);
+    }
+    *memHandle = reinterpret_cast<CWMemHandle>(oh);
+    return cwNoErr;
+}
+
+// 0x42A840: a Mac handle for an OS handle the request knows
+CW_CALLBACK UCBSecretPeekHandle(CWPluginContext context, CWMemHandle memHandle, Handle* handle) {
+    OSHandle* oh = reinterpret_cast<OSHandle*>(memHandle);
+    ShellHandleEntry* entry;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBSecretPeekHandle");
+    }
+
+    entry = ShellHandles_Find(context, oh, TRUE);
+    if (!memHandle || !handle || !entry) {
+        *handle = NULL;
+        return cwErrInvalidParameter;
+    }
+    if (entry->hasMacHandle) {
+        *handle = OS_MacHandleFromOSHandle(oh);
+        if (!*handle) {
+            CLFatalError(__FILE__, 2317, "UCBSecretDetachHandle failed");
+            return cwErrRequestFailed;
+        }
+    } else {
+        *handle = OS_CreateMacHandleDup(oh);
+        entry->hasMacHandle = TRUE;
+    }
+    return cwNoErr;
+}
+
+// 0x42A900
+CW_CALLBACK UCBSecretDetachHandle(CWPluginContext context, CWMemHandle memHandle, Handle* handle) {
+    CWResult err;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBSecretDetachHandle");
+    }
+
+    err = UCBSecretPeekHandle(context, memHandle, handle);
+    if (!err) {
+        ShellHandles_Remove(context, memHandle, TRUE);
+        OS_FreeHandle(reinterpret_cast<OSHandle*>(memHandle));
+    }
+    return err;
+}
+#else
 CW_CALLBACK UCBSecretAttachHandle(CWPluginContext context, Handle handle, CWMemHandle* memHandle) {
     if (optsCmdLine.verbose > 4) {
         CLPrint("Callback: %s\n", "UCBSecretAttachHandle");
@@ -1433,6 +2224,7 @@ CW_CALLBACK UCBSecretPeekHandle(CWPluginContext context, CWMemHandle memHandle, 
         return cwNoErr;
     }
 }
+#endif
 
 CW_CALLBACK UCBCheckoutLicense(
     CWPluginContext context,
@@ -1455,7 +2247,11 @@ CW_CALLBACK UCBCheckoutLicense(
         return cwErrInvalidParameter;
     }
     if (flags & ~3) {
+#if MWCCPSP
+        DO_INTERNAL_ERROR(2385, "Unknown license flags");
+#else
         DO_INTERNAL_ERROR(2160, "Unknown license flags");
+#endif
     }
     if (cookie) {
         *cookie = 0;

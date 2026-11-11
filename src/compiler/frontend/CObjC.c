@@ -2930,8 +2930,12 @@ ENode* CObjC_MakeSendMsgExpr(
 
             objexpr = makediadicnode(indirect, objexpr, EASS);
 
+#if MWCCPSP
+            tempCopy = CEXPR_COPYENODE(temp);
+#else
             tempCopy = lalloc(sizeof(ENode));
             *tempCopy = *temp;
+#endif
 
             indirect = makediadicnode(tempCopy, intconstnode(TYPE(&stunsignedlong), 4), EADD);
             indirect = makemonadicnode(indirect, EINDIRECT);
@@ -2942,8 +2946,12 @@ ENode* CObjC_MakeSendMsgExpr(
 
             objexpr = makediadicnode(objexpr, ass, ECOMMA);
 
+#if MWCCPSP
+            tempCopy = CEXPR_COPYENODE(temp);
+#else
             tempCopy = lalloc(sizeof(ENode));
             *tempCopy = *temp;
+#endif
 
             objexpr = makediadicnode(objexpr, tempCopy, ECOMMA);
             objexpr->rtype = temp->rtype;

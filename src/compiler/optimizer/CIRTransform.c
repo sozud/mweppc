@@ -516,7 +516,9 @@ static ENode* CIRTrans_TransExpr(ENode* expr, Boolean isUsed) {
         case ELABEL:
         case EMEMBER:
         case EINSTRUCTION:
+#if !MWCCPSP // not a 3.0.1 node kind
         case EVECTOR128CONST:
+#endif
             break;
         default:
             CError_FATAL(1947);

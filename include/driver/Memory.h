@@ -10,9 +10,17 @@ extern "C" {
 
 extern OSHandle* OS_PeekMacHandle(Handle h);
 extern Handle OS_CreateMacHandle(OSHandle* h);
+#if MWCCPSP
+extern Handle OS_MacHandleFromOSHandle(OSHandle* oh);
+extern Handle OS_CreateMacHandleDup(OSHandle* h);
+#endif
 extern void OS_DestroyMacHandle(Handle h, OSHandle* ret);
 extern OSErr MemError(void);
+#if MWCCPSP
+extern Handle __stdcall NewHandle(SInt32 dataSize);
+#else
 extern Handle NewHandle(SInt32 dataSize);
+#endif
 extern Handle TempNewHandle(UInt32 dataSize, OSErr* resultCode);
 extern void __stdcall DisposeHandle(Handle h);
 extern void __stdcall HLock(Handle h);

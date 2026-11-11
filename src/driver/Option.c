@@ -200,9 +200,13 @@ void Args_AddToToolArgs(PtrList* ta) {
 
 void Options_Init(void) {
     numoptionlists = 0;
+#if MWCCPSP
+    numinternalset = numlegalset = maxlegalset = 0;
+#else
     maxlegalset = 0;
     numlegalset = 0;
     numinternalset = 0;
+#endif
 
     if (legalset.list) {
         free(legalset.list);

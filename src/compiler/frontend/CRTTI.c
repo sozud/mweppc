@@ -353,7 +353,11 @@ static void CRTTI_ConstructVTableHeader(
             ((SInt32*)(data + voffset))[1] = CTool_EndianConvertWord32(-offset);
         } else {
             stored = ((SInt32*)(data + voffset))[1];
+#if MWCCPSP
+            CError_ASSERT(394, stored == (SInt32)CTool_EndianConvertWord32(-offset));
+#else
             CError_ASSERT(404, stored == (SInt32)CTool_EndianConvertWord32(-offset));
+#endif
         }
     }
 

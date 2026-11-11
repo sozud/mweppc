@@ -689,7 +689,11 @@ static Boolean CTemplClass_PartialClassIsAtLeastAsSpecialized(
 
     while (1) {
         if (!argA) {
+#if MWCCPSP
+            CError_ASSERT(931, !argB);
+#else
             CError_ASSERT(867, !argB);
+#endif
 
             for (i = 0; i < info.maxCount; i++) {
                 if (!info.args[i].is_deduced) {
@@ -700,8 +704,13 @@ static Boolean CTemplClass_PartialClassIsAtLeastAsSpecialized(
             return TRUE;
         }
 
+#if MWCCPSP
+        CError_ASSERT(940, argB);
+        CError_ASSERT(941, argA->pid.type == argB->pid.type);
+#else
         CError_ASSERT(876, argB);
         CError_ASSERT(877, argA->pid.type == argB->pid.type);
+#endif
 
         switch (argA->pid.type) {
             case TPT_TYPE:
@@ -721,7 +730,11 @@ static Boolean CTemplClass_PartialClassIsAtLeastAsSpecialized(
             case TPT_NONTYPE:
                 if (CTemplTool_IsTemplateArgumentDependentExpression(argB->data.paramdecl.expr)) {
                     i = CTempl_GetTemplateArgumentExpressionIndex(argB);
+#if MWCCPSP
+                    CError_ASSERT(959, i >= 0);
+#else
                     CError_ASSERT(918, i >= 0);
+#endif
 
                     if (info.args[i].is_deduced) {
                         if (argA->data.paramdecl.expr) {
@@ -762,7 +775,11 @@ static Boolean CTemplClass_PartialClassIsAtLeastAsSpecialized(
                 break;
 
             default:
+#if MWCCPSP
+                CError_FATAL(1008);
+#else
                 CError_FATAL(966);
+#endif
         }
 
         argA = argA->next;
@@ -1000,7 +1017,11 @@ static void CTemplClass_CopyBaseClasses(
                         base = templ->theclass.bases;
                         instbase = inst->theclass.bases;
                         while (1) {
+#if MWCCPSP
+                            CError_ASSERT(1271, base && instbase);
+#else
                             CError_ASSERT(1233, base && instbase);
+#endif
 
                             if (base == action->u.base.insert_after) {
                                 newBase->next = instbase->next;
@@ -1152,7 +1173,11 @@ static void CTemplClass_CopyIVars(TypeDeduce* deduce, TemplClassInst* inst, Temp
     destptr = &inst->theclass.ivars;
 
     while (src) {
+#if MWCCPSP
+        CError_ASSERT(1436, !src->has_path);
+#else
         CError_ASSERT(1408, !src->has_path);
+#endif
 
         dest = galloc(sizeof(ObjMemberVar));
         *dest = *src;
@@ -1206,7 +1231,11 @@ static void CTemplClass_CopyObjType(TypeDeduce* deduce, ObjType* src, HashNameNo
 
     if ((list = CScope_FindName(deduce->inst->theclass.nspace, name)) &&
         list->object->otype == OT_TYPETAG) {
+#if MWCCPSP
+        CError_ASSERT(1533, list->next == NULL);
+#else
         CError_ASSERT(1481, list->next == NULL);
+#endif
 
         newlist = galloc(sizeof(NameSpaceObjectList));
         newlist->object = list->object;
@@ -1297,7 +1326,11 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
 
     inClassScope = TRUE;
     if (src->nspace != deduce->tmclass->theclass.nspace) {
+#if MWCCPSP
+        CError_ASSERT(1656, src->datatype == DALIAS);
+#else
         CError_ASSERT(1598, src->datatype == DALIAS);
+#endif
         inClassScope = FALSE;
     }
 
@@ -1352,14 +1385,23 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
         case DFUNC:
         case DVFUNC:
             dest->object.u.func.linkname = NULL;
+#if MWCCPSP
+            CError_ASSERT(1723, IS_TYPE_FUNC(dest->object.type));
+            CError_ASSERT(1730, !dest->object.u.func.u.templ && !dest->object.u.func.defargdata);
+#else
             CError_ASSERT(1661, IS_TYPE_FUNC(dest->object.type));
             CError_ASSERT(1662, !dest->object.u.func.u.templ && !dest->object.u.func.defargdata);
+#endif
 
             if ((TYPE_FUNC(dest->object.type)->flags & FUNC_IS_CTOR) &&
                 deduce->hasNewVBases &&
                 !action) {
                 FuncArg* arg;
+#if MWCCPSP
+                CError_ASSERT(1724, TYPE_FUNC(dest->object.type)->args);
+#else
                 CError_ASSERT(1668, TYPE_FUNC(dest->object.type)->args);
+#endif
                 arg = CParser_NewFuncArg();
                 arg->type = TYPE(&stsignedshort);
                 arg->next = TYPE_FUNC(dest->object.type)->args->next;
@@ -1367,9 +1409,17 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
             }
 
             if (TYPE_FUNC(dest->object.type)->flags & FUNC_CONVERSION) {
+#if MWCCPSP
+                CError_ASSERT(1738, IS_TYPE_FUNC(src->type));
+#else
                 CError_ASSERT(1676, IS_TYPE_FUNC(src->type));
+#endif
                 if (CTemplTool_IsTemplateArgumentDependentType(TYPE_FUNC(src->type)->functype)) {
+#if MWCCPSP
+                    CError_ASSERT(1741, action);
+#else
                     CError_ASSERT(1679, action);
+#endif
                     return;
                 }
             }
@@ -1389,10 +1439,18 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
 
         case DLOCAL:
         case DEXPR:
+#if MWCCPSP
+            CError_FATAL(1770);
+#else
             CError_FATAL(1699);
+#endif
 
         default:
+#if MWCCPSP
+            CError_FATAL(1773);
+#else
             CError_FATAL(1702);
+#endif
     }
 
     CScope_AddObject(deduce->inst->theclass.nspace, dest->object.name, OBJ_BASE(dest));
@@ -1424,22 +1482,35 @@ static void CTemplClass_CompleteObject(
         Object* dest;
         Object* src;
 
+#if MWCCPSP
+        CError_ASSERT(1816, refobj->otype == OT_OBJECT);
+#else
         CError_ASSERT(1748, refobj->otype == OT_OBJECT);
+#endif
 
         dest = OBJECT(refobj);
         src = OBJECT(action->u.refobj);
 
         if (IS_TEMPL_FUNC(src->type)) {
             TemplateFunction* templ = src->u.func.u.templ;
+#if MWCCPSP
+            CError_ASSERT(1826, templ);
+            CError_ASSERT(1827, !deduce->processingArgument);
+#else
             CError_ASSERT(1758, templ);
             CError_ASSERT(1759, !deduce->processingArgument);
+#endif
 
             deduce->processingArgument = TRUE;
             deduce->nindex = templ->params->pid.nindex;
             dest->type = CTemplTool_DeduceTypeCopy(deduce, dest->type, &dest->qual);
             deduce->processingArgument = FALSE;
 
+#if MWCCPSP
+            CError_ASSERT(1832, IS_TYPE_FUNC(dest->type));
+#else
             CError_ASSERT(1764, IS_TYPE_FUNC(dest->type));
+#endif
             TYPE_FUNC(dest->type)->flags |= FUNC_IS_TEMPL;
             return;
         } else {
@@ -1453,9 +1524,17 @@ static void CTemplClass_CompleteObject(
             switch (dest->datatype) {
                 case DFUNC:
                 case DVFUNC:
+#if MWCCPSP
+                    CError_ASSERT(1865, IS_TYPE_FUNC(dest->type));
+#else
                     CError_ASSERT(1780, IS_TYPE_FUNC(dest->type));
+#endif
                     if (TYPE_FUNC(dest->type)->flags & FUNC_CONVERSION) {
+#if MWCCPSP
+                        CError_ASSERT(1851, IS_TYPE_FUNC(dest->type));
+#else
                         CError_ASSERT(1783, IS_TYPE_FUNC(dest->type));
+#endif
                         if (CTemplTool_IsTemplateArgumentDependentType(
                                 TYPE_FUNC(src->type)->functype
                             )) {
@@ -1470,7 +1549,11 @@ static void CTemplClass_CompleteObject(
 
                     if ((TYPE_FUNC(dest->type)->flags & FUNC_IS_CTOR) && deduce->hasNewVBases) {
                         FuncArg* arg;
+#if MWCCPSP
+                        CError_ASSERT(1848, TYPE_FUNC(dest->type)->args);
+#else
                         CError_ASSERT(1797, TYPE_FUNC(dest->type)->args);
+#endif
                         arg = CParser_NewFuncArg();
                         arg->type = TYPE(&stsignedshort);
                         arg->next = TYPE_FUNC(dest->type)->args->next;
@@ -1616,7 +1699,11 @@ Boolean CTempl_InstantiateTemplateClass(TypeClass* tclass) {
     DefAction* defAction;
     UInt8 saveAlignMode;
 
+#if MWCCPSP
+    TemplStack* stack;
+#else
     TemplStack stack;
+#endif
     CScopeSave saveScope;
     TemplClass* templ;
     ClassLayout layout;
@@ -1657,7 +1744,11 @@ Boolean CTempl_InstantiateTemplateClass(TypeClass* tclass) {
 
     inst->is_instantiated = TRUE;
     CScope_SetClassScope(tclass, &saveScope);
+#if MWCCPSP
+    stack = CTemplTool_PushInstance(tclass, NULL);
+#else
     CTemplTool_PushInstance(&stack, tclass, NULL);
+#endif
 
     tryBlock = trychain;
     trychain = NULL;
@@ -1669,7 +1760,9 @@ Boolean CTempl_InstantiateTemplateClass(TypeClass* tclass) {
     deduce.args = inst->inst_args;
 
     CError_ASSERT(2056, !templ->theclass.sominfo);
+#if !MWCCPSP
     CError_ASSERT(2058, !templ->theclass.objcinfo);
+#endif
     CError_ASSERT(2060, !templ->theclass.vtable);
 
     inst->theclass.flags |= templ->theclass.flags &
@@ -1708,7 +1801,9 @@ Boolean CTempl_InstantiateTemplateClass(TypeClass* tclass) {
     CTemplClass_CopyIVars(&deduce, inst, templ);
     CTemplClass_CopyNameSpace(&deduce, inst, templ);
 
+#if !MWCCPSP
     CError_ASSERT(2116, !templ->theclass.friends);
+#endif
 
     for (action = templ->actions; action; action = action->next) {
         switch (action->type) {
@@ -1781,7 +1876,11 @@ Boolean CTempl_InstantiateTemplateClass(TypeClass* tclass) {
         inst->theclass.size += CABI_StructSizeAlignValue(TYPE(inst), inst->theclass.size);
     }
 
+#if MWCCPSP
+    CTemplTool_PopInstance(stack);
+#else
     CTemplTool_PopInstance(&stack);
+#endif
     CScope_RestoreScope(&saveScope);
     trychain = tryBlock;
 

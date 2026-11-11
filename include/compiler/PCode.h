@@ -8,7 +8,9 @@
 extern "C" {
 #endif
 
+#if !MWCCPSP_NATIVE
 #pragma pack(push, 2)
+#endif
 #define PC_OP_IS_REGISTER(_op, _rclass, _reg) \
     ((_op)->kind == PCOp_REGISTER && (_op)->arg == (_rclass) && (_op)->data.reg.reg == (_reg))
 #define PC_OP_IS_READ_REGISTER(_op, _rclass, _reg) \
@@ -157,7 +159,9 @@ struct PCodeLabel {
     short resolved;
     UInt16 index;
 };
+#if !MWCCPSP_NATIVE
 #pragma pack(pop)
+#endif
 enum {
     fIsProlog = 1,
     fIsEpilogue = 2,

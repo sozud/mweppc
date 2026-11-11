@@ -3,6 +3,9 @@
 #include "compiler/IroFlowgraph.h"
 #include "compiler/IroLinearForm.h"
 #include "compiler/IroLoop.h"
+#if MWCCPSP
+#include "compiler/IroMalloc.h"
+#endif
 #include "compiler/IrOptimizer.h"
 #include "compiler/IroUtil.h"
 #include "compiler/IroVars.h"
@@ -18,6 +21,12 @@
 #include "compiler/types.h"
 #include <string.h>
 
+#if MWCCPSP
+// mwccpsp 3.0.1 rewrote the unroller on the natural-loop records; its
+// IRO_LoopUnroller and everything under it are in
+// src/psp/optimizer/IroUnrollLoop301.c. Nothing else uses 2.4.7's helpers.
+#endif
+#if !MWCCPSP
 #pragma pack(push, 2)
 typedef struct LoopList {
     UInt8 flags;
@@ -2473,3 +2482,4 @@ void GenInitialAssignment(IROLoop* loop, Object* var, IROList* list) {
 void GenNewInduction(void) {
     CError_FATAL(3941);
 }
+#endif // !MWCCPSP

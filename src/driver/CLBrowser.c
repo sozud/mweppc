@@ -165,7 +165,13 @@ static int ConvertMemToDisk(BrowseTableEntry* mem, BrowseFileRecord* disk, int n
     return TRUE;
 }
 
+#if MWCCPSP
+int Browser_PackBrowseFile(
+    DriverHandle browsedata, OSHandle* browsetable, OSHandle* browsefileptr
+) {
+#else
 int Browser_PackBrowseFile(Handle browsedata, OSHandle* browsetable, OSHandle* browsefileptr) {
+#endif
     OSHandle h;
     char* ptr;
     BrowseFileHeader header;
@@ -182,7 +188,11 @@ int Browser_PackBrowseFile(Handle browsedata, OSHandle* browsetable, OSHandle* b
     OS_ASSERT(253, browsedata!=NULL);
     OS_ASSERT(254, browsetable!=NULL);
 
+#if MWCCPSP
+    OS_GetHandleSize(browsedata, &datasize);
+#else
     datasize = GetHandleSize(browsedata);
+#endif
     tableoffs = (datasize + sizeof(header) + 7) & ~7;
 
     GetBrowseTableInfoAndLock(browsetable, &scan, &entries, NULL);
@@ -210,10 +220,16 @@ int Browser_PackBrowseFile(Handle browsedata, OSHandle* browsetable, OSHandle* b
     ptr = OS_LockHandle(&h);
     memcpy(ptr, &header, sizeof(header));
 
+#if MWCCPSP
+    memcpy(&ptr[sizeof(header)], OS_LockHandle(browsedata), datasize);
+    memset((char*)((int)ptr + sizeof(header) + datasize), 0, tableoffs - sizeof(header) - datasize);
+    OS_UnlockHandle(browsedata);
+#else
     HLock(browsedata);
     memcpy(&ptr[sizeof(header)], *browsedata, datasize);
     memset((char*)((int)ptr + sizeof(header) + datasize), 0, tableoffs - sizeof(header) - datasize);
     HUnlock(browsedata);
+#endif
 
     GetBrowseTableInfoAndLock(browsetable, &scan, &entries, NULL);
     ConvertMemToDisk(scan, bptr = ptr + tableoffs, entries);

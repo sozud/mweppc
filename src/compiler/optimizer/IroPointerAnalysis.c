@@ -4,6 +4,10 @@
 #include "compiler/tokens.h"
 #include "compiler/types.h"
 #include "driver/oslib.h"
+#if MWCCPSP
+#define ASSERT_FUNCNAME 0,
+#else
+#endif
 #define IRO_POINTER_ANALYSIS_TU
 #include "compiler/IroEval.h"
 #include "compiler/IroFlowgraph.h"
@@ -33,12 +37,25 @@
 #undef IRO_ASSERT
 #undef IRO_ASSERT_T
 #undef IRO_ASSERT_MSG
+#if MWCCPSP
+#define IRO_ASSERT(line, expr) \
+    ((expr) ? (void)0 \
+            : __assertion_failed( \
+                  #expr, "IroPointerAnalysis.c", ASSERT_FUNCNAME(line) + CError_LINE_SHIFT \
+              ))
+#define IRO_ASSERT_MSG(line, expr, text) \
+    ((expr) ? (void)0 \
+            : __assertion_failed( \
+                  text, "IroPointerAnalysis.c", ASSERT_FUNCNAME(line) + CError_LINE_SHIFT \
+              ))
+#else
 #define IRO_ASSERT(line, expr) \
     ((expr) ? (void)0 \
             : __assertion_failed(#expr, "IroPointerAnalysis.c", (line) + CError_LINE_SHIFT))
 #define IRO_ASSERT_MSG(line, expr, text) \
     ((expr) ? (void)0 \
             : __assertion_failed(text, "IroPointerAnalysis.c", (line) + CError_LINE_SHIFT))
+#endif
 
 #pragma pack(push, 2)
 typedef struct EvalExprAction3Params {
@@ -4249,7 +4266,11 @@ static void EvalProcAction(IROLinear* Int, Boolean isFirst) {
 
     static int userBreakCounter;
 
+#if MWCCPSP
+    if (!isFirst && !Int->x24.evaluated) {
+#else
     if (!isFirst && !Int->evaluated) {
+#endif
         IRO_ASSERT(5749, Int != NULL);
         IRO_ASSERT(5750, stEvalProcActionParams.changed != NULL);
 
@@ -4364,7 +4385,11 @@ static void EvalProcAction(IROLinear* Int, Boolean isFirst) {
         stEvalProcActionParams.needMeet = needMeet;
         stEvalProcActionParams.nodeChanged = nodeChanged;
 
+#if MWCCPSP
+        Int->x24.evaluated = TRUE;
+#else
         Int->evaluated = TRUE;
+#endif
 
         if (Int->type != IROLinearReturn) {
             IROLinear* father = IRO_LocateFather(Int);
@@ -4432,7 +4457,11 @@ static void EvalProc(Object* proc, ParamMappingFunction* map, PartialTransferFun
                 stEvalProcActionParams.nodeChanged = FALSE;
 
                 for (nd = fnode->first; nd && nd != fnode->last->next; nd = nd->next) {
+#if MWCCPSP
+                    nd->x24.evaluated = FALSE;
+#else
                     nd->evaluated = FALSE;
+#endif
                 }
                 IRO_WalkInts(fnode->first, fnode->last, (IROWalkTreeFunc)EvalProcAction);
 
@@ -4650,17 +4679,37 @@ static void PointerAnalysis_HeapErrorProc(void) {
     longjmp(stAbortPointerAnalysis, 2);
 }
 
+#if MWCCPSP
+// 3.0.1 (0x4CF9A0): no allocator here; the unknown object is set up each time
+void PointerAnalysis_Setup(void) {
+    stExtendedParamNum = 0;
+    stParamObjs = NULL;
+    stMaxPassCount = 0;
+    stUnknown.sclass = TK_EXTERN;
+    stUnknown.type = TYPE(&stunsignedlong);
+    stUnknown.datatype = DDATA;
+}
+#else
 void PointerAnalysis_Setup(void) {
     IRO_InitializeAllocator();
     stExtendedParamNum = 0;
     stParamObjs = NULL;
     stMaxPassCount = 0;
 }
+#endif
 
 void PointerAnalysis_Cleanup(void) {
     ObjectList* list;
     ObjectList* next;
 
+#if MWCCPSP
+    for (list = stParamObjs; list; list = next) {
+        IRO_free2(list->object);
+        next = list->next;
+        IRO_free2(list);
+    }
+    stParamObjs = NULL;
+#else
     for (list = stParamObjs; list; list = next) {
         IRO_free(list->object);
         next = list->next;
@@ -4668,6 +4717,7 @@ void PointerAnalysis_Cleanup(void) {
     }
     stParamObjs = NULL;
     IRO_TerminateAllocator();
+#endif
 }
 
 void IRO_AnalyzePointers(Object* function) {

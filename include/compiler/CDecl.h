@@ -7,6 +7,21 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1: a type named through a base class path, queued by
+// CParser_GetDeclSpecs and access-checked once the declaration is added
+// (func_00500E90 -> CClass_CheckPathAccess).
+typedef struct DeclAccessCheck {
+    struct DeclAccessCheck* next;
+    BClassList* path;
+    void* unk08; // NameResult.unk1C
+    HashNameNode* name;
+    UInt8 access;
+} DeclAccessCheck;
+#endif
 
 #pragma pack(push, 2)
 struct ClassLayout {
@@ -20,7 +35,13 @@ struct ClassLayout {
 struct DeclInfo {
     Type* thetype;
     UInt32 qual;
+#if MWCCPSP
+    UInt32 qualseen; // 3.0.1: cv-qualifiers already seen (CParser_GetDeclSpecs)
     NameSpace* nspace;
+    void* unk10; // 3.0.1
+#else
+    NameSpace* nspace;
+#endif
     HashNameNode* name;
     Object* resolvedObject;
     NameSpaceObjectList* resolvedObjects;
@@ -33,10 +54,17 @@ struct DeclInfo {
     TemplParam* templateParameters;
     struct TemplateScopeState* templateScope;
     TemplateFunction* templateFunction;
+#if MWCCPSP
+    void* unk44list; // 3.0.1: a list CDecl_TypedefDeclarator hands to func_00500E90
+#endif
     UInt8 requireTemplateClassMember;
     SInt16 operator_token;
     SInt16 storageclass;
+#if MWCCPSP
+    UInt8 section; // 3.0.1: a byte
+#else
     SInt16 section;
+#endif
     UInt8 exportflags;
     Boolean hasParameterNames;
     Boolean oldStyleParameters;
@@ -58,6 +86,14 @@ struct DeclInfo {
     Boolean isTypeID;
     Boolean allowTemplateName;
     Boolean isTemplateName;
+#if MWCCPSP
+    // 3.0.1: file at +0x6C, firstDeclaration at +0x78, sizeof 0x7C
+    // (CDecl_FunctionDeclarator, CParser_ParseObject)
+    Boolean unk64;
+    Boolean defines_tag; // +0x65: set when a tag's body follows (scanenum)
+    UInt8 unk66[2];
+    SInt32 unk68;
+#endif
     CPrepFileInfo* file;
     CPrepFileInfo* file2;
     SInt32 sourceoffset;
@@ -100,7 +136,11 @@ extern void conversion_type_name(DeclInfo* declinfo);
 extern Object* CDecl_GetFunctionObject(
     DeclInfo* declinfo, NameSpace* nspace, Boolean* firstDecl, Boolean matchTemplate
 );
+#if MWCCPSP
+extern void CDecl_TypedefDeclarator(DeclInfo* declinfo, AccessType access); // 3.0.1
+#else
 extern void CDecl_TypedefDeclarator(DeclInfo* declinfo);
+#endif
 extern Boolean CDecl_FunctionDeclarator(
     DeclInfo* declinfo, NameSpace* nspace, Boolean allowDefinition, Boolean unused
 );
@@ -114,7 +154,12 @@ extern TypeMemberFunc* CDecl_MakeTypeMemberFunc(
 );
 extern void CDecl_PackDeclInfo(PackedDeclInfo* packed, DeclInfo* declinfo);
 extern void CDecl_UnpackDeclInfo(DeclInfo* declinfo, PackedDeclInfo* packed);
+#if MWCCPSP
+#define CDecl_AddFriend CClass_AddFriend // 3.0.1 keeps friends in CClass.c
+extern void CClass_AddFriend(TypeClass* tclass, Object* friendfunc, TypeClass* friendclass);
+#else
 extern void CDecl_AddFriend(TypeClass* tclass, Object* friendfunc, TypeClass* friendclass);
+#endif
 extern Boolean CDecl_CheckCtorIntegrity(FuncArg* args, TypeClass* tclass);
 extern void CDecl_MakeVBaseList(TypeClass* tclass);
 extern Boolean CDecl_CheckNewBase(TypeClass* tclass, TypeClass* baseclass, Boolean is_virtual);

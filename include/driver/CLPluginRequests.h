@@ -30,7 +30,13 @@ extern Boolean SendParserRequest(
 );
 extern Boolean SendCompilerRequest(Plugin* plugin, File* file, SInt16 stage);
 extern Boolean SendTargetInfoRequest(Target* targ, Plugin* linker, SInt32 dropinflags);
+#if MWCCPSP
+extern Boolean SendLinkerRequest(
+    Plugin* plugin, SInt32 dropinflags, struct ShellTargetInfo* targetInfo
+);
+#else
 extern Boolean SendLinkerRequest(Plugin* plugin, SInt32 dropinflags, CWTargetInfo* targetInfo);
+#endif
 extern Boolean SendDisassemblerRequest(Plugin* linker, File* file);
 extern Boolean SendInitOrTermRequest(Plugin* plugin, Boolean reqIsInitialize);
 extern void AddFileTypeMappingList(OSFileTypeMappings** list, const OSFileTypeMappingList* entry);

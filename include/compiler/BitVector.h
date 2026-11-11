@@ -30,7 +30,11 @@ HEADER_INLINE void Bv_SetBit(UInt32 bit, BitVector* bv) {
     if ((bit / 32) < bv->size) {
         bv->data[bit / 32] |= 1 << (bit & 31);
     } else {
+#if MWCCPSP
+        CError_FATAL(80); // 3.0.1: "BitVector.h", 0x50
+#else
         CError_FATAL(56);
+#endif
     }
 }
 

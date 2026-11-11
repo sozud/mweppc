@@ -10,6 +10,9 @@ extern "C" {
 extern void IRO_InitializeNodeNamesArray(void);
 extern void IRO_DumpBits(char* name, BitVector* bv);
 extern void IRO_DumpAfterPhase(char* str, Boolean dumpGraph);
+#if MWCCPSP
+extern void IRO_DumpBeforePhase(char* str, Boolean dumpGraph);
+#endif
 extern void IRO_DumpFlowgraph(void);
 extern void IRO_DumpExprs(void);
 extern void IRO_SetupDump(void);

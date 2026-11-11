@@ -115,7 +115,9 @@ static struct SFuncList* cparser_sfunclist;
 
 Type sttemplexpr = {TYPETEMPLDEPEXPR, 0};
 Type stillegal = {TYPEILLEGAL, 1};
+#if !MWCCPSP_NATIVE
 Type stvoid = {TYPEVOID, 0};
+#endif // natively in src/native/exe_data.c, padded: 3.0.1 reads it as a TypeIntegral
 TypePointer void_ptr = {TYPEPOINTER, 0, &stvoid, 0};
 TypeFunc rt_func = {TYPEFUNC, 0, NULL, NULL, &stvoid, 0, 0};
 
@@ -299,20 +301,51 @@ Object* CParser_FindPublicRuntimeObject(HashNameNode* name) {
     }
 }
 
+#if MWCCPSP
+Object* data_00624720; // __builtin_next_arg
+Object* data_00624790; // __register_classobj
+Object* data_0062538C; // __unregister_classobj
+#endif
+#if MWCCPSP
+
+#endif
 Boolean CParser_ReInitRuntimeObjects(Boolean is_precompiler) {
+#if MWCCPSP
+    newp_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_NEW));
+    if (!newp_fobj) {
+#else
     if (!(newp_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_NEW)))) {
+#endif
         return FALSE;
     }
+#if MWCCPSP
+    newa_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_NEW_ARRAY));
+    if (!newa_fobj) {
+#else
     if (!(newa_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_NEW_ARRAY)))) {
+#endif
         return FALSE;
     }
+#if MWCCPSP
+    delp_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_DELETE));
+    if (!delp_fobj) {
+#else
     if (!(delp_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_DELETE)))) {
+#endif
         return FALSE;
     }
+#if MWCCPSP
+    dela_fobj = CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_DELETE_ARRAY));
+    if (!dela_fobj) {
+#else
     if (!(dela_fobj =
               CScope_FindNameSpaceName(cscope_root, CMangler_OperatorName(TK_DELETE_ARRAY)))) {
+#endif
         return FALSE;
     }
+#if MWCCPSP
+
+#endif
 
     newh_func->name = GetHashNameNodeExport("__new_hdl");
     delh_func->name = GetHashNameNodeExport("__del_hdl");
@@ -344,6 +377,10 @@ Boolean CParser_ReInitRuntimeObjects(Boolean is_precompiler) {
     Xicth_func->name = GetHashNameNodeExport("__init__catch");
     Xecth_func->name = GetHashNameNodeExport("__end__catch");
     Xunex_func->name = GetHashNameNodeExport("__unexpected");
+#if MWCCPSP
+    data_00624790->name = GetHashNameNodeExport("__register_classobj");
+    data_0062538C->name = GetHashNameNodeExport("__unregister_classobj");
+#endif
 
     CMangler_Setup();
 
@@ -374,13 +411,21 @@ static void CParser_SetupRuntimeObjects(void) {
     CScope_AddGlobalObject(func);
 
     func = CParser_NewRTFunc(TYPE(&stvoid), CMangler_OperatorName(TK_DELETE), 1, 1, &void_ptr);
+#if MWCCPSP
+    CError_ASSERT(414, IS_TYPE_FUNC(func->type));
+#else
     CError_ASSERT(379, IS_TYPE_FUNC(func->type));
+#endif
     TYPE_FUNC(func->type)->exspecs = exspecs;
     CScope_AddGlobalObject(func);
 
     func =
         CParser_NewRTFunc(TYPE(&stvoid), CMangler_OperatorName(TK_DELETE_ARRAY), 1, 1, &void_ptr);
+#if MWCCPSP
+    CError_ASSERT(422, IS_TYPE_FUNC(func->type));
+#else
     CError_ASSERT(387, IS_TYPE_FUNC(func->type));
+#endif
     TYPE_FUNC(func->type)->exspecs = exspecs;
     CScope_AddGlobalObject(func);
 
@@ -408,6 +453,15 @@ static void CParser_SetupRuntimeObjects(void) {
     rt_ptmf_null = CParser_NewGlobalDataObject(NULL);
     rt_ptmf_null->type = &stvoid;
 
+#if MWCCPSP
+    // 3.0.1: the varargs helper
+    data_00624720 =
+        CParser_NewRTFunc(TYPE(&stvoid), GetHashNameNodeExport("__builtin_next_arg"), 2, 0);
+    TYPE_FUNC(data_00624720->type)->flags |= 0x200;
+#endif
+#if MWCCPSP
+
+#endif
     rt_som_new =
         CParser_NewRTFunc(TYPE(&void_ptr), NULL, 2, 3, &void_ptr, &stsignedlong, &stsignedlong);
     rt_som_newcheck = CParser_NewRTFunc(TYPE(&stvoid), NULL, 0, 1, &void_ptr);
@@ -432,10 +486,28 @@ static void CParser_SetupRuntimeObjects(void) {
     Xicth_func = CParser_NewRTFunc(TYPE(&stvoid), NULL, 0, 1, &void_ptr);
     Xecth_func = CParser_NewRTFunc(TYPE(&stvoid), NULL, 0, 1, &void_ptr);
     Xunex_func = CParser_NewRTFunc(TYPE(&stvoid), NULL, 0, 1, &void_ptr);
+#if MWCCPSP
+    // 3.0.1: two more runtime functions (named in CParser_ReInitRuntimeObjects)
+    data_00624790 = CParser_NewRTFunc(TYPE(&void_ptr), NULL, 0, 2, &void_ptr, &void_ptr);
+    data_0062538C = CParser_NewRTFunc(TYPE(&void_ptr), NULL, 0, 1, &void_ptr);
+#endif
 
     CodeGen_SetupRuntimeObjects();
+#if MWCCPSP
+    CError_ASSERT(581, CParser_ReInitRuntimeObjects(FALSE));
+#else
     CError_ASSERT(534, CParser_ReInitRuntimeObjects(FALSE));
+#endif
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern UInt8 data_00625E9F;
+extern void* data_00624B70;
+extern SInt32 data_006247B8;
+extern UInt8 data_005E986C;
+#endif
 
 void CParser_Setup(void) {
     CScope_Setup();
@@ -450,7 +522,9 @@ void CParser_Setup(void) {
     CInit_Init();
     CClass_Init();
     CIRTrans_Setup();
+#if !MWCCPSP // no Objective-C in 3.0.1
     CObjC_Setup();
+#endif
     CInline_Init();
 
     in_assembler = FALSE;
@@ -459,6 +533,10 @@ void CParser_Setup(void) {
     dont_set_references = FALSE;
 
     copts.sideeffects = TRUE;
+#if MWCCPSP
+    data_00625E9F = 0; // 3.0.1 globals, purpose not known yet
+    data_00624B70 = NULL;
+#endif
     cparser_classactions = NULL;
     name_obj_check = NULL;
     callbackactions = NULL;
@@ -486,6 +564,10 @@ void CParser_Setup(void) {
 
     uniquenamespacename = NULL;
     disallowgreaterthan = FALSE;
+#if MWCCPSP
+    data_006247B8 = 0;
+    data_005E986C = 0;
+#endif
 
     CParser_SetupRuntimeObjects();
 }
@@ -493,7 +575,9 @@ void CParser_Setup(void) {
 void CParser_Cleanup(void) {
     CTempl_Cleanup();
     CIRTrans_Cleanup();
+#if !MWCCPSP // no Objective-C in 3.0.1
     CObjC_Cleanup();
+#endif
     CScope_Cleanup();
     FreeGList(&name_mangle_list);
 }
@@ -533,9 +617,19 @@ short GetPrec(short token) {
     }
 }
 
+#if MWCCPSP
+Boolean CParser_ParseOperatorName(
+    short* token,
+    Boolean allowConversion,
+    Boolean parseConversionType,
+    Type** conversionType,
+    UInt32* conversionQual
+) {
+#else
 Boolean CParser_ParseOperatorName(
     short* token, Boolean allowConversion, Boolean parseConversionType
 ) {
+#endif
     HashNameNode* name;
 
     switch ((tk = lex())) {
@@ -565,7 +659,12 @@ Boolean CParser_ParseOperatorName(
             break;
     }
 
+#if MWCCPSP
+    name = CMangler_OperatorName(tk);
+    if (name) {
+#else
     if ((name = CMangler_OperatorName(tk))) {
+#endif
         if (token) {
             *token = tk;
         }
@@ -579,6 +678,12 @@ Boolean CParser_ParseOperatorName(
             DeclInfo declinfo;
             memclrw(&declinfo, sizeof(DeclInfo));
             conversion_type_name(&declinfo);
+#if MWCCPSP
+            if (conversionType) {
+                *conversionType = declinfo.thetype;
+                *conversionQual = declinfo.qual;
+            }
+#endif
             tkidentifier = CMangler_ConversionFuncName(declinfo.thetype, declinfo.qual);
         }
         if (token) {
@@ -664,6 +769,49 @@ HashNameNode* CParser_AppendUniqueName(char* prefix) {
     return GetHashNameNodeExport(buf);
 }
 
+#if MWCCPSP
+extern char data_005E9768[0x104]; // the source file's name, fetched once per file
+
+// 3.0.1 (0x44C880): the file name comes from a cache that CParser_Setup
+// invalidates (data_005E986C), as a C string.
+HashNameNode* CParser_AppendUniqueNameFile(char* prefix) {
+    char buf[256];
+    char* src;
+    char* dst;
+    char c;
+    int i;
+
+    dst = buf;
+    for (i = 0; *prefix && i < 200; i++) {
+        *(dst++) = *(prefix++);
+    }
+    *(dst++) = '$';
+
+    CParser_PrintUniqueID(dst);
+
+    while (*dst) {
+        dst++;
+        i++;
+    }
+
+    if (!data_005E986C) {
+        COS_FileGetFSSpecInfo(
+            &cparamblkptr->sourcefile, NULL, 0, data_005E9768, sizeof(data_005E9768)
+        );
+        data_005E986C = TRUE;
+    }
+    for (src = data_005E9768; (c = *src) && i < 255; i++) {
+        src++;
+        if (!(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9')) {
+            c = '_';
+        }
+        *(dst++) = c;
+    }
+
+    dst[0] = 0;
+    return GetHashNameNodeExport(buf);
+}
+#else
 HashNameNode* CParser_AppendUniqueNameFile(char* prefix) {
     unsigned char filename[256];
     char buf[256];
@@ -701,6 +849,7 @@ HashNameNode* CParser_AppendUniqueNameFile(char* prefix) {
     dst[0] = 0;
     return GetHashNameNodeExport(buf);
 }
+#endif
 
 static HashNameNode* CParser_GetUnnamedNameSpaceName(void) {
     unsigned char filename[256];
@@ -715,7 +864,11 @@ static HashNameNode* CParser_GetUnnamedNameSpaceName(void) {
         strcpy(buf, "@unnamed@");
         dst = buf + strlen(buf);
 
+#if MWCCPSP
+        COS_FileGetPascalName(&cparamblkptr->sourcefile, filename);
+#else
         COS_FileGetFSSpecInfo(&cparamblkptr->sourcefile, NULL, NULL, filename);
+#endif
         src = (char*)&filename[1];
         len = filename[0];
         for (i = 0; i < len && dst < &buf[254]; i++) {
@@ -771,6 +924,7 @@ void CParser_UpdateObject(Object* object, DeclInfo* declinfo) {
     if (declinfo && declinfo->section) {
         object->section = ((volatile DeclInfo*)declinfo)->section;
     }
+#if !MWCCPSP // 3.0.1 has no register or interrupt info here
     if (declinfo && object->datatype == DDATA && !object->u.data.reginfo.reg) {
         object->u.data.reginfo = declinfo->reginfo;
     }
@@ -779,6 +933,7 @@ void CParser_UpdateObject(Object* object, DeclInfo* declinfo) {
         !object->u.func.interruptflags) {
         object->u.func.interruptflags = declinfo->interruptflags;
     }
+#endif
 
     CParser_SetCFMFlags(object, declinfo);
     CodeGen_UpdateObject(object);
@@ -794,6 +949,39 @@ Object* CParser_NewObject(DeclInfo* declinfo) {
     return object;
 }
 
+#if MWCCPSP
+extern Boolean func_004AF320(void); // inside a template definition
+
+// 0x44C5F0: template definitions keep their locals in the global heap; each
+// local gets a unique id
+Object* CParser_NewLocalDataObject(DeclInfo* declinfo, Boolean add_to_locals) {
+    Object* object;
+
+    if (func_004AF320()) {
+        object = galloc(sizeof(Object));
+    } else {
+        object = lalloc(sizeof(Object));
+    }
+    memclrw(object, sizeof(Object));
+    object->otype = OT_OBJECT;
+    object->access = ACCESSPUBLIC;
+    object->datatype = DLOCAL;
+    object->u.var.uid = CParser_GetUniqueID();
+
+    if (declinfo) {
+        object->type = declinfo->thetype;
+        object->name = declinfo->name;
+        object->qual = declinfo->qual;
+        object->sclass = declinfo->storageclass;
+    }
+
+    if (add_to_locals) {
+        CFunc_AppendLocal(object);
+    }
+
+    return object;
+}
+#else
 Object* CParser_NewLocalDataObject(DeclInfo* declinfo, Boolean add_to_locals) {
     Object* object = lalloc(sizeof(Object));
     memclrw(object, sizeof(Object));
@@ -817,6 +1005,7 @@ Object* CParser_NewLocalDataObject(DeclInfo* declinfo, Boolean add_to_locals) {
 
     return object;
 }
+#endif
 
 Object* CParser_NewGlobalDataObject(DeclInfo* declinfo) {
     Object* object = galloc(sizeof(Object));
@@ -907,7 +1096,11 @@ FuncArg* CParser_NewFuncArg(void) {
 Type* atomtype(void) {
     switch (tksize) {
         default:
+#if MWCCPSP
+            CError_FATAL(1375);
+#else
             CError_FATAL(1145);
+#endif
         case ATOM_VOID:
             return &stvoid;
         case ATOM_CHAR:
@@ -932,6 +1125,10 @@ Type* atomtype(void) {
             return TYPE(&stsignedlonglong);
         case ATOM_ULONGLONG:
             return TYPE(&stunsignedlonglong);
+#if MWCCPSP
+        case ATOM_INT128:
+            return TYPE(&stint128);
+#endif
         case ATOM_FLOAT:
             return TYPE(&stfloat);
         case ATOM_SHORTDOUBLE:
@@ -1033,10 +1230,17 @@ Object* CParser_FindDeallocationObject(
     }
 }
 
+#if MWCCPSP
+Boolean oldstylecompatible(FuncArg* arg) { // 3.0.1: also used by CDecl.c
+    if (arg == &oldstyle || copts.ignore_oldstyle) {
+        return TRUE;
+    }
+#else
 static Boolean oldstylecompatible(FuncArg* arg) {
     if (copts.ignore_oldstyle) {
         return TRUE;
     }
+#endif
 
     while (arg) {
         if (arg == &elipsis) {
@@ -1129,15 +1333,28 @@ short is_memberpointerequal(Type* a, Type* b) {
         return FALSE;
     }
 
+#if MWCCPSP
+    CError_ASSERT(1578, arg_a = TYPE_FUNC(a)->args);
+    CError_ASSERT(1579, arg_b = TYPE_FUNC(b)->args);
+#else
     CError_ASSERT(1345, arg_a = TYPE_FUNC(a)->args);
     CError_ASSERT(1346, arg_b = TYPE_FUNC(b)->args);
+#endif
 
     if (TYPE_FUNC(a)->flags & FUNC_PTM) {
+#if MWCCPSP
+        CError_ASSERT(1584, arg_a = arg_a->next);
+#else
         CError_ASSERT(1351, arg_a = arg_a->next);
+#endif
     }
 
     if (TYPE_FUNC(b)->flags & FUNC_PTM) {
+#if MWCCPSP
+        CError_ASSERT(1588, arg_b = arg_b->next);
+#else
         CError_ASSERT(1355, arg_b = arg_b->next);
+#endif
     }
 
     if (arg_a->qual != arg_b->qual) {
@@ -1206,7 +1423,11 @@ restart:
         case TYPETEMPLATE:
             return CTemplTool_TemplDepTypeCompare(TYPE_TEMPLATE(a), TYPE_TEMPLATE(b));
         default:
+#if MWCCPSP
+            CError_FATAL(1675);
+#else
             CError_FATAL(1441);
+#endif
             return FALSE;
     }
 }
@@ -1265,7 +1486,11 @@ restart:
         case TYPETEMPLATE:
             return CTemplTool_TemplDepTypeCompare(TYPE_TEMPLATE(a), TYPE_TEMPLATE(b));
         default:
+#if MWCCPSP
+            CError_FATAL(1735);
+#else
             CError_FATAL(1500);
+#endif
             return 0;
     }
 }
@@ -1430,12 +1655,21 @@ Boolean is_arglistsame(FuncArg* a, FuncArg* b) {
 short is_typesame(Type* a, Type* b) {
 restart:
     if (a->type != b->type) {
+#if MWCCPSP
+        if (IS_TYPE_TEMPLATE(a) && IS_TYPE_CLASS(b) && (TYPE_CLASS(b)->flags & CLASS_IS_TEMPL)) {
+            return CTemplTool_IsSameTemplateType(TYPE(CTemplTool_GetTemplClass(TYPE_CLASS(b))), a);
+        }
+        if (IS_TYPE_TEMPLATE(b) && IS_TYPE_CLASS(a) && (TYPE_CLASS(a)->flags & CLASS_IS_TEMPL)) {
+            return CTemplTool_IsSameTemplateType(TYPE(CTemplTool_GetTemplClass(TYPE_CLASS(a))), b);
+        }
+#else
         if (IS_TYPE_TEMPLATE(a) && IS_TYPE_CLASS(b) && (TYPE_CLASS(b)->flags & CLASS_IS_TEMPL)) {
             return CTemplTool_IsSameTemplateType(b, a);
         }
         if (IS_TYPE_TEMPLATE(b) && IS_TYPE_CLASS(a) && (TYPE_CLASS(a)->flags & CLASS_IS_TEMPL)) {
             return CTemplTool_IsSameTemplateType(a, b);
         }
+#endif
         return FALSE;
     }
 
@@ -1490,7 +1724,11 @@ restart:
             }
             return is_arglistsame(TYPE_FUNC(a)->args, TYPE_FUNC(b)->args);
         default:
+#if MWCCPSP
+            CError_FATAL(1940);
+#else
             CError_FATAL(1709);
+#endif
             return FALSE;
     }
 }
@@ -1506,15 +1744,25 @@ Type* CParser_GetBoolType(void) {
 Type* CParser_GetWCharType(void) {
     if (copts.cplusplus && copts.wchar_type) {
         return TYPE(&stwchar);
+#if MWCCPSP
+    } else {
+        return copts.ushort_wchar_t ? TYPE(&stunsignedshort) : TYPE(&stsignedint);
+    }
+#else
     } else {
         return TYPE(&stunsignedshort);
     }
+#endif
 }
 
 short CParser_GetOperator(ENodeType t) {
     switch (t) {
         default:
+#if MWCCPSP
+            CError_FATAL(1981);
+#else
             CError_FATAL(1748);
+#endif
         case EMONMIN:
             return '-';
         case EBINNOT:
@@ -1558,7 +1806,11 @@ short CParser_GetOperator(ENodeType t) {
 
 Boolean CParser_IsMoreCVQualified(UInt32 a, UInt32 b) {
     if ((a & Q_CONST) && !(b & Q_CONST)) {
+#if MWCCPSP
+        return ((a & Q_VOLATILE) != 0 || (b & Q_VOLATILE) == 0);
+#else
         return ((a & Q_VOLATILE) || (b & Q_VOLATILE) == 0);
+#endif
     } else if ((a & Q_VOLATILE) && !(b & Q_VOLATILE)) {
         return ((a & Q_CONST) || (b & Q_CONST) == 0);
     }
@@ -1571,7 +1823,11 @@ Boolean CParser_IsSameOrMoreCVQualified(UInt32 a, UInt32 b) {
     }
 
     if ((a & Q_CONST) && !(b & Q_CONST)) {
+#if MWCCPSP
+        return ((a & Q_VOLATILE) != 0 || (b & Q_VOLATILE) == 0);
+#else
         return ((a & Q_VOLATILE) || (b & Q_VOLATILE) == 0);
+#endif
     } else if ((a & Q_VOLATILE) && !(b & Q_VOLATILE)) {
         return ((a & Q_CONST) || (b & Q_CONST) == 0);
     }
@@ -1601,12 +1857,27 @@ StructMember* ismember(TypeStruct* tstruct, HashNameNode* name) {
 void appendmember(TypeStruct* tstruct, StructMember* member) {
     StructMember* last;
 
+#if MWCCPSP
+    if (!(last = tstruct->members)) {
+#else
     if (!tstruct->members) {
+#endif
         tstruct->members = member;
         return;
     }
 
+#if MWCCPSP
+    while (last->next) {
+        last = last->next;
+    }
+#else
     for (last = tstruct->members; last->next; last = last->next) {}
+#endif
+#if MWCCPSP
+    if (IS_TYPE_ARRAY(last->type) && !last->type->size) {
+        CError_Error(ERR_EMPTY_ARRAY_NOT_LAST);
+    }
+#endif
     last->next = member;
 }
 
@@ -1711,11 +1982,15 @@ Boolean isdeclaration(UInt8 scanDeclarator, UInt8 requireName, UInt8 isNewExpres
     if (!((int)tk >= TK_AUTO && (int)tk <= TK_BYREF) &&
         (int)tk != TK_COLON_COLON &&
         !(tk == TK_IDENTIFIER && CScope_PossibleTypeName(tkidentifier))) {
+#if MWCCPSP // no AltiVec `vector` in 3.0.1
+        return FALSE;
+#else
         if (!(tk == TK_IDENTIFIER &&
               copts.altivec_model &&
               !strcmp(tkidentifier->name, "vector"))) {
             return FALSE;
         }
+#endif
     } else {
         if (!copts.cplusplus) {
             return TRUE;
@@ -1740,12 +2015,17 @@ Boolean islookaheaddeclaration(void) {
     if (!((int)tk >= TK_AUTO && (int)tk <= TK_BYREF) &&
         (int)tk != TK_COLON_COLON &&
         !(tk == TK_IDENTIFIER && CScope_PossibleTypeName(tkidentifier))) {
+#if MWCCPSP // no AltiVec `vector` in 3.0.1
+        CPrep_TokenStreamSetCurState(&state);
+        return FALSE;
+#else
         if (!(tk == TK_IDENTIFIER &&
               copts.altivec_model &&
               !strcmp(tkidentifier->name, "vector"))) {
             CPrep_TokenStreamSetCurState(&state);
             return FALSE;
         }
+#endif
     } else {
         if (!copts.cplusplus) {
             CPrep_TokenStreamSetCurState(&state);
@@ -2104,6 +2384,18 @@ Boolean CParser_IsVirtualFunction(Object* obj, TypeClass** tclass, SInt32* index
 
     return FALSE;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1 (0x44A4A0, name not known): through aliases, a data object?
+Boolean CParser_IsDataObject(Object* obj) {
+    while (obj->datatype == DALIAS) {
+        obj = obj->u.alias.object;
+    }
+    return obj->datatype == DDATA;
+}
+#endif
 
 Boolean is_pascal_object(Object* obj) {
     return IS_TYPE_FUNC(obj->type) && (TYPE_FUNC(obj->type)->flags & FUNC_PASCAL);
@@ -2265,6 +2557,225 @@ static void CParser_ParseAttributeFunctionSummary(DeclInfo* declinfo) {
 #undef CError_LINE_SHIFT
 #define CError_LINE_SHIFT -48
 #endif
+#if MWCCPSP
+// 3.0.1: the target's attributes first (func_004642D0), then aligned/packed,
+// nothrow, noreturn and unused (accepted, no effect), function_summary;
+// anything else is skipped with its parenthesized arguments. 0x103 is 3.0.1's
+// "illegal or unsupported __attribute__".
+extern int func_004642D0(HashNameNode* name, Type* type, DeclInfo* declinfo);
+
+void CParser_ParseAttribute(Type* type, DeclInfo* declinfo) {
+    CInt64 val64;
+    SInt32 val;
+    Boolean packed;
+    UInt32 alignqual;
+    Type* t;
+    int depth;
+    char* name;
+
+    do {
+        if ((tk = lex()) != '(') {
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            return;
+        }
+        if ((tk = lex()) != '(') {
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            return;
+        }
+        do {
+            if ((tk = lex()) != TK_IDENTIFIER) {
+                switch (tk) {
+                    case TK_CONST:
+                        tkidentifier = GetHashNameNodeExport("const");
+                        tk = TK_IDENTIFIER;
+                        break;
+                    default:
+                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                        return;
+                }
+            }
+
+            if (func_004642D0(tkidentifier, type, declinfo)) {
+                continue;
+            }
+
+            name = tkidentifier->name;
+            if (!strcmp(name, "aligned") ||
+                !strcmp(name, "__aligned__") ||
+                !strcmp(name, "packed") ||
+                !strcmp(name, "__packed__")) {
+                packed = tkidentifier->name[0] == 'p' || tkidentifier->name[2] == 'p';
+                if (packed) {
+                    val = 1;
+                } else {
+                    if ((tk = lex()) != '(') {
+                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                        return;
+                    }
+
+                    tk = lex();
+                    val64 = CExpr_IntegralConstExpr();
+                    switch ((val = CInt64_GetULong(&val64))) {
+                        case 1:
+                        case 2:
+                        case 4:
+                        case 8:
+                        case 0x10:
+                        case 0x20:
+                        case 0x40:
+                        case 0x80:
+                        case 0x100:
+                        case 0x200:
+                        case 0x400:
+                        case 0x800:
+                        case 0x1000:
+                        case 0x2000:
+                            break;
+                        default:
+                            CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+                            return;
+                    }
+                }
+
+                if (type) {
+                    if (IS_TYPE_STRUCT(type)) {
+                        if (val > TYPE_STRUCT(type)->align) {
+                            TYPE_STRUCT(type)->align = val;
+                            type->size += CABI_StructSizeAlignValue(type, type->size);
+                        }
+                    } else if (IS_TYPE_CLASS(type)) {
+                        if (val > TYPE_CLASS(type)->align) {
+                            TYPE_CLASS(type)->align = val;
+                            type->size += CABI_StructSizeAlignValue(type, type->size);
+                        }
+                    } else {
+                        CError_Error(ERR_NOT_STRUCT_UNION_CLASS);
+                    }
+                } else if (declinfo) {
+                    switch (val) {
+                        case 1:
+                            alignqual = Q_ALIGNED_1;
+                            break;
+                        case 2:
+                            alignqual = Q_ALIGNED_2;
+                            break;
+                        case 4:
+                            alignqual = Q_ALIGNED_4;
+                            break;
+                        case 8:
+                            alignqual = Q_ALIGNED_8;
+                            break;
+                        case 16:
+                            alignqual = Q_ALIGNED_16;
+                            break;
+                        case 32:
+                            alignqual = Q_ALIGNED_32;
+                            break;
+                        case 64:
+                            alignqual = Q_ALIGNED_64;
+                            break;
+                        case 128:
+                            alignqual = Q_ALIGNED_128;
+                            break;
+                        case 256:
+                            alignqual = Q_ALIGNED_256;
+                            break;
+                        case 512:
+                            alignqual = Q_ALIGNED_512;
+                            break;
+                        case 1024:
+                            alignqual = Q_ALIGNED_1024;
+                            break;
+                        case 2048:
+                            alignqual = Q_ALIGNED_2048;
+                            break;
+                        case 4096:
+                            alignqual = Q_ALIGNED_4096;
+                            break;
+                        case 8192:
+                            alignqual = Q_ALIGNED_8192;
+                            break;
+                        default:
+                            CError_FATAL(3288);
+                    }
+
+                    // the alignment goes on the innermost pointer the
+                    // declarator makes, if any
+                    t = declinfo->thetype;
+                    while (IS_TYPE_ARRAY(t)) {
+                        t = TPTR_TARGET(t);
+                    }
+                    switch (t->type) {
+                        case TYPEPOINTER:
+                            TPTR_QUAL(t) = (TPTR_QUAL(t) & ~Q_ALIGNED_MASK) | alignqual;
+                            break;
+                        case TYPEMEMBERPOINTER:
+                            TYPE_MEMBER_POINTER(t)->qual =
+                                (TYPE_MEMBER_POINTER(t)->qual & ~Q_ALIGNED_MASK) | alignqual;
+                            break;
+                        default:
+                            declinfo->qual = (declinfo->qual & ~Q_ALIGNED_MASK) | alignqual;
+                            break;
+                    }
+                } else {
+                    CError_Error(0x103);
+                }
+
+                if (!packed && tk != ')') {
+                    CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                    return;
+                }
+            } else if (!strcmp(name, "nothrow") || !strcmp(name, "__nothrow__")) {
+                if (declinfo && declinfo->thetype && IS_TYPE_FUNC(declinfo->thetype)) {
+                    TYPE_FUNC(declinfo->thetype)->flags |= FUNC_NOTHROW;
+                } else {
+                    CError_Error(0x103);
+                }
+            } else if (!strcmp(name, "noreturn") ||
+                       !strcmp(name, "__noreturn__") ||
+                       !strcmp(name, "unused") ||
+                       !strcmp(name, "__unused__")) {
+                // accepted, ignored
+            } else if (!strcmp("function_summary", name)) {
+                CParser_ParseAttributeFunctionSummary(declinfo);
+            } else {
+                if (copts.warn_illpragma) {
+                    CError_Warning(0x103);
+                }
+                if (lookahead() == '(') {
+                    depth = 1;
+                    tk = lex();
+                    do {
+                        switch ((tk = lex())) {
+                            case '(':
+                                depth++;
+                                break;
+                            case ')':
+                                depth--;
+                                break;
+                            case -7:
+                            case TK_EOF:
+                                CError_Error(ERR_RPAREN_EXPECTED);
+                                depth = 0;
+                                break;
+                        }
+                    } while (depth);
+                }
+            }
+        } while ((tk = lex()) == ',');
+
+        if (tk != ')') {
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            return;
+        }
+        if ((tk = lex()) != ')') {
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            return;
+        }
+        tk = lex();
+    } while ((int)tk == TK_UU_ATTRIBUTE_UU);
+}
+#else
 void CParser_ParseAttribute(Type* type, DeclInfo* declinfo) {
     CInt64 val64;
     SInt32 val;
@@ -2432,6 +2943,7 @@ void CParser_ParseAttribute(Type* type, DeclInfo* declinfo) {
         CMach_ParseGlobalRegisterVariable(declinfo);
     }
 }
+#endif
 
 static void CParser_ParseTypeOf(DeclInfo* declinfo) {
     DeclInfo subdi;
@@ -2459,6 +2971,14 @@ static void CParser_ParseTypeOf(DeclInfo* declinfo) {
         if (ENODE_IS(expr, EINDIRECT) && ENODE_IS(expr->data.monadic, EBITFIELD)) {
             CError_Error(ERR_ILLEGAL_OPERAND);
         }
+#if MWCCPSP
+        if (CTemplTool_IsTemplDepExpr(expr)) {
+            TypeTemplDep* ttempl = CDecl_NewTemplDepType((TypeTemplDepType)TEMPLDEP_TYPEOF);
+            ttempl->u.typeofexpr = CInline_CopyExpression(expr, CopyModeGlobal);
+            TypedefDeclInfo(declinfo, TYPE(ttempl), 0);
+            return;
+        }
+#endif
         TypedefDeclInfo(declinfo, expr->rtype, expr->flags & ENODE_FLAG_QUALS);
     }
 }
@@ -2945,10 +3465,18 @@ static int CParser_GetVectorDeclSpec(Type** type) {
     return FALSE;
 }
 
+#if MWCCPSP
+Boolean CParser_CheckTemplateClassUsage(TypeClass* tclass, Boolean reportError) {
+    NameSpace* nspace;
+
+    if (CTemplTool_GetTemplClass(tclass)->templ__params) {
+#define tmclass tclass
+#else
 Boolean CParser_CheckTemplateClassUsage(TemplClass* tmclass, Boolean reportError) {
     NameSpace* nspace;
 
     if (tmclass->templ__params) {
+#endif
         nspace = cscope_current;
         while (1) {
             if (!nspace) {
@@ -2965,6 +3493,9 @@ Boolean CParser_CheckTemplateClassUsage(TemplClass* tmclass, Boolean reportError
     }
 
     return TRUE;
+#if MWCCPSP
+#undef tmclass
+#endif
 }
 
 static Boolean CParser_IsAltiVecPrefix(void) {
@@ -2992,6 +3523,508 @@ static Boolean CParser_IsAltiVecPrefix(void) {
     return FALSE;
 }
 
+#if MWCCPSP
+// 3.0.1: the Objective-C qualifiers and AltiVec/"id" identifiers are gone;
+// repeated cv-qualifiers are tracked in DeclInfo.qualseen, friend is a
+// storage class inside friend declarations, a type found through a base
+// class path is queued for an access check (unk44list) and a declaration
+// name may first be looked up in DeclInfo.unk10.
+void CParser_GetDeclSpecs(DeclInfo* di, Boolean resolveMembers) {
+    short typesize;
+    short signedness;
+    short typetoken;
+    Boolean no_declspecs;
+    Boolean check_implicit_int;
+    SInt32 state;
+    NameResult pr;
+
+    di->file = CPrep_BrowserCurrentFile();
+    CPrep_BrowserFilePosition(&di->file2, &di->sourceoffset);
+
+    no_declspecs = TRUE;
+    check_implicit_int = copts.cplusplus;
+    typesize = signedness = typetoken = 0;
+
+restart:
+    switch (tk) {
+        case TK_AUTO:
+        case TK_REGISTER:
+        case TK_STATIC:
+        case TK_EXTERN:
+        case TK_TYPEDEF:
+        case TK_MUTABLE:
+            if (di->storageclass) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            di->storageclass = tk;
+            break;
+        case TK_FRIEND:
+            if (di->storageclass) {
+                CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+            }
+            if (!di->in_friend_decl) {
+                CError_Error(ERR_ILLEGAL_FRIEND_DECLARATION);
+                break;
+            }
+            di->storageclass = tk;
+            break;
+        case TK_CONST:
+            if (di->qualseen & Q_CONST) {
+                CError_QualifierCheck(Q_CONST);
+            }
+            di->qualseen |= Q_CONST;
+            if (di->thetype) {
+                switch (di->thetype->type) {
+                    case TYPEPOINTER:
+                        TYPE_POINTER(di->thetype)->qual |= Q_CONST;
+                        break;
+                    case TYPEMEMBERPOINTER:
+                        TYPE_MEMBER_POINTER(di->thetype)->qual |= Q_CONST;
+                        break;
+                    case TYPEFUNC:
+                        CError_QualifierCheck(Q_CONST);
+                        break;
+                    default:
+                        goto add_const;
+                }
+                break;
+            }
+add_const:
+            di->qual |= Q_CONST;
+            break;
+        case TK_VOLATILE:
+            if (di->qualseen & Q_VOLATILE) {
+                CError_QualifierCheck(Q_VOLATILE);
+            }
+            di->qualseen |= Q_VOLATILE;
+            if (di->thetype) {
+                switch (di->thetype->type) {
+                    case TYPEPOINTER:
+                        TYPE_POINTER(di->thetype)->qual |= Q_VOLATILE;
+                        break;
+                    case TYPEMEMBERPOINTER:
+                        TYPE_MEMBER_POINTER(di->thetype)->qual |= Q_VOLATILE;
+                        break;
+                    case TYPEFUNC:
+                        CError_QualifierCheck(Q_VOLATILE);
+                        break;
+                    default:
+                        goto add_volatile;
+                }
+                break;
+            }
+add_volatile:
+            di->qual |= Q_VOLATILE;
+            break;
+        case TK_PASCAL:
+            if (di->qual & Q_PASCAL) {
+                CError_QualifierCheck(Q_PASCAL);
+            }
+            di->qual |= Q_PASCAL;
+            break;
+        case TK_EXPLICIT:
+            CError_QualifierCheck(di->qual & Q_EXPLICIT);
+            di->qual |= Q_EXPLICIT;
+            break;
+        case TK_VIRTUAL:
+            CError_QualifierCheck(di->qual & Q_VIRTUAL);
+            di->qual |= Q_VIRTUAL;
+            break;
+        case TK_UU_DECLSPEC:
+            if ((tk = lex()) != '(') {
+                CError_Error(ERR_LPAREN_EXPECTED);
+            }
+            CParser_ParseDeclSpec(di, FALSE);
+            if ((tk = lex()) != ')') {
+                CError_Error(ERR_RPAREN_EXPECTED);
+            }
+            break;
+        case TK_ASM:
+            if (di->qual & Q_ASM) {
+                CError_QualifierCheck(Q_ASM);
+            }
+            di->qual |= Q_ASM;
+            break;
+        case TK_INLINE:
+            if (di->qual & Q_INLINE) {
+                CError_QualifierCheck(Q_INLINE);
+            }
+            di->qual |= Q_INLINE;
+            break;
+        case TK_SHORT:
+            if (typesize ||
+                (typetoken && (int)typetoken != TK_INT && (int)typetoken != TK_DOUBLE)) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typesize = 1;
+            break;
+        case TK_LONG:
+            if (copts.longlong) {
+                if (typetoken && (int)typetoken != TK_INT && (int)typetoken != TK_DOUBLE) {
+                    CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                }
+                if (typesize) {
+                    if (typesize != 2 || typetoken == TK_DOUBLE) {
+                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                    }
+                    typesize = 3;
+                } else {
+                    typesize = 2;
+                }
+            } else {
+                if (typesize ||
+                    (typetoken && (int)typetoken != TK_INT && (int)typetoken != TK_DOUBLE)) {
+                    CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                }
+                typesize = 2;
+            }
+            break;
+        case TK_CUSTOM_TYPE_113:
+        case TK_CUSTOM_TYPE_114:
+        case TK_UU_VEC2X32FLOAT_UU:
+        case TK_CUSTOM_TYPE_116:
+        case TK_CUSTOM_TYPE_117:
+        case TK_CUSTOM_TYPE_118:
+        case TK_CUSTOM_TYPE_119:
+        case TK_CUSTOM_TYPE_11A:
+            if (typetoken) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = tk;
+            break;
+        case TK_SIGNED:
+            if (signedness ||
+                (typetoken && (int)typetoken != TK_INT && (int)typetoken != TK_CHAR)) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            signedness = -1;
+            break;
+        case TK_UNSIGNED:
+            if (signedness ||
+                (typetoken && (int)typetoken != TK_INT && (int)typetoken != TK_CHAR)) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            signedness = 1;
+            break;
+        case TK_VOID:
+            if (typetoken || typesize || signedness) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_VOID;
+            break;
+        case TK_FLOAT:
+            if (typetoken || typesize || signedness) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_FLOAT;
+            break;
+        case TK_BOOL:
+            if (typetoken || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_BOOL;
+            break;
+        case TK_CHAR:
+            if (typetoken || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_CHAR;
+            break;
+        case TK_WCHAR_T:
+            if (typetoken || typesize || signedness) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_WCHAR_T;
+            break;
+        case TK_INT:
+            if (typetoken) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_INT;
+            break;
+        case TK_DOUBLE:
+            if (typetoken || signedness) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            typetoken = TK_DOUBLE;
+            break;
+        case TK_STRUCT:
+            if (typetoken || signedness || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            tk = lex();
+            di->isFriendDeclaration = TRUE; // +0x59: a class/enum specifier was seen
+            scanstruct(di, STRUCT_TYPE_STRUCT);
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(di->thetype, di);
+            }
+            if (!((int)tk != TK_CONST &&
+                  (int)tk != TK_VOLATILE &&
+                  (int)tk != TK_UU_FAR &&
+                  (int)tk != TK_UU_DECLSPEC)) {
+                typetoken = -1;
+                goto restart;
+            }
+            return;
+        case TK_CLASS:
+            if (typetoken || signedness || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            tk = lex();
+            di->isFriendDeclaration = TRUE;
+            CDecl_ParseClass(di, CLASS_MODE_CLASS, TRUE, 0);
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(di->thetype, NULL);
+            }
+            if (!((int)tk != TK_CONST &&
+                  (int)tk != TK_VOLATILE &&
+                  (int)tk != TK_UU_FAR &&
+                  (int)tk != TK_UU_DECLSPEC)) {
+                typetoken = -1;
+                goto restart;
+            }
+            return;
+        case TK_UNION:
+            if (typetoken || signedness || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            tk = lex();
+            di->isFriendDeclaration = TRUE;
+            scanstruct(di, STRUCT_TYPE_UNION);
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(di->thetype, NULL);
+            }
+            if (!((int)tk != TK_CONST &&
+                  (int)tk != TK_VOLATILE &&
+                  (int)tk != TK_UU_FAR &&
+                  (int)tk != TK_UU_DECLSPEC)) {
+                typetoken = -1;
+                goto restart;
+            }
+            return;
+        case TK_ENUM:
+            if (typetoken || signedness || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            tk = lex();
+            di->isFriendDeclaration = TRUE;
+            scanenum(di);
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(di->thetype, NULL);
+            }
+            if (!((int)tk != TK_CONST &&
+                  (int)tk != TK_VOLATILE &&
+                  (int)tk != TK_UU_FAR &&
+                  (int)tk != TK_UU_DECLSPEC)) {
+                typetoken = -1;
+                goto restart;
+            }
+            return;
+        case TK_TYPENAME:
+            if (typetoken || signedness || typesize || di->hasTypename) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            di->hasTypename = TRUE;
+            tk = lex();
+            if (tk != TK_COLON_COLON && tk != TK_IDENTIFIER) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                break;
+            }
+            goto some_shared_label;
+        case TK_COLON_COLON:
+            if (typetoken || signedness || typesize) {
+                goto switchDefault;
+            }
+            goto some_shared_label;
+        case TK_UU_TYPEOF_UU:
+            if (typetoken || signedness || typesize) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            }
+            CParser_ParseTypeOf(di);
+            typetoken = -1;
+            goto bailOut;
+        case TK_IDENTIFIER:
+            if (!typetoken && !signedness && !typesize) {
+some_shared_label:
+                CPrep_TokenStreamGetState(&state);
+                if ((di->unk10 && CScope_ParseDeclName(&pr, di->unk10)) ||
+                    CScope_ParseDeclName(&pr, NULL)) {
+                    if (pr.is_conv_operator) {
+                        CPrep_TokenStreamSetState(&state);
+                        CPrep_UnLex();
+                        tk = lex();
+                        check_implicit_int = FALSE;
+                    } else if (pr.type) {
+                        if (pr.basePath != NULL) {
+                            DeclAccessCheck* check = lalloc(sizeof(DeclAccessCheck));
+                            check->next = di->unk44list;
+                            check->path = pr.basePath;
+                            check->unk08 = pr.unk1C;
+                            check->name = pr.name;
+                            check->access = pr.access;
+                            di->unk44list = check;
+                        }
+
+                        if (IS_TYPE_TEMPLATE(pr.type)) {
+                            switch (TYPE_TEMPLATE(pr.type)->dtype) {
+                                case TEMPLDEP_ARGUMENT:
+                                    switch (TYPE_TEMPLATE(pr.type)->u.pid.type) {
+                                        case TPT_TYPE:
+                                            break;
+                                        case TPT_NONTYPE:
+                                            CError_Error(
+                                                ERR_ILLEGAL_TEMPLATE_ARGUMENT_DEPENDENT_EXPRESSION
+                                            );
+                                            pr.type = TYPE(&stsignedint);
+                                            break;
+                                        case TPT_TEMPLATE:
+                                            if (!di->allowTemplateName) {
+                                                CError_Error(ERR_LESS_EXPECTED);
+                                                pr.type = TYPE(&stsignedint);
+                                            }
+                                            break;
+                                        default:
+                                            CError_FATAL(4731);
+                                    }
+                                    break;
+                                case TEMPLDEP_QUALNAME:
+                                    if (!di->hasTypename && !pr.is_type) {
+                                        if (di->isTypeID) {
+                                            CError_Error(
+                                                ERR_TYPENAME_MISSING_TEMPLATE_ARGUMENT_DEPENDENT_QUALIFIED
+                                            );
+                                        } else if (copts.warn_no_typename) {
+                                            if (di->unk64) {
+                                                di->unk64 = FALSE;
+                                            } else {
+                                                CError_Warning(
+                                                    ERR_TYPENAME_MISSING_TEMPLATE_ARGUMENT_DEPENDENT_QUALIFIED
+                                                );
+                                            }
+                                        }
+                                    }
+                                    break;
+                                case TEMPLDEP_TEMPLATE:
+                                case TEMPLDEP_ARRAY:
+                                case TEMPLDEP_QUALTEMPL:
+                                case TEMPLDEP_BITFIELD:
+                                case 8:
+                                    break;
+                                default:
+                                    CError_FATAL(4758);
+                            }
+                        }
+
+                        if (IS_TYPE_CLASS(pr.type) &&
+                            (TYPE_CLASS(pr.type)->flags & CLASS_IS_TEMPL) &&
+                            !CParser_CheckTemplateClassUsage(TYPE_CLASS(pr.type), FALSE)) {
+                            if (di->allowTemplateName) {
+                                if (di->qual) {
+                                    CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                                }
+                                di->thetype = pr.type;
+                                di->isTemplateName = TRUE;
+                                tk = lex();
+                                return;
+                            }
+                            CError_Error(ERR_LESS_EXPECTED);
+                            pr.type = TYPE(&stsignedint);
+                        }
+
+                        TypedefDeclInfo(di, pr.type, pr.qual);
+                        di->isType = pr.is_type;
+                        typetoken = -1;
+                        tk = lex();
+                        goto bailOut;
+                    } else if (pr.objects) {
+                        if (pr.is_qualified) {
+                            if ((resolveMembers &&
+                                 OBJECT(pr.objects->object)->nspace == pr.nspace) ||
+                                di->storageclass == TK_FRIEND) {
+                                di->resolvedObjects = pr.objects;
+                                if (IS_TYPE_FUNC(OBJECT(di->resolvedObjects->object)->type) &&
+                                    ((TYPE_FUNC(OBJECT(di->resolvedObjects->object)->type)->flags &
+                                      FUNC_IS_CTOR) |
+                                     FUNC_IS_DTOR)) {
+                                    check_implicit_int = FALSE;
+                                }
+                            } else {
+                                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                            }
+                        }
+                    } else if (pr.object) {
+                        switch (pr.object->otype) {
+                            case OT_OBJECT:
+                                if (pr.is_qualified) {
+                                    if ((resolveMembers &&
+                                         OBJECT(pr.object)->nspace == pr.nspace) ||
+                                        di->storageclass == TK_FRIEND) {
+                                        di->resolvedObject = OBJECT(pr.object);
+                                        if (IS_TYPE_FUNC(OBJECT(di->resolvedObject)->type) &&
+                                            ((TYPE_FUNC(OBJECT(di->resolvedObject)->type)->flags &
+                                              FUNC_IS_CTOR) |
+                                             FUNC_IS_DTOR)) {
+                                            check_implicit_int = FALSE;
+                                        }
+                                    } else {
+                                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                                    }
+                                }
+                                break;
+                            case OT_ENUMCONST:
+                            case OT_MEMBERVAR:
+                                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                                break;
+                            default:
+                                CError_FATAL(4839);
+                        }
+                    } else if (pr.name) {
+                        if (copts.cplusplus) {
+                            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                        }
+                    } else {
+                        CError_FATAL(4848);
+                    }
+                }
+            }
+        default:
+switchDefault:
+            if (!typetoken && !signedness && !typesize) {
+                di->parserOption = TRUE;
+                if (check_implicit_int) {
+                    if (!di->storageclass && !di->qual && !di->exportflags) {
+                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                    } else {
+                        CError_Warning(ERR_IMPLICIT_INT_NO_LONGER_SUPPORTED_C);
+                    }
+                }
+            }
+            if (typetoken >= 0) {
+                di->thetype = getthetype(typetoken, typesize, signedness);
+            }
+            if (no_declspecs) {
+                di->missingTypeSpecifier = TRUE;
+            }
+            if (tk == TK_UU_ATTRIBUTE_UU) {
+                CParser_ParseAttribute(NULL, di);
+            }
+            return;
+        case ';':
+            if (!typetoken && !signedness && !typesize && copts.warn_emptydecl) {
+                CError_Warning(ERR_ILLEGAL_EMPTY_DECLARATION);
+            }
+            if (typetoken >= 0) {
+                di->thetype = getthetype(typetoken, typesize, signedness);
+            }
+            return;
+    }
+
+    tk = lex();
+bailOut:
+    no_declspecs = FALSE;
+    goto restart;
+}
+#else
 void CParser_GetDeclSpecs(DeclInfo* di, Boolean resolveMembers) {
     short typesize;
     short signedness;
@@ -3514,6 +4547,7 @@ bailOut:
     no_declspecs = FALSE;
     goto restart;
 }
+#endif
 
 void CParser_RegisterNonGlobalClass(TypeClass* tclass) {
     struct ParentCleanup* p = lalloc(sizeof(struct ParentCleanup));
@@ -3540,7 +4574,11 @@ void CParser_RegisterDummyCtorFunction(Object* func, Object* obj) {
     cparser_sfunclist = p;
 }
 
+#if MWCCPSP
+void CParser_FreeLocalHeap(void) { // 3.0.1: CTemplateNew.c calls it too
+#else
 static void CParser_FreeLocalHeap(void) {
+#endif
     struct SFuncList* s;
     struct ParentCleanup* p;
 
@@ -3601,6 +4639,10 @@ Boolean CParser_IsAnonymousUnion(DeclInfo* di, Boolean allowStruct) {
           (allowStruct && copts.cpp_extensions))) &&
         IsTempName(TYPE_CLASS(di->thetype)->classname);
 }
+#if MWCCPSP
+#define CPARSER_ANON_UNION_NAME() CParser_AppendUniqueName("<anon-union>")
+#else
+#endif
 
 void CParser_CheckAnonymousUnion(DeclInfo* di, Boolean isLocal) {
     ObjMemberVar* ivar;
@@ -3629,12 +4671,20 @@ void CParser_CheckAnonymousUnion(DeclInfo* di, Boolean isLocal) {
 
     if (isLocal && di->storageclass != TK_STATIC) {
         obj = CParser_NewLocalDataObject(di, TRUE);
+#if MWCCPSP
+        obj->name = CPARSER_ANON_UNION_NAME(); // 3.0.1: "<anon-union>$n"
+#else
         obj->name = CParser_GetUniqueName();
+#endif
         CFunc_SetupLocalVarInfo(obj);
         obj->u.var.info->noregister = TRUE;
     } else {
         obj = CParser_NewGlobalDataObject(di);
+#if MWCCPSP
+        obj->name = CPARSER_ANON_UNION_NAME(); // 3.0.1: "<anon-union>$n"
+#else
         obj->name = CParser_GetUniqueName();
+#endif
         obj->nspace = cscope_root;
         obj->sclass = TK_STATIC;
         CInit_DeclareData(obj, NULL, NULL, obj->type->size);
@@ -3649,7 +4699,9 @@ void CParser_CheckAnonymousUnion(DeclInfo* di, Boolean isLocal) {
         ivar_obj->datatype = DALIAS;
         ivar_obj->u.alias.object = obj;
         ivar_obj->u.alias.offset = ivar->offset;
+#if !MWCCPSP // 3.0.1 keeps the field copied from obj
         ivar_obj->u.alias.member = NULL;
+#endif
         CScope_AddObject(cscope_current, ivar_obj->name, OBJ_BASE(ivar_obj));
     }
 }
@@ -3680,7 +4732,11 @@ void CParser_CallBackAction(Object* obj) {
         }
     }
 
+#if MWCCPSP
+    CError_FATAL(5167);
+#else
     CError_FATAL(4601);
+#endif
 }
 
 static Object* CParser_FindOverloadFunc(NameSpaceObjectList* list, TypeFunc* tfunc) {
@@ -3906,6 +4962,59 @@ static void CParser_ParseNameSpace(DeclInfo* di) {
     CScope_RestoreScope(&save);
 }
 
+#if MWCCPSP
+// 3.0.1 (0x447A70): no Objective-C; auto and register are both rejected at
+// file scope, and every declaration ends with the global cleanup
+static void CParser_ParseDeclaration(DeclInfo* di) {
+    switch (tk) {
+        case TK_EXTERN:
+            if (copts.cplusplus) {
+                di->storageclass = TK_EXTERN;
+                if ((tk = lex()) == TK_STRING) {
+                    CParser_ParseLinkageSpecification(di);
+                    break;
+                }
+            }
+            goto declaration;
+        case TK_TEMPLATE:
+            CTempl_Parse(NULL, 0);
+            break;
+        case TK_NAMESPACE:
+            CParser_ParseNameSpace(di);
+            break;
+        case TK_USING:
+            if ((tk = lex()) == TK_NAMESPACE) {
+                tk = lex();
+                CScope_ParseUsingDirective(cscope_current);
+            } else {
+                CScope_ParseUsingDeclaration(cscope_current, 0, FALSE);
+            }
+            break;
+        case TK_EXPORT:
+            CError_Error(ERR_UNIMPLEMENTED_C_FEATURE);
+            if ((tk = lex()) != TK_TEMPLATE) {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                break;
+            }
+            CTempl_Parse(NULL, 0);
+            break;
+        default:
+declaration:
+            CParser_GetDeclSpecs(di, TRUE);
+            if ((UInt16)(di->storageclass - TK_AUTO) < 2) {
+                CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+                di->storageclass = 0;
+            }
+            if (tk == ';') {
+                CParser_CheckAnonymousUnion(di, FALSE);
+            } else {
+                scandeclaratorlist(di);
+            }
+            break;
+    }
+    CParser_GlobalCleanup(FALSE);
+}
+#else
 static void CParser_ParseDeclaration(DeclInfo* di) {
     switch (tk) {
         case TK_AT_INTERFACE:
@@ -3967,7 +5076,51 @@ static void CParser_ParseDeclaration(DeclInfo* di) {
             return;
     }
 }
+#endif
 
+#if MWCCPSP
+extern void func_00439EA0(void); // FEInterface.c
+
+// 3.0.1 (0x447930): no Objective-C module, tentative data defined once at
+// the end; a crippled compiler resets the optimizer through the front end
+void cparser(void) {
+    DeclInfo di;
+
+    if (copts.crippled && copts.optimizationlevel > 1) {
+        CError_Warning(ERR_ILLEGAL_OPTIMIZATION_LEVEL_LIMITED);
+        copts.optimizationlevel = 1;
+        func_00439EA0();
+        CodeGen_UpdateOptimizerOptions();
+    }
+
+    if ((tk = lex())) {
+        do {
+            CPrep_NewFileOffsetInfo(&cparser_fileoffset, NULL);
+            symdecloffset = cparser_fileoffset.tokenline;
+            symdecltoken = *CPrep_CurStreamElement();
+
+            memclrw(&di, sizeof(DeclInfo));
+            CParser_ParseDeclaration(&di);
+        } while (tk && (tk = lex()));
+    } else {
+        if (!copts.cplusplus && copts.ANSIstrict) {
+            CError_Error(ERR_UNEXPECTED_END_FILE);
+        }
+    }
+
+    copts.defer_codegen = FALSE;
+    CParser_GlobalCleanup(TRUE);
+
+    if (cparamblkptr->precompile != 1) {
+        CInline_Finish();
+        CParser_GlobalCleanup(TRUE);
+    }
+
+    CClass_GenThunks();
+    CSOM_Cleanup();
+    CInit_DefineTentativeData();
+}
+#else
 void cparser(void) {
     DeclInfo di;
 
@@ -4010,3 +5163,38 @@ void cparser(void) {
     CSOM_Cleanup();
     CInit_DefineTentativeData();
 }
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern void func_00500ED0(
+    void* a, void* b, void* c, AccessType access, void* obj, void* unk
+); // CClass_CheckPathAccess
+
+// 0x500E60 (3.0.1; CClass.c in the original): append list to di's access
+// checks
+void func_00500E60(DeclInfo* di, void* list) {
+    DeclAccessCheck* check;
+    DeclAccessCheck* last;
+
+    if ((check = di->unk44list)) {
+        do {
+            last = check;
+        } while ((check = check->next));
+        last->next = list;
+    } else {
+        di->unk44list = list;
+    }
+}
+
+// 0x500E90 (3.0.1; CClass.c in the original): check the access of every
+// qualified name a declaration used
+void func_00500E90(void* list) {
+    DeclAccessCheck* check;
+
+    for (check = list; check; check = check->next) {
+        func_00500ED0(NULL, check->path, check->unk08, check->access, NULL, check->name);
+    }
+}
+#endif

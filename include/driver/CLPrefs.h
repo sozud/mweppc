@@ -10,8 +10,13 @@ extern "C" {
 typedef struct PrefPanel PrefPanel;
 
 extern PrefPanel* PrefPanel_New(const char* name, void* initdata, SInt32 initdatasize);
+#if MWCCPSP
+extern struct OSHandle* PrefPanel_GetHandle(PrefPanel* panel, struct OSHandle* out);
+extern int PrefPanel_PutHandle(PrefPanel* panel, struct OSHandle* data);
+#else
 extern Handle PrefPanel_GetHandle(PrefPanel* panel);
 extern int PrefPanel_PutHandle(PrefPanel* panel, Handle data);
+#endif
 extern Boolean Prefs_AddPanel(PrefPanel* panel);
 extern PrefPanel* Prefs_FindPanel(const char* name);
 

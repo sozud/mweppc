@@ -7,6 +7,9 @@
 #include "compiler/CompilerTools.h"
 #include "compiler/CParser.h"
 #include "compiler/CPrep.h"
+#if MWCCPSP
+#include "compiler/CScope.h"
+#endif
 #include "compiler/CPrepTokenizer.h"
 #include "compiler/CTemplateNew.h"
 #include "compiler/enode.h"
@@ -43,12 +46,76 @@ int CError_BreakPointcount;
 static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual);
 static void CError_AppendObjectName(CErrorBuffer* eb, Object* obj);
 
+#if MWCCPSP
+// 3.0.1: errors can be expected (counted instead of reported) between
+// CError_ExpectErrors and CError_CheckExpectedErrors
+static Boolean cerror_unk9890;
+static Boolean cerror_expecting;
+static SInt32 cerror_expectcount;
+static SInt32 cerror_expectcode; // 0: any error
+#endif
+#if MWCCPSP
+
+// 3.0.1: defined first in the file and inlined into every CError.c
+// function that asserts
+extern char* func_004393A0(const CWFileSpec* spec); // the file's name (driver)
+
+void CError_Internal(char* filename, int line) {
+    char format[256];
+    char buf[512];
+    char* srcname;
+    char* funcname;
+
+#if MWCCPSP_NATIVE
+    fprintf(stderr, "mwccpsp (native): internal error at %s:%d\n", filename, line);
+#endif
+    // 3.0.1 also names the function being compiled and the source file
+    srcname = func_004393A0(&cparamblkptr->sourcefile);
+    if (cscope_currentfunc) {
+        funcname = cscope_currentfunc->u.data.linkname ? cscope_currentfunc->u.data.linkname->name
+                                                       : cscope_currentfunc->name->name;
+    } else {
+        funcname = "";
+    }
+    CompilerGetCString(5, format);
+    snprintf(buf, sizeof(buf), format, filename, line, funcname, srcname);
+    CError_ErrorMessage(10001 + CError_ERR_SHIFT, buf, TRUE, FALSE);
+    longjmp(errorreturn, 1);
+}
+
+#endif
 void CError_Init(void) {
     cerror_errorcount = 0;
     cerror_lasterrorline = -1;
     cerror_token = NULL;
     cerror_locktoken = NULL;
+#if MWCCPSP
+    cerror_expecting = FALSE;
+    cerror_unk9890 = FALSE;
+#endif
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+void CError_ExpectErrors(SInt32 code) {
+    cerror_expecting = TRUE;
+    cerror_expectcount = 0;
+    cerror_expectcode = code;
+}
+
+// count < 0: at least one error was expected
+void CError_CheckExpectedErrors(SInt32 count) {
+    cerror_expecting = FALSE;
+    if (count >= 0) {
+        if (cerror_expectcount != count) {
+            CError_Error(0x13B); // a 3.0.1 message (past 2.4.7's table)
+        }
+    } else if (cerror_expectcount == 0) {
+        CError_Error(0x13B);
+    }
+}
+#endif
 
 void CError_SetErrorToken(TStreamElement* token) {
     if (token && token->tokenfile) {
@@ -76,8 +143,14 @@ void CError_ResetErrorSkip(void) {
 }
 
 static void CError_GetErrorString(char* buf, short code) {
+#if MWCCPSP
+    // 3.0.1: message n is string n + 100 of the list
+    CError_ASSERT(199, code >= ERR_ILLEGAL_CHARACTER_CONSTANT && code < ERR_MAX);
+    COS_GetString(buf, 10000, code + 100);
+#else
     CError_ASSERT(142, code >= ERR_ILLEGAL_CHARACTER_CONSTANT && code < ERR_MAX);
     COS_GetString(buf, 10000, code - 99);
+#endif
 }
 
 static void CError_BufferInit(CErrorBuffer* eb, char* buf, SInt32 bufSize) {
@@ -112,7 +185,11 @@ static void CError_BufferAppendString(CErrorBuffer* eb, const char* str) {
     if (eb) {
         len = strlen(str);
         if (eb->remaining < len) {
+#if MWCCPSP
+            CError_BufferGrow(eb, len + 256);
+#else
             CError_BufferGrow(eb, len);
+#endif
         }
         memcpy(eb->end, str, len);
         eb->end += len;
@@ -179,7 +256,11 @@ static void CError_BufferAppendTemplArg(CErrorBuffer* eb, TemplArg* targ) {
             CError_BufferAppendType(eb, targ->data.ttargtype, 0);
             break;
         default:
+#if MWCCPSP
+            CError_FATAL(382);
+#else
             CError_FATAL(300);
+#endif
     }
 }
 
@@ -197,6 +278,12 @@ static void CError_BufferAppendTemplArgs(CErrorBuffer* eb, TemplArg* targs) {
     }
     CError_BufferAppendChar(eb, '>');
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
+#endif
 
 static void CError_BufferAppendNameSpace(CErrorBuffer* eb, NameSpace* nspace) {
     TemplArg* targs;
@@ -207,9 +294,16 @@ static void CError_BufferAppendNameSpace(CErrorBuffer* eb, NameSpace* nspace) {
             if (nspace->theclass) {
                 CError_BufferAppendString(eb, nspace->theclass->classname->name);
                 if (nspace->theclass->flags & CLASS_IS_TEMPL_INST) {
+#if MWCCPSP
+                    targs = CTemplTool_GetTemplClassInst(nspace->theclass)->oargs;
+                    if (!targs) {
+                        targs = CTemplTool_GetTemplClassInst(nspace->theclass)->inst_args;
+                    }
+#else
                     if (!(targs = TEMPL_CLASS_INST(nspace->theclass)->oargs)) {
                         targs = TEMPL_CLASS_INST(nspace->theclass)->inst_args;
                     }
+#endif
                     CError_BufferAppendTemplArgs(eb, targs);
                 }
             } else {
@@ -300,7 +394,12 @@ static void CError_BufferAppendFuncArgs(CErrorBuffer* eb, TypeFunc* tfunc, Boole
                 arg = arg->next;
             }
         } else if ((tfunc->flags & FUNC_METHOD) && !TYPE_METHOD(tfunc)->is_static) {
+#if MWCCPSP
+            // 3.0.1 shows a method's qualifiers after its name instead
+#endif
+#if !MWCCPSP
             qual = arg->qual;
+#endif
             arg = arg->next;
             if (arg) {
                 if ((tfunc->flags & FUNC_IS_DTOR) ||
@@ -397,11 +496,27 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
                 case IT_LONGDOUBLE:
                     CError_BufferAppendString(eb, "long double");
                     return;
+#if MWCCPSP
+                case IT_17:
+                    CError_BufferAppendString(eb, "TX_VEC_S");
+                    return;
+                case IT_18:
+                    CError_BufferAppendString(eb, "__int128");
+                    return;
+                case IT_VEC2X32FLOAT: // 3.0.1: the __fixed__8x8 slot
+                    CError_BufferAppendString(eb, "__fixed__8x8");
+                    return;
+#else
                 case IT_VEC2X32FLOAT:
                     CError_BufferAppendString(eb, "__vec2x32float__");
                     return;
+#endif
                 default:
+#if MWCCPSP
+                    CError_FATAL(658);
+#else
                     CError_FATAL(584);
+#endif
             }
         case TYPEENUM:
             CError_BufferAppendQualifier(eb, qual);
@@ -421,6 +536,7 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
                 case STRUCT_TYPE_UNION:
                     CError_BufferAppendString(eb, "union ");
                     break;
+#if !MWCCPSP // 3.0.1 has no vector structs
                 case STRUCT_VECTOR_UCHAR:
                 case STRUCT_VECTOR_SCHAR:
                 case STRUCT_VECTOR_BCHAR:
@@ -433,8 +549,13 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
                 case STRUCT_VECTOR_FLOAT:
                 case STRUCT_VECTOR_PIXEL:
                     break;
+#endif
                 default:
+#if MWCCPSP
+                    CError_FATAL(683);
+#else
                     CError_FATAL(618);
+#endif
             }
             if (TYPE_STRUCT(ty)->name) {
                 CError_BufferAppendString(eb, TYPE_STRUCT(ty)->name->name);
@@ -442,6 +563,24 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
             return;
         case TYPECLASS:
             CError_BufferAppendQualifier(eb, qual);
+#if MWCCPSP
+            if (TYPE_CLASS(ty)->nspace) {
+                CError_BufferAppendNameSpace(eb, TYPE_CLASS(ty)->nspace->parent);
+            }
+            if (TYPE_CLASS(ty)->classname) {
+                CError_BufferAppendString(eb, TYPE_CLASS(ty)->classname->name);
+                if (TYPE_CLASS(ty)->flags & CLASS_IS_TEMPL_INST) {
+                    TemplArg* targs = CTemplTool_GetTemplClassInst(TYPE_CLASS(ty))->oargs;
+                    if (!targs) {
+                        targs = CTemplTool_GetTemplClassInst(TYPE_CLASS(ty))->inst_args;
+                    }
+                    CError_BufferAppendTemplArgs(eb, targs);
+                }
+            } else {
+                CError_BufferAppendString(eb, "{unnamed-class}");
+            }
+            return;
+#else
             CError_BufferAppendNameSpace(eb, TYPE_CLASS(ty)->nspace->parent);
             if (TYPE_CLASS(ty)->classname) {
                 CError_BufferAppendString(eb, TYPE_CLASS(ty)->classname->name);
@@ -456,6 +595,7 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
                 CError_BufferAppendString(eb, "{unnamed-class}");
             }
             return;
+#endif
         case TYPEPOINTER:
         case TYPEMEMBERPOINTER:
             scan = ty;
@@ -477,7 +617,11 @@ next_ptr:
                     if (TYPE_FUNC(scan)->flags & FUNC_PASCAL) {
                         CError_BufferAppendString(eb, "pascal ");
                     }
+#if MWCCPSP
+                    CError_BufferAppendType(eb, TYPE_FUNC(scan)->functype, TYPE_FUNC(scan)->qual);
+#else
                     CError_BufferAppendType(eb, TYPE_FUNC(scan)->functype, 0);
+#endif
                     CError_BufferAppendString(eb, " (");
                     CError_BufferAppendPType(eb, ty);
                     CError_BufferAppendChar(eb, ')');
@@ -506,9 +650,23 @@ next_ptr:
                 CError_BufferAppendString(eb, "pascal ");
             }
             CError_BufferAppendQualifier(eb, qual);
+#if MWCCPSP
+            // 3.0.1: the return type keeps its qualifiers; a member function's
+            // cv-qualifiers follow the argument list
+            CError_BufferAppendType(eb, TYPE_FUNC(ty)->functype, TYPE_FUNC(ty)->qual);
+            CError_BufferAppendChar(eb, ' ');
+            CError_BufferAppendFuncArgs(eb, TYPE_FUNC(ty), FALSE);
+            if (TYPE_FUNC(ty)->flags & FUNC_CONST) {
+                CError_BufferAppendString(eb, "const ");
+            }
+            if (TYPE_FUNC(ty)->flags & FUNC_VOLATILE) {
+                CError_BufferAppendString(eb, "volatile ");
+            }
+#else
             CError_BufferAppendType(eb, TYPE_FUNC(ty)->functype, 0);
             CError_BufferAppendChar(eb, ' ');
             CError_BufferAppendFuncArgs(eb, TYPE_FUNC(ty), FALSE);
+#endif
             return;
         case TYPEARRAY:
             CError_BufferAppendQualifier(eb, qual);
@@ -533,14 +691,27 @@ append_array_lengths:
             CError_BufferAppendTemplDepType(eb, TYPE_TEMPLATE(ty));
             return;
         case TYPETEMPLDEPEXPR:
+#if MWCCPSP
+            CError_BufferAppendString(eb, "__T?");
+#else
             CError_BufferAppendString(eb, "T");
+#endif
             return;
         case TYPEBITFIELD:
             sprintf(buf, "bitfield:%ld", (SInt32)TYPE_BITFIELD(ty)->bitlength);
             CError_BufferAppendString(eb, buf);
             return;
+#if MWCCPSP
+        case TYPEILLEGAL:
+            CError_BufferAppendString(eb, "???");
+            return;
+#endif
         default:
+#if MWCCPSP
+            CError_FATAL(833);
+#else
             CError_FATAL(752);
+#endif
     }
 }
 
@@ -623,6 +794,14 @@ static void CError_AppendObjectName(CErrorBuffer* eb, Object* obj) {
             obj->u.func.inst ? obj->u.func.inst->args : NULL,
             TYPE_FUNC(obj->type)
         );
+#if MWCCPSP
+        if (TYPE_FUNC(obj->type)->flags & FUNC_CONST) {
+            CError_BufferAppendString(eb, " const");
+        }
+        if (TYPE_FUNC(obj->type)->flags & FUNC_VOLATILE) {
+            CError_BufferAppendString(eb, " volatile");
+        }
+#endif
     } else {
         CError_BufferAppendNameSpace(eb, obj->nspace);
         CError_BufferAppendString(eb, obj->name->name);
@@ -687,6 +866,12 @@ char* CError_GetObjectName(Object* obj) {
     CError_AppendObjectName(&eb, obj);
     CError_BufferTerminate(&eb);
 
+#if MWCCPSP
+    // 3.0.1: a name that outgrew the stack buffer is already on the heap
+    if (eb.start != buf) {
+        return eb.start;
+    }
+#endif
     ptr = lalloc(eb.size + 1);
     return strcpy(ptr, eb.start);
 }
@@ -696,7 +881,11 @@ char* CError_GetNameString(NameSpace* nspace, HashNameNode* operatorName) {
     char buf[256];
     char* opStr;
 
+#if MWCCPSP
+    CError_ASSERT(1084, operatorName);
+#else
     CError_ASSERT(973, operatorName);
+#endif
 
     opStr = CMangler_GetOperator(operatorName);
     if (!opStr) {
@@ -726,6 +915,12 @@ void CError_ErrorMessage(int errTable, char* str, Boolean isTerminal, Boolean is
     if (CWDisplayLines(cparamblkptr->context, lines) != cwNoErr) {
         CError_UserBreak();
     }
+#if MWCCPSP
+    if (cerror_expecting && (cerror_expectcode == 0 || cerror_expectcode == errTable)) {
+        cerror_expectcount++;
+        return;
+    }
+#endif
 
     if (!in_assembler && !isTerminal && cerror_lasterrorline == lines) {
         if (cerror_errorcount++ >= 50) {
@@ -779,10 +974,18 @@ void CError_ErrorMessage(int errTable, char* str, Boolean isTerminal, Boolean is
         if (!isWarning) {
             fatalerrors = anyerrors = TRUE;
         }
+#if MWCCPSP
+        if (CWReportMessage(cparamblkptr->context, ref, str, buf, messagetype, errTable) !=
+                cwNoErr &&
+            errTable != 10100) {
+            longjmp(errorreturn, 1);
+        }
+#else
         if (CWReportMessage(cparamblkptr->context, ref, str, buf, messagetype, errTable) !=
             cwNoErr) {
             longjmp(errorreturn, 1);
         }
+#endif
     }
 
     cerror_token = NULL;
@@ -818,17 +1021,30 @@ static void CError_BufferAppendTemplateStack(CErrorBuffer* eb) {
     CError_BufferTerminate(eb);
 }
 
+#if MWCCPSP
+extern char* func_0043FFC0(void); // CPrep: the #include chain, or NULL at top level
+#endif
+#if MWCCPSP
+
+#endif
 void CError_ErrorMessageVA(
     int code, const char* format, va_list list, Boolean isTerminal, Boolean isWarning
 ) {
     CErrorBuffer eb;
     char buf[256];
     char unmangleBuf[256];
+#if MWCCPSP
+    char pathBuf[512];
+#endif
     SInt32 moddate;
     Type* type;
     UInt32 qual;
     const char* p;
+#if MWCCPSP
+    CWFileSpec* spec;
+#else
     FSSpec* spec;
+#endif
     HashNameNode* file;
     CError_BufferInit(&eb, buf, sizeof(buf));
 
@@ -852,10 +1068,12 @@ void CError_ErrorMessageVA(
                         CError_AppendObjectName(&eb, va_arg(list, Object*));
                         p += 2;
                         continue;
+#if !MWCCPSP // 3.0.1 has no %m
                     case 'm':
                         CError_AppendMethodName(&eb, va_arg(list, ObjCMethod*));
                         p += 2;
                         continue;
+#endif
                     case 't':
                         type = va_arg(list, Type*);
                         qual = va_arg(list, UInt32);
@@ -872,9 +1090,18 @@ void CError_ErrorMessageVA(
                         p += 2;
                         continue;
                     case 'f':
+#if MWCCPSP
+                        spec = va_arg(list, CWFileSpec*);
+#else
                         spec = va_arg(list, FSSpec*);
+#endif
+#if MWCCPSP
+                        COS_FileGetPathName(pathBuf, (const COSFileSpec*)spec, NULL);
+                        CError_BufferAppendString(&eb, pathBuf);
+#else
                         file = CTool_GetPathName(spec, &moddate);
                         CError_BufferAppendString(&eb, file->name);
+#endif
                         p += 2;
                         continue;
                     default:
@@ -889,6 +1116,17 @@ void CError_ErrorMessageVA(
     } while (1);
 
     CError_BufferAppendTemplateStack(&eb);
+#if MWCCPSP
+    if (copts.show_error_filestack) {
+        const char* stack = func_0043FFC0();
+        if (stack) {
+            CError_BufferAppendString(&eb, "\n(included from:\n");
+            CError_BufferAppendString(&eb, stack);
+            CError_BufferAppendChar(&eb, ')');
+        }
+    }
+    CError_BufferTerminate(&eb);
+#endif
     CError_ErrorMessage(code, eb.start, isTerminal, isWarning);
 }
 
@@ -896,7 +1134,11 @@ static void CError_VAErrorMessage(int code, va_list list, Boolean isTerminal, Bo
     char buf[256];
 
     CError_GetErrorString(buf, code);
+#if MWCCPSP
+    CError_ErrorMessageVA(code + CError_MSG_BASE, buf, list, isTerminal, isWarning);
+#else
     CError_ErrorMessageVA(code + 10000, buf, list, isTerminal, isWarning);
+#endif
 }
 
 void CError_Error(int code, ...) {
@@ -917,7 +1159,11 @@ void CError_Error(int code, ...) {
 
 void CError_ErrorTerm(short code) {
     CError_GetErrorString(string, code);
+#if MWCCPSP
+    CError_ErrorMessage(code + CError_MSG_BASE, string, FALSE, FALSE);
+#else
     CError_ErrorMessage(code + 10000, string, FALSE, FALSE);
+#endif
     longjmp(errorreturn, 1);
 }
 
@@ -937,7 +1183,13 @@ void CError_ErrorSkip(int code, ...) {
     }
 }
 
+#if MWCCPSP
+void CError_ErrorFuncCall(
+    short code, NameSpaceObjectList* args, ENode* objexpr, ENodeList* argNodes
+) {
+#else
 void CError_ErrorFuncCall(short code, NameSpaceObjectList* args, ENodeList* argNodes) {
+#endif
     CErrorBuffer eb;
     char buf[256];
     char* p;
@@ -1013,10 +1265,21 @@ exit_main_loop:
     }
 
     CError_BufferAppendTemplateStack(&eb);
+#if MWCCPSP
+    CError_ErrorMessage(CError_MSG_BASE + code, eb.start, FALSE, FALSE);
+#else
     CError_ErrorMessage(10000 + code, eb.start, FALSE, FALSE);
+#endif
 }
 
+#if MWCCPSP
+// 0x44FF40
+void CError_OverloadedFunctionError2(
+    Object* obj, ObjectList* olst, ENode* objexpr, ENodeList* argNodes
+) {
+#else
 void CError_OverloadedFunctionError2(Object* obj, ObjectList* olst, ENodeList* argNodes) {
+#endif
     NameSpaceObjectList first;
     NameSpaceObjectList* current;
 
@@ -1030,7 +1293,11 @@ void CError_OverloadedFunctionError2(Object* obj, ObjectList* olst, ENodeList* a
     }
     current->next = NULL;
 
+#if MWCCPSP
+    CError_ErrorFuncCall(ERR_FUNCTION_CALL_AMBIGUOUS, &first, objexpr, argNodes);
+#else
     CError_ErrorFuncCall(ERR_FUNCTION_CALL_AMBIGUOUS, &first, argNodes);
+#endif
 }
 
 void CError_OverloadedFunctionError(Object* obj, ObjectList* olst) {
@@ -1088,6 +1355,7 @@ void CError_BreakPoint(const char* a, const char* b) {
     }
 }
 
+#if !MWCCPSP
 void CError_Internal(char* filename, int line) {
     char format[128];
     CompilerGetCString(5, format);
@@ -1096,6 +1364,7 @@ void CError_Internal(char* filename, int line) {
     longjmp(errorreturn, 1);
     CError_BreakPoint(NULL, NULL);
 }
+#endif
 
 void CError_ExpressionTooComplex(void) {
     CompilerGetCString(6, string);
@@ -1110,6 +1379,13 @@ void CError_NoMem(void) {
 
 void CError_UserBreak(void) {
     CompilerGetCString(8, string);
+#if MWCCPSP
+    // 3.0.1 drops the preprocessor output and the object data
+    if (cparamblkptr->preprocess && pplist.data) {
+        FreeGList(&pplist);
+    }
+    cparamblkptr->object.objectdata = NULL;
+#endif
     longjmp(errorreturn, 1);
 }
 

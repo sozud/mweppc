@@ -36,7 +36,9 @@
 #include <string.h>
 #include <time.h>
 
+#if !MWCCPSP // 3.0.1: natural alignment (CPrep_PushOption allocates 12 bytes)
 #pragma pack(2)
+#endif
 typedef struct COptsPush {
     struct COptsPush* next;
     CompilerLinkerOptions opts;
@@ -78,6 +80,247 @@ enum {
 };
 
 // clang-format off
+#if MWCCPSP
+// The 3.0.1 table, extracted from mwccpsp.exe in order.
+CompilerOption compileroptions[] = {
+    "little_endian", OPT_FLAG_NOPRAGMA | OPT_OFFSET(littleendian),
+    "longlong", OPT_OFFSET(longlong),
+    "fp_library", OPT_OFFSET(fp_library),
+    "debug_listing", OPT_OFFSET(debuglisting),
+    "interrupt", OPT_OFFSET(interrupt),
+    "inline_intrinsics", OPT_OFFSET(inline_intrinsics),
+    "far_call", OPT_OFFSET(far_call),
+    "peephole", OPT_OFFSET(peephole),
+    "schedule", OPT_OFFSET(schedule),
+    "tailcall", OPT_OFFSET(tailcall),
+    "late_conditional_move", OPT_OFFSET(late_conditional_move),
+    "conditional_move", OPT_OFFSET(conditional_move),
+    "gencvtcheck", OPT_OFFSET(gencvtcheck),
+    "trunc", OPT_OFFSET(trunc),
+    "prefetch", OPT_OFFSET(prefetch),
+    "sqrt", OPT_OFFSET(sqrt),
+    "floatsp32", OPT_OFFSET(floatsp32),
+    "nofpregforblkmv", OPT_OFFSET(nofpregforblkmv),
+    "divbyzerocheck", OPT_OFFSET(divbyzerocheck),
+    "nomacro", OPT_OFFSET(nomacro),
+    "warn_inlineasm", OPT_OFFSET(warn_inlineasm),
+    "no_branch_likely", OPT_OFFSET(no_branch_likely),
+    "debug_1", OPT_OFFSET(debug_1),
+    "debug_2", OPT_OFFSET(debug_2),
+    "debug_3", OPT_OFFSET(debug_3),
+    "debug_4", OPT_OFFSET(debug_4),
+    "debug_5", OPT_OFFSET(debug_5),
+    "int_multiply_add", OPT_OFFSET(int_multiply_add),
+    "cats", OPT_OFFSET(cats),
+    "mwabi_bitfields", OPT_OFFSET(mwabi_bitfields),
+    "fastmath", OPT_OFFSET(fastmath),
+    "volatileasm", OPT_OFFSET(volatileasm),
+    "memoryrewrite", OPT_OFFSET(memoryrewrite),
+    "asmsemicolcomment", OPT_OFFSET(asmsemicolcomment),
+    "asmpoundcomment", OPT_OFFSET(asmpoundcomment),
+    "cplusplus", OPT_OFFSET(cplusplus),
+    "ecplusplus", OPT_OFFSET(ecplusplus),
+    "ARM_scoping", OPT_OFFSET(ARMscoping),
+    "require_prototypes", OPT_OFFSET(checkprotos),
+    "trigraphs", OPT_OFFSET(trigraphs),
+    "only_std_keywords", OPT_OFFSET(onlystdkeywords),
+    "enumsalwaysint", OPT_OFFSET(enumsalwaysint),
+    "ANSI_strict", OPT_OFFSET(ANSIstrict),
+    "mpwc_relax", OPT_OFFSET(mpwc_relax),
+    "mpwc_newline", OPT_OFFSET(mpwc_newline),
+    "ignore_oldstyle", OPT_OFFSET(ignore_oldstyle),
+    "cpp_extensions", OPT_OFFSET(cpp_extensions),
+    "pointercast_lvalue", OPT_OFFSET(pointercast_lvalue),
+    "RTTI", OPT_OFFSET(RTTI),
+    "delete_exception", OPT_OFFSET(delete_exception),
+    "oldalignment", OPT_OFFSET(oldalignment),
+    "multibyteaware", OPT_OFFSET(multibyteaware),
+    "unsigned_char", OPT_OFFSET(unsigned_char),
+    "auto_inline", OPT_OFFSET(auto_inline),
+    "inline_bottom_up", OPT_OFFSET(inline_bottom_up),
+    "inline_bottom_up_once", OPT_OFFSET(inline_bottom_up_once),
+    "defer_codegen", OPT_OFFSET(defer_codegen),
+    "direct_to_som", OPT_OFFSET(direct_to_som),
+    "SOMCheckEnvironment", OPT_OFFSET(som_env_check),
+    "SOMCallOptimization", OPT_OFFSET(som_call_optimize),
+    "bool", OPT_OFFSET(booltruefalse),
+    "_Bool", OPT_OFFSET(booltruefalse),
+    "longlong_enums", OPT_OFFSET(longlong_enums),
+    "no_tfuncinline", OPT_OFFSET(no_tfuncinline),
+    "flat_include", OPT_OFFSET(flat_include),
+    "syspath_once", OPT_OFFSET(syspath_once),
+    "always_import", OPT_OFFSET(always_import),
+    "simple_class_byval", OPT_OFFSET(simple_class_byval),
+    "wchar_type", OPT_OFFSET(wchar_type),
+    "vbase_ctor_offset", OPT_OFFSET(vbase_ctor_offset),
+    "vbase_abi_v2", OPT_OFFSET(vbase_abi_v2),
+    "def_inherited", OPT_OFFSET(def_inherited),
+    "template_patch", OPT_OFFSET(template_patch),
+    "template_friends", OPT_OFFSET(template_friends),
+    "faster_pch_gen", OPT_OFFSET(faster_pch_gen),
+    "array_new_delete", OPT_OFFSET(array_new_delete),
+    "dollar_identifiers", OPT_OFFSET(dollar_identifiers),
+    "def_inline_tfuncs", OPT_OFFSET(def_inline_tfuncs),
+    "arg_dep_lookup", OPT_OFFSET(arg_dep_lookup),
+    "simple_prepdump", OPT_OFFSET(simple_prepdump),
+    "line_prepdump", OPT_OFFSET(line_prepdump),
+    "fullpath_prepdump", OPT_OFFSET(fullpath_prepdump),
+    "old_mtemplparser", OPT_OFFSET(old_mtemplparser),
+    "suppress_init_code", OPT_OFFSET(suppress_init_code),
+    "reverse_bitfields", OPT_OFFSET(reverse_bitfields),
+    "c9x", OPT_OFFSET(c9x),
+    "c99", OPT_OFFSET(c9x),
+    "float_constants", OPT_OFFSET(float_constants),
+    "no_static_dtors", OPT_OFFSET(no_static_dtors),
+    "longlong_prepeval", OPT_OFFSET(longlong_prepeval),
+    "const_strings", OPT_OFFSET(const_strings),
+    "dumpir", OPT_OFFSET(dumpir),
+    "experimental", OPT_OFFSET(experimental),
+    "late_fixes", OPT_OFFSET(late_fixes),
+    "gcc_extensions", OPT_OFFSET(gcc_extensions),
+    "stdc_fp_contract", OPT_OFFSET(stdc_fp_contract),
+    "stdc_fenv_access", OPT_OFFSET(stdc_fenv_access),
+    "stdc_cx_limitedr", OPT_OFFSET(stdc_cx_limitedr),
+    "old_argmatch", OPT_OFFSET(old_argmatch),
+    "optEH", OPT_OFFSET(optEH),
+    "optEH2", OPT_OFFSET(optEH2),
+    "new_mangler", OPT_OFFSET(new_mangler),
+    "parse_func_templ", OPT_OFFSET(parse_func_templ),
+    "parse_mfunc_templ", OPT_OFFSET(parse_mfunc_templ),
+    "old_depfunc_lookup", OPT_OFFSET(old_depfunc_lookup),
+    "show_error_filestack", OPT_OFFSET(show_error_filestack),
+    "defer_defarg_parsing", OPT_OFFSET(defer_defarg_parsing),
+    "reg_class_allocs", OPT_OFFSET(reg_class_allocs),
+    "old_pragma_once", OPT_OFFSET(old_pragma_once),
+    "new_calldeduction", OPT_OFFSET(new_calldeduction),
+    "fullpath_file", OPT_OFFSET(fullpath_file),
+    "opt_classresults", OPT_OFFSET(opt_classresults),
+    "ushort_wchar_t", (short)(OPT_FLAG_RECONFIGURE | OPT_OFFSET(ushort_wchar_t)),
+    "microsoft_exceptions", (short)(OPT_FLAG_RECONFIGURE | OPT_OFFSET(microsoft_EH)),
+    "microsoft_RTTI", OPT_OFFSET(microsoft_EH),
+    "warning_errors", OPT_OFFSET(warningerrors),
+    "access_errors", OPT_OFFSET(access_errors),
+    "extended_errorcheck", OPT_OFFSET(pedantic),
+    "check_header_flags", OPT_OFFSET(checkprecompflags),
+    "suppress_warnings", OPT_OFFSET(supress_warnings),
+    "warn_illpragma", OPT_OFFSET(warn_illpragma),
+    "warn_emptydecl", OPT_OFFSET(warn_emptydecl),
+    "warn_possunwant", OPT_OFFSET(warn_possunwant),
+    "warn_unusedvar", OPT_OFFSET(warn_unusedvar),
+    "warn_unusedarg", OPT_OFFSET(warn_unusedarg),
+    "warn_extracomma", OPT_OFFSET(warn_extracomma),
+    "warn_hidevirtual", OPT_OFFSET(warn_hidevirtual),
+    "warn_largeargs", OPT_OFFSET(warn_largeargs),
+    "warn_implicitconv", OPT_OFFSET(warn_implicitconv),
+    "warn_impl_i2f_conv", OPT_OFFSET(warn_impl_i2f_conv),
+    "warn_impl_f2i_conv", OPT_OFFSET(warn_impl_f2i_conv),
+    "warn_impl_s2u_conv", OPT_OFFSET(warn_impl_s2u_conv),
+    "warn_notinlined", OPT_OFFSET(warn_notinlined),
+    "warn_structclass", OPT_OFFSET(warn_structclass),
+    "warn_padding", OPT_OFFSET(warn_padding),
+    "warn_no_side_effect", OPT_OFFSET(warn_no_side_effect),
+    "warn_resultnotused", OPT_OFFSET(warn_resultnotused),
+    "warn_ptr_int_conv", OPT_OFFSET(warn_ptr_int_conv),
+    "warn_no_typename", OPT_OFFSET(warn_no_typename),
+    "warn_filenamecaps", OPT_OFFSET(warn_filenamecaps),
+    "warn_filenamecaps_system", OPT_OFFSET(warn_filenamecaps_system),
+    "warn_no_explicit_virtual", OPT_OFFSET(warn_no_explicit_virtual),
+    "warn_pch_portability", OPT_OFFSET(warn_pch_portability),
+    "warn_uninitializedvar", OPT_OFFSET(warn_uninitializedvar),
+    "warn_illunionmembers", OPT_OFFSET(warn_illunionmembers),
+    "warn_undefmacro", OPT_OFFSET(warn_undefmacro),
+    "align_array_members", OPT_OFFSET(alignarraymembers),
+    "dont_reuse_strings", OPT_OFFSET(dont_reuse_strings),
+    "pool_strings", OPT_OFFSET(poolstrings),
+    "explicit_zero_data", OPT_OFFSET(explicit_zero_data),
+    "readonly_strings", OPT_OFFSET(readonly_strings),
+    "thread_safe_init", OPT_OFFSET(thread_safe_init),
+    "opt_common_subs", OPT_OFFSET(commonsubs),
+    "opt_loop_invariants", OPT_OFFSET(loopinvariants),
+    "opt_propagation", OPT_OFFSET(propagation),
+    "opt_unroll_loops", OPT_OFFSET(unrolling),
+    "opt_lifetimes", OPT_OFFSET(lifetimes),
+    "opt_strength_reduction", OPT_OFFSET(strengthreduction),
+    "opt_strength_reduction_strict", OPT_OFFSET(strengthreductionstrict),
+    "opt_dead_code", OPT_OFFSET(deadcode),
+    "opt_dead_assignments", OPT_OFFSET(deadstore),
+    "opt_vectorize_loops", OPT_OFFSET(vectorizeloops),
+    "opt_pointer_analysis", OPT_OFFSET(opt_pointer_analysis),
+    "opt_scalarize", OPT_OFFSET(opt_scalarize),
+    "opt_prelinearize", OPT_OFFSET(opt_prelinearize),
+    "opt_treetransformation", OPT_OFFSET(opt_treetransformation),
+    "opt_arithtransformation", OPT_OFFSET(opt_arithtransformation),
+    "opt_rebuildconditionals", OPT_OFFSET(opt_rebuildconditionals),
+    "opt_rebuildconditionals", OPT_OFFSET(opt_rebuildconditionals),
+    "opt_rebuildconditionals", OPT_OFFSET(opt_rebuildconditionals),
+    "opt_rebuildlogicals", OPT_OFFSET(opt_rebuildlogicals),
+    "opt_generateconditionalassignments", OPT_OFFSET(opt_generateconditionalassignments),
+    "opt_removeemptyloops", OPT_OFFSET(opt_removeemptyloops),
+    "opt_alwaysdumpopts", OPT_OFFSET(opt_alwaysdumpopts),
+    "opt_rotateloops", OPT_OFFSET(opt_rotateloops),
+    "opt_optimizenonregaccess", OPT_OFFSET(opt_optimizenonregaccess),
+    "opt_movepostops", OPT_OFFSET(opt_movepostops),
+    "opt_findoptimalunrollfactor", OPT_OFFSET(opt_findoptimalunrollfactor),
+    "opt_findoptimalvectorunrollfactor", OPT_OFFSET(opt_findoptimalvectorunrollfactor),
+    "opt_unrollpostloop", OPT_OFFSET(opt_unrollpostloop),
+    "opt_unrollvectorpostloop", OPT_OFFSET(opt_unrollvectorpostloop),
+    "opt_createvectortemps", OPT_OFFSET(opt_createvectortemps),
+    "opt_unpromotetypes", OPT_OFFSET(opt_unpromotetypes),
+    "opt_dumptypes", OPT_OFFSET(opt_dumptypes),
+    "opt_scalarizebitfields", OPT_OFFSET(opt_scalarizebitfields),
+    "opt_propagatemultiplydivideassignments", OPT_OFFSET(opt_propagatemultiplydivideassignments),
+    "opt_moveinvariantsinaddressexpr", OPT_OFFSET(opt_moveinvariantsinaddressexpr),
+    "opt_convertfpconsts", OPT_OFFSET(opt_convertfpconsts),
+    "opt_markcounterloops", OPT_OFFSET(opt_markcounterloops),
+    "opt_markvariablecounterloops", OPT_OFFSET(opt_markvariablecounterloops),
+    "opt_pulloutconstants", OPT_OFFSET(opt_pulloutconstants),
+    "opt_defineargorder", OPT_OFFSET(opt_defineargorder),
+    "opt_useexpressioncostswhenlinearizingassignments", OPT_OFFSET(opt_useexpressioncostswhenlinearizingassignments),
+    "opt_intelcompareoplinearizationhack", OPT_OFFSET(opt_intelcompareoplinearizationhack),
+    "opt_rearrangemultiplesubscripts", OPT_OFFSET(opt_rearrangemultiplesubscripts),
+    "opt_returnloopdepthinstatementvalue", OPT_OFFSET(opt_returnloopdepthinstatementvalue),
+    "opt_marknonregtemps", OPT_OFFSET(opt_marknonregtemps),
+    "opt_addgotounrolledlooptest", OPT_OFFSET(opt_addgotounrolledlooptest),
+    "opt_addtogetherconstantpartsoftreeexpressions", OPT_OFFSET(opt_addtogetherconstantpartsoftreeexpressions),
+    "opt_propagateequivalentscalartypes", OPT_OFFSET(opt_propagateequivalentscalartypes),
+    "opt_unpromoteenumtointconversions", OPT_OFFSET(opt_unpromoteenumtointconversions),
+    "opt_unpromotemultipliestochartype", OPT_OFFSET(opt_unpromotemultipliestochartype),
+    "opt_dospecialmultiplyunpromotion", OPT_OFFSET(opt_dospecialmultiplyunpromotion),
+    "opt_docrossconversionofinductionreference", OPT_OFFSET(opt_docrossconversionofinductionreference),
+    "opt_intrinsicfunctioncallscanhavesideeffects", OPT_OFFSET(opt_intrinsicfunctioncallscanhavesideeffects),
+    "opt_collapselogicalselectionintobittest", OPT_OFFSET(opt_collapselogicalselectionintobittest),
+    "opt_collapselogicalselectionintobittest_uselonglong", OPT_OFFSET(opt_collapselogicalselectionintobittest_uselonglong),
+    "opt_reverseloops", OPT_OFFSET(opt_reverseloops),
+    "opt_foldconstants", OPT_OFFSET(opt_foldconstants),
+    "opt_optimizecontrolflow", OPT_OFFSET(opt_optimizecontrolflow),
+    "opt_serializeassignments", OPT_OFFSET(opt_serializeassignments),
+    "opt_branchlessexpensivethandiv", OPT_OFFSET(opt_branchlessexpensivethandiv),
+    "opt_repositioncode", OPT_OFFSET(opt_repositioncode),
+    "opt_decomposeaggregates", OPT_OFFSET(opt_decomposeaggregates),
+    "opt_recomposeaggregates", OPT_OFFSET(opt_recomposeaggregates),
+    "opt_scalarizeliveranges", OPT_OFFSET(opt_scalarizeliveranges),
+    "opt_constnonchanging", OPT_OFFSET(opt_constnonchanging),
+    "exceptions", OPT_OFFSET(exceptions),
+    "dont_inline", OPT_OFFSET(dontinline),
+    "always_inline", OPT_OFFSET(alwaysinline),
+    "optimize_for_size", OPT_OFFSET(optimizesize),
+    "peephole", OPT_OFFSET(peephole),
+    "global_optimizer", OPT_OFFSET(globaloptimizer),
+    "side_effects", OPT_OFFSET(sideeffects),
+    "internal", OPT_FLAG_LIST | OPT_OFFSET(cfm_internal),
+    "import", OPT_FLAG_LIST | OPT_OFFSET(cfm_import),
+    "export", OPT_FLAG_LIST | OPT_OFFSET(cfm_export),
+    "lib_export", OPT_FLAG_LIST | OPT_OFFSET(cfm_lib_export),
+    "nosyminline", OPT_OFFSET(nosyminline),
+    "force_active", OPT_OFFSET(force_active),
+    "block_assign", OPT_OFFSET(block_assign),
+    "has8bytebitfields", OPT_OFFSET(has8bytebitfields),
+    "mwabi_bitfields", OPT_OFFSET(mwabi_bitfields),
+    "sym", OPT_OFFSET(filesyminfo),
+    "symstringtypes", OPT_OFFSET(symstringtypes),
+    NULL, 0
+};
+#else
 CompilerOption compileroptions[] = {
     "little_endian", OPT_FLAG_NOPRAGMA | OPT_OFFSET(littleendian),
     "longlong", OPT_OFFSET(longlong),
@@ -235,6 +478,7 @@ CompilerOption compileroptions[] = {
     "sym", OPT_OFFSET(filesyminfo),
     NULL, 0
 };
+#endif
 // clang-format on
 
 SInt16 tk;
@@ -249,10 +493,17 @@ SInt32 lines;
 UInt8 cprep_nomem_exit;
 UInt8 cprep_nostring;
 CompilerLinkerParamBlk* cparamblkptr;
+#if MWCCPSP
+extern void func_00439EA0(void); // FEInterface.c: the optimizer options from copts
+#endif
 UInt8 cprep_eoltokens;
 static IfStack ifstack[64];
 static SInt16 iflevel;
+#if MWCCPSP
+TokenStack tokenstack[256]; // 3.0.1 nests macros 256 deep
+#else
 TokenStack tokenstack[128];
+#endif
 SInt16 tokenstacklevel;
 CPrepFileInfo* cprep_cursymfile;
 char* pos;
@@ -299,6 +550,9 @@ static Macro cpplM;
 static Macro MWRSM;
 static Macro dtsomM;
 static Macro ecppM;
+#if MWCCPSP
+static Macro ia64M; // 3.0.1: __IA64_CPP_ABI__
+#endif
 static Macro optiM;
 static Macro trgtM;
 static Macro envM;
@@ -322,10 +576,49 @@ SInt16* CLT_filesp;
 static PrepValue CPrep_ParseCond(void);
 static PrepValue CPrep_ParseBinary(PrepValue* rhs, short precLimit);
 static char* XpandMacro(Macro* macro);
+#if MWCCPSP
+
+#define CPREP_MACRO_LIMIT 0x100000 // 3.0.1: expanded macro text up to 1 MB
+#endif
 static void prepmacro(Macro* macro);
 static void prepifskip(void);
 static void gotonexttoken(void);
 
+#if MWCCPSP
+extern void COS_p2cstrcpy(char* dst, ConstStringPtr src);
+extern void COS_c2pstrcpy(StringPtr dst, const char* src);
+extern const char* COS_GetFileName(const char* path);
+extern int COS_FileReadAt(COSFileRef refNum, SInt32 pos, void* buffer, SInt32 count);
+extern void* COS_AllocateMemory(SInt32 size);
+extern int COS_FileGetActualName(char* path); // 0x439AD0: the file's name as stored
+extern char* func_004393A0(const CWFileSpec* spec); // the spec's file name
+
+UInt8 cprep_pchloaded; // 0x625EBC: a precompiled header was read
+#define PREP_NAMENODE(path) GetHashNameNodeExport(path) // 3.0.1 keeps paths, not name nodes
+static Macro* ismacroname4(HashNameNode* name);
+extern UInt8 data_0062455C; // 3.0.1, set while precompiling (not identified)
+static Boolean cprep_warned_pch_once; // 0x5E9368
+
+// 3.0.1 names the file without its path
+static void cannotopenerror(StringPtr filename, Boolean err) {
+    char buf[260];
+    const char* name;
+
+    COS_p2cstrcpy(buf, filename);
+    name = COS_GetFileName(buf);
+    CError_ResetErrorSkip();
+
+    if (prep_file) {
+        was_prep_error = TRUE;
+        CError_Error(ERR_FILE_CANNOT_OPENED, name);
+        if (err) {
+            longjmp(errorreturn, 1);
+        }
+    } else {
+        CError_CannotOpen();
+    }
+}
+#else
 static void cannotopenerror(StringPtr filename, Boolean err) {
     static char fname[64];
 
@@ -348,6 +641,7 @@ static void cannotopenerror(StringPtr filename, Boolean err) {
         CError_CannotOpen();
     }
 }
+#endif
 
 static void insertmacro(Macro* macro) {
     macro->next = macrohashtable[macro->name->hashval];
@@ -376,6 +670,9 @@ void CPrep_InsertSpecialMacros(void) {
     CPrep_InsertSpecialMacro(&ecppM, "__embedded_cplusplus");
     CPrep_InsertSpecialMacro(&optiM, "__option");
     CPrep_InsertSpecialMacro(&trgtM, "__ide_target");
+#if MWCCPSP
+    CPrep_InsertSpecialMacro(&ia64M, "__IA64_CPP_ABI__");
+#endif
     CPrep_InsertSpecialMacro(&envM, "__env_var");
     CodeGen_InsertSpecialMacros();
 }
@@ -400,6 +697,95 @@ static void CPrep_Reconfig(void) {
     cprep_idarray['$'] = copts.dollar_identifiers != 0;
 }
 
+#if MWCCPSP
+extern Boolean data_00625EC1;
+
+// 3.0.1 (0x445770): no reconfiguration or ELF setup here; '$' is an
+// identifier character when #pragma dollar_identifiers is on
+int setupprep(void) {
+    int x;
+
+    now_time = time(NULL);
+    lineoffset = 0;
+    include_once = FALSE;
+    cprep_warned_pch_once = FALSE;
+    cprep_eoltokens = FALSE;
+    data_00625EC1 = FALSE;
+    cprep_incondexpr = FALSE;
+    cprep_pchloaded = FALSE;
+    filesp = -1;
+    linetick = 0;
+    lines = 0;
+    dofreeaheap = TRUE;
+    macrocheck = TRUE;
+    maxstringsize = 256;
+    iflevel = 0;
+    tokenstacklevel = 0;
+    cprep_cursymfile = NULL;
+    cprep_files = NULL;
+
+    CLT_filesp = &filesp;
+    CLT_filestack = filestack;
+
+    anyerrors = FALSE;
+    fatalerrors = FALSE;
+    was_prep_error = FALSE;
+    cprep_strconcat = FALSE;
+
+    GListErrorProc = CError_NoMem;
+    mlist.data = NULL;
+    pplist.data = NULL;
+    if (InitGList(&mlist, 10000)) {
+        CError_NoMem();
+    }
+
+    if (!(stringmem = COS_NewHandle(256))) {
+        CError_NoMem();
+    }
+    if (!(ts_buffer = COS_NewHandle(1024 * sizeof(TStreamElement)))) {
+        CError_NoMem();
+    }
+    COS_LockHandleHi(ts_buffer);
+    ts_first = (TStreamElement*)*ts_buffer;
+    ts_last = ts_first + 1023;
+    ts_elements = 1024;
+    ts_preread_elements = 0;
+    ts_current = ts_first;
+
+    macrohashtable = galloc(sizeof(Macro*) * 2048);
+    memclrw(macrohashtable, sizeof(Macro*) * 2048);
+    CPrep_InsertSpecialMacros();
+
+    for (x = 0; x < 256; x++) {
+        cprep_idarray[x] = 0;
+    }
+
+    for (x = 'a';; x++) {
+        cprep_idarray[x] = 1;
+        if (x == 'z') {
+            break;
+        }
+    }
+
+    for (x = 'A';; x++) {
+        cprep_idarray[x] = 1;
+        if (x == 'Z') {
+            break;
+        }
+    }
+
+    for (x = '0';; x++) {
+        cprep_idarray[x] = 2;
+        if (x == '9') {
+            break;
+        }
+    }
+
+    cprep_idarray['$'] = copts.dollar_identifiers != 0;
+    cprep_idarray['_'] = 1;
+    return 0;
+}
+#else
 int setupprep(void) {
     int x;
 
@@ -479,6 +865,7 @@ int setupprep(void) {
     ELF_Setup();
     return 0;
 }
+#endif
 
 static unsigned int high_mem_mark;
 
@@ -505,6 +892,283 @@ void cleanupprep(void) {
     ts_first = ts_last = ts_current = NULL;
 }
 
+#if MWCCPSP
+// 3.0.1: #pragma once keys are made from the file's full path (and, unless
+// old_pragma_once, from the name as written as well); a header that is
+// already known is not even loaded; precompiled headers start with the magic
+// 0xBEEFFACE
+static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImport, Boolean unk) {
+    CPrepFileInfo prepinfo;
+    CWFileInfo fileinfo;
+    char myfilename[256];
+    Str255 file_filename;
+    COSFileRef refnum;
+    UInt32 magic;
+    SInt32 file_size;
+    CWMemHandle cache_hnd;
+    void* cache;
+    CWFileSpec* spec;
+    char* path;
+    HashNameNode* pathname;
+    HashNameNode* writtenname;
+    Macro* macro;
+    char pathbuf[0x104];
+    char namebuf[0x108];
+    char* dst;
+    int i;
+    int sys;
+
+    if (filesp >= 31) {
+        was_prep_error = TRUE;
+        CError_ErrorTerm(ERR_INCLUDE_NESTING_OVERFLOW);
+        return FALSE;
+    }
+
+    memclrw(&prepinfo, sizeof(prepinfo));
+    prepinfo.isSystemInclude = !fullsearch;
+    if (filename) {
+        memclrw(&fileinfo, sizeof(fileinfo));
+        fileinfo.fullsearch = fullsearch;
+        fileinfo.dependencyType = unk ? (char)1 : (char)0;
+        fileinfo.isdependentoffile = -1;
+        fileinfo.suppressload = !copts.old_pragma_once && cprep_pchloaded;
+        memcpy(myfilename, &filename[1], filename[0]);
+        myfilename[filename[0]] = 0;
+
+        if (CWFindAndLoadFile(cparamblkptr->context, myfilename, &fileinfo) != cwNoErr) {
+            cannotopenerror(filename, FALSE);
+            return FALSE;
+        }
+
+        if (fileinfo.filedatatype == 0) {
+            // not loaded: read it ourselves unless it is a precompiled header
+            if (!COS_FileOpen(&fileinfo.filespec, &refnum)) {
+                if (!COS_FileGetSize(refnum, &fileinfo.filedatalength) &&
+                    !COS_FileReadAt(refnum, 0, &magic, 4) &&
+                    magic != 0xBEEFFACE &&
+                    (cache = COS_AllocateMemory(fileinfo.filedatalength)) &&
+                    !COS_FileRead(refnum, cache, fileinfo.filedatalength)) {
+                    fileinfo.filedatatype = cwFileTypeText;
+                    fileinfo.filedata = cache;
+                }
+                COS_FileClose(refnum);
+            }
+        }
+
+        if ((isImport && fileinfo.alreadyincluded) ||
+            (copts.old_pragma_once && include_once && fileinfo.alreadyincluded)) {
+            if (fileinfo.filedata) {
+                CWReleaseFileText(cparamblkptr->context, fileinfo.filedata);
+            }
+            return TRUE;
+        }
+
+        if (copts.old_pragma_once) {
+            prepinfo.textfile = fileinfo.filespec;
+            spec = &fileinfo.filespec;
+            prepinfo.nameNode =
+                CTool_GetPathName(&fileinfo.filespec, (COSFileTime*)&prepinfo.fileModDate);
+        } else {
+            spec = &fileinfo.filespec;
+            path = CTool_GetPathName(&fileinfo.filespec, (COSFileTime*)&prepinfo.fileModDate);
+
+            sys = prepinfo.isSystemInclude;
+            strncpy(pathbuf + 1, path, 0x103);
+            pathbuf[1 + 0x102] = 0;
+            for (dst = pathbuf + 1; *dst; dst++) {
+                *dst = tolower(*dst);
+            }
+            pathbuf[0] = (copts.syspath_once && sys) ? '$' : -'\\';
+            pathname = GetHashNameNodeExport(pathbuf);
+
+            sys = prepinfo.isSystemInclude;
+            i = filename[0];
+            if (i > 0x104) {
+                i = 0x104;
+            }
+            dst = namebuf + 1 + i;
+            dst[1] = 0;
+            while (i >= 0) {
+                *(dst--) = tolower((signed char)filename[i]);
+                i--;
+            }
+            *dst = (copts.syspath_once && sys) ? '$' : -'\\';
+            writtenname = GetHashNameNodeExport(dst);
+
+            if (ismacroname4(pathname)) {
+                if (fileinfo.filedata) {
+                    CWReleaseFileText(cparamblkptr->context, fileinfo.filedata);
+                }
+                return TRUE;
+            }
+
+            prepinfo.textfile = fileinfo.filespec;
+            prepinfo.nameNode = path;
+            if (include_once) {
+                if (!ismacroname4(pathname)) {
+                    macro = galloc(sizeof(Macro));
+                    memclrw(macro, sizeof(Macro));
+                    macro->name = pathname;
+                    macro->next = macrohashtable[pathname->hashval];
+                    macro->is_special = FALSE;
+                    macrohashtable[pathname->hashval] = macro;
+                    if (!copts.old_pragma_once &&
+                        copts.warn_pch_portability &&
+                        data_0062455C &&
+                        !cprep_warned_pch_once) {
+                        cprep_warned_pch_once = TRUE;
+                        CError_ResetErrorSkip();
+                        CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+                    }
+                }
+                if (!ismacroname4(writtenname)) {
+                    macro = galloc(sizeof(Macro));
+                    memclrw(macro, sizeof(Macro));
+                    macro->name = writtenname;
+                    macro->next = macrohashtable[writtenname->hashval];
+                    macro->is_special = !copts.old_pragma_once;
+                    macrohashtable[writtenname->hashval] = macro;
+                    if (!copts.old_pragma_once &&
+                        copts.warn_pch_portability &&
+                        data_0062455C &&
+                        !cprep_warned_pch_once) {
+                        cprep_warned_pch_once = TRUE;
+                        CError_ResetErrorSkip();
+                        CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+                    }
+                }
+            }
+
+            if (fileinfo.suppressload &&
+                CWGetFileText(
+                    cparamblkptr->context,
+                    &fileinfo.filespec,
+                    &fileinfo.filedata,
+                    &fileinfo.filedatalength,
+                    &fileinfo.filedatatype
+                )) {
+                fileinfo.fullsearch = fullsearch;
+                fileinfo.dependencyType = unk ? (char)1 : (char)0;
+                fileinfo.isdependentoffile = -1;
+                fileinfo.suppressload = FALSE;
+                if (CWFindAndLoadFile(cparamblkptr->context, myfilename, &fileinfo) != cwNoErr) {
+                    cannotopenerror(filename, FALSE);
+                    return FALSE;
+                }
+            }
+        }
+
+        if (copts.warn_filenamecaps && (copts.warn_filenamecaps_system || fullsearch)) {
+            COS_FileGetActualName((char*)spec);
+            if (strcmp(func_004393A0(&fileinfo.filespec), myfilename)) {
+                CError_Warning(
+                    ERR_FILENAME_CASE_MISMATCH, myfilename, func_004393A0(&fileinfo.filespec)
+                );
+            }
+        }
+
+        if (fileinfo.filedata) {
+            if (fileinfo.filedatatype == cwFileTypeText) {
+                prepinfo.textbuffer = (char*)fileinfo.filedata;
+                prepinfo.textlength = fileinfo.filedatalength;
+                prepinfo.fileID = fileinfo.fileID;
+                prepinfo.recordbrowseinfo = fileinfo.recordbrowseinfo;
+            } else if (fileinfo.filedatatype == cwFileTypePrecompiledHeader) {
+                cprep_pchloaded = TRUE;
+                PrecompilerRead(0, (void*)fileinfo.filedata);
+                return TRUE;
+            } else {
+                cannotopenerror(filename, FALSE);
+                return FALSE;
+            }
+        } else {
+            COS_FileGetFSSpecInfo(
+                &prepinfo.textfile, NULL, 0, (char*)file_filename, sizeof(file_filename)
+            );
+            COS_c2pstrcpy(file_filename, (char*)file_filename);
+            if (COS_FileOpen(&prepinfo.textfile, &refnum)) {
+                cannotopenerror(filename, FALSE);
+                return FALSE;
+            }
+            if (COS_FileReadAt(refnum, 0, &magic, 4) || COS_FileGetSize(refnum, &file_size)) {
+                COS_FileClose(refnum);
+                cannotopenerror(filename, FALSE);
+                return FALSE;
+            }
+            if (magic == 0xBEEFFACE) {
+                if (cparamblkptr->caching_includes) {
+                    if (CWAllocMemHandle(cparamblkptr->context, file_size, TRUE, &cache_hnd) !=
+                        cwNoErr) {
+                        if (CWAllocMemHandle(cparamblkptr->context, file_size, FALSE, &cache_hnd) !=
+                            cwNoErr) {
+                            COS_FileClose(refnum);
+                            CError_NoMem();
+                        }
+                    }
+
+                    CWLockMemHandle(cparamblkptr->context, cache_hnd, FALSE, &cache);
+                    if (COS_FileRead(refnum, cache, file_size)) {
+                        COS_FileClose(refnum);
+                        CWFreeMemHandle(cparamblkptr->context, cache_hnd);
+                        cannotopenerror(filename, FALSE);
+                        return FALSE;
+                    }
+                    COS_FileClose(refnum);
+                    CWCachePrecompiledHeader(cparamblkptr->context, &prepinfo.textfile, cache_hnd);
+                    cprep_pchloaded = TRUE;
+                    PrecompilerRead(0, cache);
+                    CWUnlockMemHandle(cparamblkptr->context, cache_hnd);
+                    return TRUE;
+                } else {
+                    cprep_pchloaded = TRUE;
+                    PrecompilerRead(refnum, NULL);
+                    COS_FileClose(refnum);
+                    return TRUE;
+                }
+            } else {
+                COS_FileClose(refnum);
+                cannotopenerror(filename, FALSE);
+                return FALSE;
+            }
+        }
+    } else {
+        if (!cparamblkptr->sourcetext) {
+            COS_FileGetFSSpecInfo(
+                &cparamblkptr->sourcefile, NULL, 0, (char*)file_filename, sizeof(file_filename)
+            );
+            COS_c2pstrcpy(file_filename, (char*)file_filename);
+            cannotopenerror(file_filename, TRUE);
+            return FALSE;
+        }
+
+        prepinfo.textfile = cparamblkptr->sourcefile;
+        prepinfo.textbuffer = (char*)cparamblkptr->sourcetext;
+        prepinfo.textlength = cparamblkptr->sourcetextsize;
+        prepinfo.fileID = cparamblkptr->browserfileID;
+        prepinfo.recordbrowseinfo = cparamblkptr->recordbrowseinfo;
+    }
+
+    if (filesp >= 0) {
+        filestack[filesp]->linenumber = linenumber;
+        filestack[filesp]->hasprepline = cprep_hasprepline;
+        filestack[filesp]->pos = pos - filestack[filesp]->textbuffer;
+    }
+
+    pos = prepinfo.textbuffer;
+    linenumber = 1;
+    at_linestart = TRUE;
+    filestack[++filesp] = galloc(sizeof(CPrepFileInfo));
+    *filestack[filesp] = prepinfo;
+    prep_file = filestack[filesp];
+    prep_file_start = prep_file->textbuffer;
+    prep_file_end = prep_file->textbuffer + prep_file->textlength;
+    if (preprocessing_only && !copts.simple_prepdump) {
+        CPrep_PreprocessDumpFileInfo(TRUE);
+    }
+
+    return TRUE;
+}
+#else
 static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImport) {
     CPrepFileInfo prepinfo;
     OSType file_type;
@@ -641,6 +1305,7 @@ static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImpor
     cprep_extrafile = NULL;
     return TRUE;
 }
+#endif
 
 void CPrep_TSBufferGrow(SInt32 amount) {
     int current_offset = ts_current - ts_first;
@@ -668,7 +1333,11 @@ void CPrep_TokenStreamSetState(SInt32* state) {
 void CPrep_UnLex(void) {
     ++ts_preread_elements;
     --ts_current;
+#if MWCCPSP
+    CError_ASSERT(1384, ts_current >= ts_first);
+#else
     CError_ASSERT(909, ts_current >= ts_first);
+#endif
 }
 
 void CPrep_TokenStreamSetCurState(SInt32* state) {
@@ -1133,8 +1802,14 @@ static short CPrep_TokenSize(char* str) {
     return 1;
 }
 
+#if MWCCPSP
+static TStreamElement dummyelement; // at file scope so it can be pinned (0x5E8DB8)
+
+TStreamElement* CPrep_CurStreamElement(void) {
+#else
 TStreamElement* CPrep_CurStreamElement(void) {
     static TStreamElement dummyelement;
+#endif
 
     if (ts_first < ts_current) {
         return ts_current - 1;
@@ -1178,7 +1853,11 @@ void CPrep_GetTokenContext(
         tok = ts_current - 1;
     }
     if (tok && !tok->tokenfile) {
+#if MWCCPSP
+        CError_FATAL(1989);
+#else
         CError_FATAL(1463);
+#endif
     }
     if (was_prep_error || !tok) {
         if (!prep_file) {
@@ -1202,7 +1881,11 @@ void CPrep_GetTokenContext(
         if (CWGetFileText(
                 cparamblkptr->context, &pf->textfile, (const char**)&loaded, &auxlong, &auxshort
             )) {
+#if MWCCPSP
+            COS_FileGetPascalName(&pf->textfile, name);
+#else
             COS_FileGetFSSpecInfo(&pf->textfile, NULL, NULL, name);
+#endif
             cannotopenerror(name, TRUE);
             base = NULL;
         } else {
@@ -1336,6 +2019,13 @@ void popfile(void) {
         return;
     }
 
+#if MWCCPSP
+    // 3.0.1: only text with a file name behind it is released
+    if (prep_file->nameNode) {
+        CWReleaseFileText(cparamblkptr->context, prep_file->textbuffer);
+    }
+    prep_file->textbuffer = NULL;
+#else
     CWReleaseFileText(cparamblkptr->context, prep_file->textbuffer);
     prep_file->textbuffer = NULL;
     if (cprep_extrafile && (text = cprep_extrafile->textbuffer)) {
@@ -1343,12 +2033,22 @@ void popfile(void) {
         cprep_extrafile->textbuffer = NULL;
         cprep_extrafile = NULL;
     }
+#endif
     if (--filesp >= 0) {
+#if MWCCPSP
+        prep_file = file = filestack[filesp];
+        prep_file_start = file->textbuffer;
+        prep_file_end = file->textbuffer + file->textlength;
+        pos = prep_file_start + file->pos;
+        linenumber = file->linenumber;
+        cprep_hasprepline = file->hasprepline;
+#else
         prep_file_start = (prep_file = file = filestack[filesp])->textbuffer;
         prep_file_end = prep_file->textbuffer + prep_file->textlength;
         pos = prep_file_start + file->pos;
         linenumber = prep_file->linenumber;
         cprep_hasprepline = prep_file->hasprepline;
+#endif
         at_linestart = TRUE;
     }
     if (preprocessing_only && !copts.simple_prepdump) {
@@ -1370,6 +2070,59 @@ static SInt32 prepoffset2(void) {
     return lineoffset;
 }
 
+#if MWCCPSP
+extern unsigned long long func_00439CF0(void); // COSToolsCLT: the current time
+
+void CPrep_SetSourceFile(FileOffsetInfo* foi) {
+    CPrepFileInfoList* list;
+
+    if (!foi->file) {
+        return;
+    }
+
+    if (foi->file == filestack[0]) {
+        if (!cprep_cursymfile) {
+            return;
+        }
+        if (cparamblkptr->precompile != 1) {
+            ObjGen_SrcBreakName(NULL, func_00439CF0(), FALSE);
+        }
+        cprep_cursymfile = NULL;
+        return;
+    }
+
+    if (cprep_cursymfile == foi->file) {
+        return;
+    }
+
+    for (list = cprep_files; list; list = list->next) {
+        if (foi->file == list->fileinfo) {
+            if (cparamblkptr->precompile != 1) {
+                ObjGen_SrcBreakName(
+                    GetHashNameNodeExport(list->fileinfo->nameNode),
+                    *(unsigned long long*)&list->fileinfo->fileModDate,
+                    FALSE
+                );
+            }
+            cprep_cursymfile = foi->file;
+            return;
+        }
+    }
+
+    list = galloc(sizeof(CPrepFileInfoList));
+    list->next = cprep_files;
+    cprep_files = list;
+    list->fileinfo = foi->file;
+    if (cparamblkptr->precompile != 1) {
+        ObjGen_SrcBreakName(
+            GetHashNameNodeExport(list->fileinfo->nameNode),
+            *(unsigned long long*)&list->fileinfo->fileModDate,
+            TRUE
+        );
+    }
+    cprep_cursymfile = foi->file;
+}
+#else
 void CPrep_SetSourceFile(FileOffsetInfo* foi) {
     CPrepFileInfoList* list;
 
@@ -1419,9 +2172,15 @@ void CPrep_SetSourceFile(FileOffsetInfo* foi) {
     }
     cprep_cursymfile = foi->file;
 }
+#endif
 
+#if MWCCPSP
+char* CPrep_GetSourceFilePath(CPrepFileInfo* fileinfo) {
+    char* node;
+#else
 HashNameNode* CPrep_GetSourceFilePath(CPrepFileInfo* fileinfo) {
     HashNameNode* node;
+#endif
 
     if ((node = fileinfo->nameNode) == NULL) {
         node = CTool_GetPathName(&fileinfo->textfile, NULL);
@@ -1505,10 +2264,17 @@ void CPrep_GetFileOffsetInfo2(FileOffsetInfo* foi, SInt32* pLine, HashNameNode**
         if (p > foi->tokenline) {
             foi->tokenline = p;
         }
+#if MWCCPSP
+        p = ts_current[-1].tokenoffset;
+        if (p > foi->tokenoffset) {
+            foi->tokenoffset = p;
+        }
+#else
         off = ts_current[-1].tokenoffset;
         if (off > foi->tokenoffset) {
             foi->tokenoffset = off;
         }
+#endif
     } else if (foi->file == filestack[filesp]) {
         if (linenumber > foi->tokenline) {
             foi->tokenline = linenumber;
@@ -1535,6 +2301,19 @@ void CPrep_GetFileOffsetInfo2(FileOffsetInfo* foi, SInt32* pLine, HashNameNode**
         }
     }
 
+#if MWCCPSP
+    // 3.0.1 keeps the path and names the statement's file by hashing it
+    *pLine = foi->tokenline;
+    CError_ASSERT(2579, *pLine >= 0);
+    *pName = NULL;
+    {
+        CPrepFileInfo* file;
+        char* path;
+        if ((file = foi->file) && (path = file->nameNode)) {
+            *pName = GetHashNameNodeExport(path);
+        }
+    }
+#else
     if (foi->file && foi->file->linedelta) {
         *pLine = linenumber;
     } else {
@@ -1542,9 +2321,25 @@ void CPrep_GetFileOffsetInfo2(FileOffsetInfo* foi, SInt32* pLine, HashNameNode**
     }
     CError_ASSERT(2019, *pLine >= 0);
     *pName = foi->file ? foi->file->nameNode : NULL;
+#endif
 }
 
 void CPrep_ResetFileInfo(CPrepFileInfo* file) {
+#if MWCCPSP
+    char* name;
+    char* mainname;
+
+    if (file && file->hasprepline) {
+        name = CTool_GetPathName(&file->textfile, NULL);
+        if (!file->nameNode || strcmp(file->nameNode, name)) {
+            mainname = CTool_GetPathName(&cparamblkptr->sourcefile, NULL);
+            if (!strcmp(name, mainname)) {
+                name = NULL;
+            }
+            file->nameNode = name;
+        }
+    }
+#else
     HashNameNode* name;
     HashNameNode* mainname;
 
@@ -1559,6 +2354,7 @@ void CPrep_ResetFileInfo(CPrepFileInfo* file) {
             file->nameNode = name;
         }
     }
+#endif
 }
 
 void CPrep_GetPrepPos(CPrepFileInfo** file, SInt32* ppos) {
@@ -1569,7 +2365,168 @@ void CPrep_GetPrepPos(CPrepFileInfo** file, SInt32* ppos) {
         *ppos = pos - prep_file_start;
     }
 }
+#if MWCCPSP
 
+#endif
+#if MWCCPSP
+// 3.0.1: the option defaults C_Compiler starts from (0x442C40)
+static void CPrep_SetDefaultOptions(void) {
+    copts.access_errors = TRUE;
+    copts.delete_exception = TRUE;
+    copts.som_call_optimize = TRUE;
+    copts.template_patch = TRUE;
+    copts.template_friends = TRUE;
+    copts.simple_class_byval = TRUE;
+    copts.array_new_delete = TRUE;
+    copts.syspath_once = TRUE;
+    copts.arg_dep_lookup = TRUE;
+    copts.warn_impl_i2f_conv = FALSE;
+    copts.warn_impl_f2i_conv = TRUE;
+    copts.warn_impl_s2u_conv = TRUE;
+    copts.warn_uninitializedvar = TRUE;
+    copts.longlong_prepeval = copts.longlong = TRUE;
+    copts.vbase_ctor_offset = TRUE;
+    copts.vbase_abi_v2 = TRUE;
+    copts.optEH = TRUE;
+    copts.optEH2 = FALSE;
+    copts.new_mangler = TRUE;
+    if (copts.cplusplus) {
+        copts.const_strings = TRUE;
+    }
+    copts.new_calldeduction = TRUE;
+    copts.late_fixes = TRUE;
+    copts.opt_classresults = FALSE;
+    copts.show_error_filestack = TRUE;
+    copts.warn_illunionmembers = TRUE;
+    copts.mwabi_bitfields = TRUE;
+}
+#endif
+
+#if MWCCPSP
+// setup/cleanup as 3.0.1 calls them (no argument to the precompiler setup)
+extern void func_004F85E0(void); // SetupPrecompiler
+extern void IRO_InitializeAllocators(void); // 3.0.1: the optimizer pools of both heaps
+extern void IRO_TerminateAllocators(void);
+extern CWMemHandle COS_DetachHandle(Handle* handle); // the list's data as a handle
+
+UInt8 C_Compiler(CompilerLinkerParamBlk* param) {
+    TStreamElement ts;
+    UInt8 code;
+
+    CInt64_Init();
+    cprep_packstackp = 128;
+    widestring = FALSE;
+    cprep_nomem_exit = FALSE;
+    cparamblkptr = param;
+    prep_file = NULL;
+    linenumber = lines = 0;
+    cprep_hasprepline = FALSE;
+
+    if (CWDisplayLines(param->context, 0) != cwNoErr) {
+        return 0;
+    }
+
+    linetick = COS_GetTicks() + 5;
+    code = 0;
+    CPrep_SetDefaultOptions();
+
+    if (initheaps(&CError_NoMem)) {
+        releaseheaps();
+        cprep_nomem_exit = TRUE;
+        code = 255;
+    } else {
+        if (setjmp(errorreturn) == 0) {
+            preprocessing_only = param->preprocess;
+            InitNameHash();
+            setupprep();
+            CParser_Setup();
+            func_004F85E0();
+            SetupAssembler();
+            ObjGen_Setup();
+            IRO_InitializeAllocators();
+            PointerAnalysis_Setup();
+            CBrowse_Setup(param);
+            if (preprocessing_only && InitGList(&pplist, 10000)) {
+                CError_NoMem();
+            }
+
+            setupfile(NULL, TRUE, FALSE, TRUE);
+            if (copts.oldprefixname[0]) {
+                setupfile(copts.oldprefixname, TRUE, FALSE, TRUE);
+            }
+
+            coptssave = galloc(sizeof(CompilerLinkerOptions));
+            *coptssave = copts;
+            coptpushs = NULL;
+            coptpush = NULL;
+            if (preprocessing_only) {
+                CPrep_Preprocess();
+            } else {
+                cparser();
+            }
+
+            if (CWDisplayLines(param->context, lines) != cwNoErr) {
+                anyerrors = TRUE;
+            }
+
+            if (tokenstacklevel) {
+                was_prep_error = TRUE;
+                CError_ErrorTerm(ERR_UNTERMINATED_IF_MACRO);
+            } else if (iflevel) {
+                memset(&ts, 0, sizeof(ts));
+                was_prep_error = FALSE;
+                ts.tokenfile = ifstack[iflevel - 1].file;
+                ts.tokenoffset = ifstack[iflevel - 1].pos;
+                if (iflevel) {
+                    CError_SetErrorToken(&ts);
+                }
+                CError_ErrorTerm(ERR_UNTERMINATED_IF_MACRO);
+            }
+
+            if (!anyerrors) {
+                if (param->precompile == 1 && !param->preprocess) {
+                    CBrowse_Finish(param);
+                    PrecompilerWrite();
+                } else if (!param->preprocess) {
+                    ObjGen_Finish();
+                    CBrowse_Finish(param);
+                }
+                code = 1;
+            }
+        } else {
+            CWDisplayLines(param->context, lines);
+        }
+
+        if (param->preprocess && pplist.data) {
+            if (code || anyerrors) {
+                ShrinkGList(&pplist);
+                cparamblkptr->object.objectdata = COS_DetachHandle((Handle*)&pplist);
+                cparamblkptr->object.browsedata = NULL;
+            } else {
+                FreeGList(&pplist);
+            }
+        }
+
+        CParser_Cleanup();
+        CleanupPrecompiler();
+        CleanupAssembler();
+        ObjGen_Cleanup();
+        ObjGen_CodeCleanup();
+        PointerAnalysis_Cleanup();
+        IRO_TerminateAllocators();
+        cleanupprep();
+        CBrowse_Cleanup(param);
+    }
+
+    param->object.compiledlines = lines;
+    if (cprep_nomem_exit) {
+        CompilerGetCString(7, string);
+        CWReportMessage(cparamblkptr->context, NULL, string, NULL, messagetypeError, 0);
+    }
+
+    return code;
+}
+#else
 UInt8 C_Compiler(CompilerLinkerParamBlk* param) {
     TStreamElement ts;
     UInt8 code;
@@ -1694,9 +2651,14 @@ UInt8 C_Compiler(CompilerLinkerParamBlk* param) {
 
     return code;
 }
+#endif
 
 static void pushtokenseq(Macro* macro) {
+#if MWCCPSP
+    if (tokenstacklevel >= 256) {
+#else
     if (tokenstacklevel >= 128) {
+#endif
         was_prep_error = TRUE;
         CError_ErrorTerm(ERR_MACROS_TOO_COMPLEX);
     } else {
@@ -1762,6 +2724,15 @@ static Macro* ismacroname(void) {
     for (scan = macrohashtable[name->hashval]; scan; scan = scan->next) {
         if (scan->name == name) {
             if (scan->is_special) {
+#if MWCCPSP
+                // 3.0.1 has no AltiVec model and always defines __STDC__
+                if (scan == &cpplM && !copts.cplusplus) {
+                    return NULL;
+                }
+                if (scan == &ecppM && (!copts.cplusplus || !copts.ecplusplus)) {
+                    return NULL;
+                }
+#else
                 if (scan == &vecM && !copts.altivec_model) {
                     return NULL;
                 }
@@ -1774,6 +2745,7 @@ static Macro* ismacroname(void) {
                 if (scan == &ecppM && (!copts.cplusplus || !copts.ecplusplus)) {
                     return NULL;
                 }
+#endif
             }
 
             if (scan->isExpanding) {
@@ -1859,6 +2831,11 @@ static Macro* ismacroname3(void) {
     for (scan = macrohashtable[name->hashval]; scan; scan = scan->next) {
         if (scan->name == name) {
             if (scan->is_special) {
+#if MWCCPSP // 3.0.1 only hides __cplusplus in C
+                if (scan == &cpplM && !copts.cplusplus) {
+                    return NULL;
+                }
+#else
                 if (scan == &vecM && !copts.altivec_model) {
                     return NULL;
                 }
@@ -1868,6 +2845,7 @@ static Macro* ismacroname3(void) {
                 if (scan == &cpplM && !copts.cplusplus) {
                     return NULL;
                 }
+#endif
             }
             break;
         }
@@ -1881,6 +2859,13 @@ static Macro* ismacroname4(HashNameNode* name) {
 
     for (scan = macrohashtable[name->hashval]; scan; scan = scan->next) {
         if (scan->name == name) {
+#if MWCCPSP
+            // 3.0.1 has no AltiVec model and always defines __STDC__
+            if (scan->is_special && scan == &cpplM && !copts.cplusplus) {
+                scan = NULL;
+            }
+            break;
+#else
             if (scan->is_special) {
                 if (scan == &vecM && !copts.altivec_model) {
                     return NULL;
@@ -1893,6 +2878,7 @@ static Macro* ismacroname4(HashNameNode* name) {
                 }
             }
             break;
+#endif
         }
     }
 
@@ -2013,6 +2999,12 @@ static void goendofline(void) {
         skipendofline();
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+static char* CPrep_CopyQuoted(char* p, signed char quote);
+#endif
 
 static void CPrep_Define(void) {
     Macro* existing_macro;
@@ -2048,7 +3040,11 @@ static void CPrep_Define(void) {
     hasVarArgs = FALSE;
     if (prepcurchar() == '(') {
         argCount = 1;
+#if MWCCPSP
+        skipcurchar('(');
+#else
         pos = nextcharpos;
+#endif
         if (existing_macro) {
             names = existing_macro->names;
         } else {
@@ -2109,7 +3105,11 @@ static void CPrep_Define(void) {
 
         if (t == TK_ELLIPSIS) {
             hasVarArgs = TRUE;
+#if MWCCPSP
+            myNameList[argCount - 1] = GetHashNameNodeExport("__VA_ARGS__");
+#else
             myNameList[argCount - 1] = GetHashNameNode("__VA_ARGS__");
+#endif
             if (argCount >= 128) {
                 CError_Error(ERR_TOO_MANY_MACRO_ARGUMENTS);
             } else {
@@ -2165,8 +3165,12 @@ innerLoop:
 
                 case '"':
                 case '\'':
+#if MWCCPSP
+                    pos = CPrep_CopyQuoted(pos, t);
+#else
                     CPrep_MatchChar(t, TRUE);
                     AppendGListData(&mlist, token_start, pos - token_start);
+#endif
                     break;
 
                 case '#':
@@ -2194,7 +3198,12 @@ innerLoop:
                         }
                     }
 
+#if MWCCPSP
+                    // 3.0.1: a lone # is only an error in a function-like macro
+                    if (argCount > 0 && copts.ANSIstrict) {
+#else
                     if (copts.ANSIstrict) {
+#endif
                         CPrep_Error(ERR_PREPROCESSOR_SYNTAX_ERROR);
                     }
                     AppendGListByte(&mlist, '#');
@@ -2254,7 +3263,11 @@ innerLoop:
 
         AppendGListByte(&mlist, 0);
         length = mlist.size;
+#if MWCCPSP
+        if (length > 0x100000) {
+#else
         if (length > 0x20000) {
+#endif
             CPrep_Error(ERR_MACROS_TOO_COMPLEX);
             return;
         }
@@ -2288,7 +3301,11 @@ innerLoop:
                     macro->next = macro->next->next;
                     break;
                 }
+#if MWCCPSP
+                CError_ASSERT(3746, macro = macro->next);
+#else
                 CError_ASSERT(2858, macro = macro->next);
+#endif
             }
         }
     }
@@ -2411,6 +3428,67 @@ static char* CPrep_GetQuotedEnvVar(char* buffer) {
     return buffer + 1;
 }
 
+#if MWCCPSP
+// 3.0.1: __option() gives the option's value
+static SInt32 CPrep_CheckOption(void) {
+    CompilerOption* option;
+    SInt32 offset;
+    SInt32 result;
+
+    if (!notendofline()) {
+        CError_Error(ERR_UNEXPECTED_END_LINE);
+        return 0;
+    }
+
+    if (plex() != '(') {
+        CError_Error(ERR_LPAREN_EXPECTED);
+        return 0;
+    }
+
+    if (!notendofline()) {
+        CError_Error(ERR_UNEXPECTED_END_LINE);
+        return 0;
+    }
+
+    if (lexidentifier() != TK_IDENTIFIER) {
+        CError_Error(ERR_IDENTIFIER_EXPECTED);
+        return 0;
+    }
+
+    if (!strcmp(tkidentifier->name, "structalignment")) {
+        result = copts.structalignment;
+    } else if (!strcmp(tkidentifier->name, "precompile")) {
+        result = cparamblkptr->precompile == 1;
+    } else if (!strcmp(tkidentifier->name, "preprocess")) {
+        result = cparamblkptr->preprocess;
+    } else {
+        for (option = compileroptions; option->name; option++) {
+            if (!strcmp(tkidentifier->name, option->name)) {
+                offset = option->bits & OPT_OFFSET_MASK;
+                result = ((signed char*)&copts)[offset];
+                if (offset == OPT_OFFSET(booltruefalse) && !copts.cplusplus) {
+                    result = 0;
+                }
+                goto gotResult;
+            }
+        }
+        result = 0;
+    }
+
+gotResult:
+    if (!notendofline()) {
+        CError_Error(ERR_UNEXPECTED_END_LINE);
+        return 0;
+    }
+
+    if (plex() != ')') {
+        CError_Error(ERR_RPAREN_EXPECTED);
+        return 0;
+    }
+
+    return result;
+}
+#else
 static Boolean CPrep_CheckOption(void) {
     CompilerOption* option;
     SInt32 offset;
@@ -2473,6 +3551,7 @@ gotResult:
 
     return result;
 }
+#endif
 
 static char* CPrep_XpandDefinedCheck(char* str) {
     while (*str == ' ' || (*str >= 9 && *str <= 12)) {
@@ -2508,6 +3587,117 @@ static void poptokenseqInline(void) {
     macrocheck = tokenstack[tokenstacklevel].macrocheck;
     spaceskip = TRUE;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1 (0x441CB0): copy a character or string literal, from just after the
+// opening quote, into mlist (trigraphs decoded, continued lines joined);
+// returns the position after the closing quote
+static char* CPrep_CopyQuoted(char* p, signed char quote) {
+    char* start;
+    char c;
+
+    AppendGListByte(&mlist, quote);
+    start = p;
+    for (;;) {
+        c = *p;
+        p++;
+        if (!c) {
+unterminated:
+            if (quote == '"') {
+                CPrep_Error(ERR_ILLEGAL_STRING_CONSTANT);
+            } else if (quote == '\'') {
+                CPrep_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+            } else {
+                CPrep_Error(ERR_PREPROCESSOR_SYNTAX_ERROR);
+            }
+            return p - 1;
+        }
+        if (c == CR) {
+            if (copts.multibyteaware && COS_IsMultiByte(start, p - 1)) {
+                AppendGListByte(&mlist, CR);
+                continue;
+            }
+            foundnl();
+            if (*p == LF) {
+                p++;
+            }
+            CPrep_Error(ERR_UNEXPECTED_END_LINE);
+            goto close;
+        }
+        if (c == '?' && *p == '?' && copts.trigraphs) {
+            switch (p[1]) {
+                case '=':
+                    p += 2;
+                    AppendGListByte(&mlist, '#');
+                    continue;
+                case '\'':
+                    p += 2;
+                    AppendGListByte(&mlist, '^');
+                    continue;
+                case '(':
+                    p += 2;
+                    AppendGListByte(&mlist, '[');
+                    continue;
+                case ')':
+                    p += 2;
+                    AppendGListByte(&mlist, ']');
+                    continue;
+                case '!':
+                    p += 2;
+                    AppendGListByte(&mlist, '|');
+                    continue;
+                case '<':
+                    p += 2;
+                    AppendGListByte(&mlist, '{');
+                    continue;
+                case '>':
+                    p += 2;
+                    AppendGListByte(&mlist, '}');
+                    continue;
+                case '-':
+                    p += 2;
+                    AppendGListByte(&mlist, '~');
+                    continue;
+                case '/':
+                    p += 2;
+                    goto backslash;
+                default:
+                    AppendGListByte(&mlist, c);
+                    continue;
+            }
+        }
+        if (c == '\\') {
+            if (copts.multibyteaware && COS_IsMultiByte(start, p - 1)) {
+                goto plain;
+            }
+backslash:
+            if (*p == CR) {
+                foundnl();
+                p++;
+                if (*p == LF) {
+                    p++;
+                }
+                continue;
+            }
+            AppendGListByte(&mlist, '\\');
+            if (!*p) {
+                goto unterminated;
+            }
+            AppendGListByte(&mlist, *(p++));
+            continue;
+        }
+plain:
+        if (c == quote) {
+close:
+            AppendGListByte(&mlist, quote);
+            return p;
+        }
+        AppendGListByte(&mlist, c);
+    }
+}
+#endif
 
 static char* XpandString(Macro* macro, char* text) {
     short character;
@@ -2551,9 +3741,13 @@ static char* XpandString(Macro* macro, char* text) {
 
             case '"':
             case '\'':
+#if MWCCPSP
+                pos = CPrep_CopyQuoted(pos + 1, *pos);
+#else
                 quotedText = pos++;
                 CPrep_MatchChar(*quotedText, FALSE);
                 AppendGListData(&mlist, quotedText, pos - quotedText);
+#endif
                 continue;
 
             case 'A':
@@ -2629,7 +3823,11 @@ static char* XpandString(Macro* macro, char* text) {
                 if (expansion != NULL) {
                     AppendGListByte(&mlist, TK_MACRO_BOUNDARY);
                     length = mlist.size;
+#if MWCCPSP
+                    if (length > CPREP_MACRO_LIMIT) {
+#else
                     if (length > 0x20000) {
+#endif
                         macropos = pos;
                         CPrep_Error(ERR_MACROS_TOO_COMPLEX);
                         return "";
@@ -2731,7 +3929,11 @@ checkDepth:
     AppendGListByte(&mlist, 0);
 allocateResult:
     size = mlist.size;
+#if MWCCPSP
+    if (size > CPREP_MACRO_LIMIT) {
+#else
     if (size > 0x20000) {
+#endif
         CPrep_Error(ERR_MACROS_TOO_COMPLEX);
         return "";
     }
@@ -2746,7 +3948,11 @@ char* CPrep_GetFileName(char* buffer, Boolean mainFile, Boolean quoted) {
     char* dst;
     int i;
 
+#if MWCCPSP
+    COS_FileGetPascalName(&filestack[mainFile ? 0 : filesp]->textfile, filename);
+#else
     COS_FileGetFSSpecInfo(&filestack[mainFile ? 0 : filesp]->textfile, NULL, NULL, filename);
+#endif
 
     size = filename[0];
     if (!buffer) {
@@ -2793,7 +3999,11 @@ static void CPrep_GetQuotedFileName(char* buffer) {
     if (copts.fullpath_file) {
         COS_FileGetPathName(filename, &filestack[filesp]->textfile, NULL);
     } else {
+#if MWCCPSP
+        COS_FileGetPascalName(&filestack[filesp]->textfile, filename);
+#else
         COS_FileGetFSSpecInfo(&filestack[filesp]->textfile, NULL, NULL, (StringPtr)filename);
+#endif
         CTool_PtoCstr((StringPtr)filename);
     }
 
@@ -2809,15 +4019,31 @@ static void CPrep_GetQuotedFileName(char* buffer) {
     *buffer = '"';
     buffer[1] = 0;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+static char cprep_mwerks_version[16]; // 0x5E8DD0
+#endif
 
 static char* XpandSpecialMacro(Macro* macro) {
+#if MWCCPSP
+    char buf[256];
+#else
     char buf[512];
+#endif
     char smallbuf[32];
     char* strptr;
     struct tm* tm;
 
     if (macro == &optiM) {
+#if MWCCPSP
+        // 3.0.1: the option's value, not just whether it is set
+        sprintf(buf, "%ld", CPrep_CheckOption());
+        goto do_string;
+#else
         return CPrep_CheckOption() ? "1" : "0";
+#endif
     } else if (macro == &trgtM) {
         return CPrep_CheckTarget() ? "1" : "0";
     } else if (macro == &lineM) {
@@ -2846,13 +4072,22 @@ do_string:
     } else if (macro == &stdcM) {
         return "1";
     } else if (macro == &casmM || macro == &MWRSM) {
+#if MWCCPSP
+        sprintf(cprep_mwerks_version, "0x%lx", 0x3014L); // 3.0.1: 0x3014
+        return cprep_mwerks_version;
+#else
         return "0x2407";
+#endif
     } else if (macro == &cpplM) {
         return "199711L";
     } else if (macro == &dtsomM) {
         return copts.direct_to_som ? "1" : "0";
     } else if (macro == &ecppM) {
         return copts.ecplusplus ? "1" : "0";
+#if MWCCPSP
+    } else if (macro == &ia64M) {
+        return "0";
+#endif
     } else if (macro == &stcvM) {
         return copts.c9x ? "199901L" : "199409L";
     } else if (macro == &stchM) {
@@ -2931,9 +4166,13 @@ static char* XpandMacro(Macro* macro) {
                                 goto argumentFinished;
                             case '"':
                             case '\'':
+#if MWCCPSP
+                                pos = CPrep_CopyQuoted(pos, token);
+#else
                                 tokenStart = pos - 1;
                                 CPrep_MatchChar(token, FALSE);
                                 AppendGListData(&mlist, tokenStart, pos - tokenStart);
+#endif
                                 goto tokenFinished;
                             case ')':
                                 depth--;
@@ -2979,7 +4218,11 @@ argumentFinished:
                 if (mlist.size > 0) {
                     AppendGListByte(&mlist, 0);
                     length = mlist.size;
+#if MWCCPSP
+                    if (length <= CPREP_MACRO_LIMIT) {
+#else
                     if (length <= 0x20000) {
+#endif
                         arguments[argument - 2] = aalloc(length);
                         memcpy(arguments[argument - 2], *mlist.data, length);
                     } else {
@@ -3008,9 +4251,13 @@ argumentFinished:
         switch (token) {
             case '"':
             case '\'': {
+#if MWCCPSP
+                text = CPrep_CopyQuoted(text, token);
+#else
                 result = text - 1;
                 text = CPrep_MatchChar2(text, token, FALSE);
                 AppendGListData(&mlist, result, text - result);
+#endif
                 continue;
             }
             case TK_MACRO_ARG_PASTED:
@@ -3032,6 +4279,48 @@ argumentFinished:
                 }
                 continue;
             case TK_MACRO_ARG_HASH:
+#if MWCCPSP
+                // 3.0.1: tracks whether it is inside a literal; " is always
+                // escaped, \ only inside a literal, and \" inside a string
+                // stays \"
+                AppendGListByte(&mlist, '"');
+                if ((argumentText = arguments[*text++ - 1]) != NULL) {
+                    char quote = 0;
+                    while ((character = *argumentText++) != 0) {
+                        switch (character) {
+                            case TK_MACRO_NOEXPAND:
+                            case TK_MACRO_BOUNDARY:
+                                break;
+                            case '"':
+                                quote = (quote == '"') ? 0 : '"';
+                                AppendGListByte(&mlist, '\\');
+                                AppendGListByte(&mlist, '"');
+                                break;
+                            case '\'':
+                                quote = (quote == '\'') ? 0 : '\'';
+                                AppendGListByte(&mlist, character);
+                                break;
+                            case '\\':
+                                if (*argumentText == '"' && quote == '"') {
+                                    AppendGListByte(&mlist, '\\');
+                                    AppendGListByte(&mlist, '"');
+                                    argumentText++;
+                                    break;
+                                }
+                                if (quote) {
+                                    AppendGListByte(&mlist, '\\');
+                                }
+                                AppendGListByte(&mlist, '\\');
+                                break;
+                            default:
+                                AppendGListByte(&mlist, character);
+                                break;
+                        }
+                    }
+                }
+                AppendGListByte(&mlist, '"');
+                continue;
+#else
                 AppendGListByte(&mlist, '"');
                 if ((argumentText = arguments[*text++ - 1]) != NULL) {
                     while ((character = *argumentText++) != 0) {
@@ -3064,6 +4353,7 @@ argumentFinished:
                 }
                 AppendGListByte(&mlist, '"');
                 continue;
+#endif
             case TK_MACRO_ARG_EXPANDED: {
                 char* savedText;
                 SInt32 savedLength;
@@ -3093,7 +4383,11 @@ argumentFinished:
     }
     AppendGListByte(&mlist, 0);
     length = mlist.size;
+#if MWCCPSP
+    if (length > CPREP_MACRO_LIMIT) {
+#else
     if (length > 0x20000) {
+#endif
         CPrep_Error(ERR_MACROS_TOO_COMPLEX);
         return "";
     }
@@ -3120,13 +4414,25 @@ static void prepmacro(Macro* macro) {
 Boolean macrotest(void) {
     Macro* macro;
 
+#if MWCCPSP
+    if ((macro = ismacroname()) != NULL) {
+#else
     if ((macro = ismacroname())) {
+#endif
         prepmacro(macro);
         return TRUE;
+#if !MWCCPSP
     } else {
         return FALSE;
+#endif
     }
+#if MWCCPSP
+    return FALSE;
+#endif
 }
+#if MWCCPSP
+
+#endif
 
 short CPrep_PragmaLex(Boolean no_err) {
     if (notendofline()) {
@@ -3156,10 +4462,18 @@ void CPrep_PushOption(SInt32 id, char value) {
         opt = opt->next;
     } while (1);
 
+#if MWCCPSP
+    opt->value = ((UInt8*)&copts)[(UInt32)id];
+#else
     opt->value = ((UInt8*)&copts)[id];
+#endif
     opt->id = id;
     opt->pushed = TRUE;
+#if MWCCPSP
+    ((UInt8*)&copts)[(UInt32)id] = value;
+#else
     ((UInt8*)&copts)[id] = value;
+#endif
 }
 
 void CPrep_PopOption(SInt32 id) {
@@ -3167,13 +4481,21 @@ void CPrep_PopOption(SInt32 id) {
 
     for (opt = coptpush; opt; opt = opt->next) {
         if (opt->pushed && opt->id == id) {
+#if MWCCPSP
+            ((UInt8*)&copts)[(UInt32)id] = opt->value;
+#else
             ((UInt8*)&copts)[id] = opt->value;
+#endif
             opt->pushed = FALSE;
             return;
         }
     }
 
+#if MWCCPSP
+    ((UInt8*)&copts)[(UInt32)id] = ((UInt8*)coptssave)[(UInt32)id];
+#else
     ((UInt8*)&copts)[id] = ((UInt8*)coptssave)[id];
+#endif
 }
 
 static void CPrep_PragmaImExport(int flags) {
@@ -3212,7 +4534,11 @@ static void CPrep_PragmaImExport(int flags) {
 }
 
 static void pragma_on_off_reset(int bits) {
+#if MWCCPSP
+    short imex_flags;
+#else
     int imex_flags;
+#endif
     Boolean allowList = (bits & OPT_FLAG_LIST) != 0;
 
     if (notendofline() && plex() == TK_IDENTIFIER) {
@@ -3229,7 +4555,11 @@ static void pragma_on_off_reset(int bits) {
             return;
         }
         if (allowList && !strcmp(tkidentifier->name, "list")) {
+#if MWCCPSP
+            if (preprocessing_only) {
+#else
             if (cparamblkptr->preprocess) {
+#endif
                 skipendofline();
                 return;
             }
@@ -3244,7 +4574,11 @@ static void pragma_on_off_reset(int bits) {
             } else if ((bits & OPT_OFFSET_MASK) == OPT_OFFSET(cfm_lib_export)) {
                 imex_flags = OBJECT_LIB_EXPORT;
             } else {
+#if MWCCPSP
+                CError_FATAL(4814);
+#else
                 CError_FATAL(3677);
+#endif
             }
             CPrep_PragmaImExport(imex_flags);
             return;
@@ -3256,6 +4590,75 @@ static void pragma_on_off_reset(int bits) {
     }
 }
 
+#if MWCCPSP
+extern UInt8 data_0062455C; // 3.0.1, set while precompiling (not identified)
+static Boolean cprep_warned_pch_once; // 0x5E9368
+
+// 3.0.1 (0x43EE80): the 2.4.7 key (lower-case file name without its path),
+// still used under #pragma old_pragma_once
+static HashNameNode* CPrep_OldPragmaOnceName(StringPtr name, Boolean isSystemInclude) {
+    char buf[256];
+    char* myname;
+    char* src;
+    char* dst;
+    char* base;
+    short len;
+    short c;
+
+    len = name[0];
+    if (len > 250) {
+        len = 250;
+    }
+
+    myname = buf;
+    myname++;
+    dst = myname;
+    src = (char*)&name[1];
+    while (len-- > 0) {
+        *(dst++) = tolower(*(src++));
+    }
+    *dst = 0;
+
+    base = myname;
+    for (;;) {
+        c = *(myname++);
+        if (!c) {
+            break;
+        }
+        if (c == '/' || c == ':' || c == '\\') {
+            base = myname;
+        }
+    }
+
+    *(--base) = (copts.syspath_once && isSystemInclude) ? '$' : -'\\';
+    return GetHashNameNodeExport(base);
+}
+
+// 3.0.1: the key is the whole (lower-case) path, length byte included
+static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSystemInclude) {
+    char buf[264];
+    char* dst;
+    int i;
+
+    if (copts.old_pragma_once) {
+        return CPrep_OldPragmaOnceName(name, isSystemInclude);
+    }
+
+    i = name[0];
+    if (i > 260) {
+        i = 260;
+    }
+    dst = buf + 1 + i;
+    dst[1] = 0;
+    while (i >= 0) {
+        *(dst--) = tolower((signed char)name[i]);
+        i--;
+    }
+
+    *dst = (copts.syspath_once && isSystemInclude) ? '$' : -'\\';
+    return GetHashNameNodeExport(dst);
+}
+#else
 static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSystemInclude) {
     char buf[256];
     char* myname;
@@ -3280,7 +4683,11 @@ static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSyste
     *(--myname) = (copts.syspath_once && isSystemInclude) ? '$' : -'\\';
     return GetHashNameNodeExport(myname);
 }
+#endif
 
+#if MWCCPSP
+#pragma dont_inline on // 3.0.1 calls it
+#endif
 static void pragma_precompile_target(void) {
     if (!notendofline()) {
         CPrep_Error(ERR_UNEXPECTED_END_LINE);
@@ -3302,6 +4709,9 @@ static void pragma_precompile_target(void) {
     precomp_target_str = tkstring;
     goendofline();
 }
+#if MWCCPSP
+#pragma dont_inline reset
+#endif
 
 static inline void CPrep_DefinePragmaOnceMacro(StringPtr name, Boolean isSystemInclude) {
     HashNameNode* namenode;
@@ -3314,9 +4724,197 @@ static inline void CPrep_DefinePragmaOnceMacro(StringPtr name, Boolean isSystemI
         macro->name = namenode;
         macro->next = macrohashtable[namenode->hashval];
         macrohashtable[namenode->hashval] = macro;
+#if MWCCPSP
+        if (!copts.old_pragma_once &&
+            copts.warn_pch_portability &&
+            data_0062455C &&
+            !cprep_warned_pch_once) {
+            cprep_warned_pch_once = TRUE;
+            CError_ResetErrorSkip();
+            CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+        }
+#endif
     }
 }
 
+#if MWCCPSP
+// 3.0.1: #pragma once / notonce; without arguments it defines (or removes)
+// the current file's guards under both keys
+static void CPrep_PragmaOnce(Boolean once) {
+    char pathbuf[0x104];
+    unsigned char filename[256];
+    HashNameNode* name;
+    Macro* macro;
+    Macro* prev;
+    char* path;
+    char* dst;
+    int sys;
+
+    if (notendofline()) {
+        if (once && plex() == TK_IDENTIFIER) {
+            if (!strcmp(tkidentifier->name, "on")) {
+                include_once = TRUE;
+                return;
+            } else if (!strcmp(tkidentifier->name, "off")) {
+                include_once = FALSE;
+                return;
+            }
+        }
+        if (copts.warn_illpragma) {
+            CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+        }
+        return;
+    }
+
+    COS_FileGetFSSpecInfo(&prep_file->textfile, NULL, 0, (char*)filename + 1, 255);
+    filename[0] = strlen((char*)filename + 1);
+    name = CPrep_PragmaOnceName(filename, prep_file->isSystemInclude);
+    if (once) {
+        if (!ismacroname4(name)) {
+            macro = galloc(sizeof(Macro));
+            memclrw(macro, sizeof(Macro));
+            macro->name = name;
+            macro->next = macrohashtable[name->hashval];
+            macro->is_special = !copts.old_pragma_once;
+            macrohashtable[name->hashval] = macro;
+            if (!copts.old_pragma_once &&
+                copts.warn_pch_portability &&
+                data_0062455C &&
+                !cprep_warned_pch_once) {
+                cprep_warned_pch_once = TRUE;
+                CError_ResetErrorSkip();
+                CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+            }
+        }
+    } else {
+        prev = NULL;
+        for (macro = macrohashtable[name->hashval]; macro; prev = macro, macro = macro->next) {
+            if (macro->name == name && macro->is_special == TRUE) {
+                break;
+            }
+        }
+        if (macro) {
+            if (prev) {
+                prev->next = macro->next;
+            } else {
+                macrohashtable[name->hashval] = macro->next;
+            }
+        }
+    }
+
+    if (copts.old_pragma_once) {
+        return;
+    }
+
+    path =
+        prep_file->nameNode ? prep_file->nameNode : CTool_GetPathName(&prep_file->textfile, NULL);
+    sys = prep_file->isSystemInclude;
+    strncpy(pathbuf + 1, path, 0x103);
+    pathbuf[1 + 0x102] = 0;
+    for (dst = pathbuf + 1; *dst; dst++) {
+        *dst = tolower(*dst);
+    }
+    pathbuf[0] = (copts.syspath_once && sys) ? '$' : -'\\';
+    name = GetHashNameNodeExport(pathbuf);
+    if (once) {
+        if (!ismacroname4(name)) {
+            macro = galloc(sizeof(Macro));
+            memclrw(macro, sizeof(Macro));
+            macro->name = name;
+            macro->next = macrohashtable[name->hashval];
+            macro->is_special = FALSE;
+            macrohashtable[name->hashval] = macro;
+            if (!copts.old_pragma_once &&
+                copts.warn_pch_portability &&
+                data_0062455C &&
+                !cprep_warned_pch_once) {
+                cprep_warned_pch_once = TRUE;
+                CError_ResetErrorSkip();
+                CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+            }
+        }
+    } else {
+        prev = NULL;
+        for (macro = macrohashtable[name->hashval]; macro; prev = macro, macro = macro->next) {
+            if (macro->name == name && macro->is_special == FALSE) {
+                break;
+            }
+        }
+        if (macro) {
+            if (prev) {
+                prev->next = macro->next;
+            } else {
+                macrohashtable[name->hashval] = macro->next;
+            }
+        }
+    }
+}
+
+// 0x43E160: #pragma inline_max_auto_size(n)
+static void CPrep_PragmaInlineMaxAutoSize(void) {
+    if (notendofline() && plex() == '(' && notendofline()) {
+        switch (plex()) {
+            case TK_INTCONST:
+                copts.unknown52 = CInt64_GetULong(&tkintconst);
+                break;
+            default:
+                CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+                skipendofline();
+                return;
+        }
+
+        if (!notendofline() || plex() != ')') {
+            CPrep_Warning(ERR_RPAREN_EXPECTED);
+        }
+        if (notendofline()) {
+            CPrep_Warning(ERR_END_LINE_EXPECTED);
+            skipendofline();
+        }
+        return;
+    }
+
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+}
+
+extern SInt32 ctempl_maxinstdepth; // CTemplateTools.c
+
+// 0x43E6A0: #pragma template_depth(n), 1..30000
+static void CPrep_PragmaTemplateDepth(void) {
+    SInt32 depth;
+
+    if (notendofline() && plex() == '(' && notendofline()) {
+        switch (plex()) {
+            case TK_INTCONST:
+                depth = CInt64_GetULong(&tkintconst);
+                if (depth >= 1 && depth <= 30000) {
+                    ctempl_maxinstdepth = depth;
+                } else {
+                    CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+                }
+                break;
+            default:
+                CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+                skipendofline();
+                return;
+        }
+
+        if (!notendofline() || plex() != ')') {
+            CPrep_Warning(ERR_RPAREN_EXPECTED);
+        }
+        if (notendofline()) {
+            CPrep_Warning(ERR_END_LINE_EXPECTED);
+            skipendofline();
+        }
+        return;
+    }
+
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+}
+#else
 static void CPrep_PragmaOnce(void) {
     if (notendofline()) {
         if (plex() == TK_IDENTIFIER) {
@@ -3338,6 +4936,7 @@ static void CPrep_PragmaOnce(void) {
         CPrep_DefinePragmaOnceMacro(filename, prep_file->isSystemInclude);
     }
 }
+#endif
 
 static void CPrep_PragmaUnused(void) {
     NameSpace* nspace;
@@ -3559,7 +5158,9 @@ done:
 static void pragma_push(void) {
     COptsPush* push;
 
+#if !MWCCPSP // 3.0.1 saves only the options
     CodeGen_PragmaPush();
+#endif
     push = galloc(sizeof(COptsPush));
     push->next = coptpushs;
     coptpushs = push;
@@ -3570,7 +5171,9 @@ static void pragma_pop(void) {
     if (coptpushs) {
         copts = coptpushs->opts;
         coptpushs = coptpushs->next;
+#if !MWCCPSP
         CodeGen_PragmaPop();
+#endif
         CMach_Configure();
     } else {
         CPrep_Error(ERR_PRECEDING_PRAGMA_PUSH_MISSING);
@@ -3618,8 +5221,13 @@ static void pragma_optimization_level(void) {
                     lv = 1;
                 }
                 CPrep_PushOption(OPT_OFFSET(optimizationlevel), lv);
+#if MWCCPSP
+                func_00439EA0(); // 3.0.1: the optimizer's options, then the back end's
+                CodeGen_UpdateOptimizerOptions();
+#else
                 CodeGen_UpdateOptimizerOptions();
                 CodeGen_UpdateBackEndOptions();
+#endif
                 return;
             }
             CPrep_Error(ERR_NUMBER_OUT_RANGE);
@@ -3628,8 +5236,13 @@ static void pragma_optimization_level(void) {
         }
         if (t == TK_IDENTIFIER && !strcmp(tkidentifier->name, "reset")) {
             CPrep_PopOption(OPT_OFFSET(optimizationlevel));
+#if MWCCPSP
+            func_00439EA0(); // 3.0.1: the optimizer's options, then the back end's
+            CodeGen_UpdateOptimizerOptions();
+#else
             CodeGen_UpdateOptimizerOptions();
             CodeGen_UpdateBackEndOptions();
+#endif
             return;
         }
         CPrep_Error(ERR_ILLEGAL_TOKEN);
@@ -3643,6 +5256,115 @@ static void pragma_optimization_level(void) {
     skipendofline();
 }
 
+#if MWCCPSP
+extern void func_00439EA0(void); // the optimizer options from copts
+
+// 0x43D830, 0x43DB10, 0x43D9A0
+static void pragma_opt_full_unroll_limit(void) {
+    short t;
+    int lv;
+
+    if (notendofline()) {
+        t = plex();
+        if (t == TK_INTCONST) {
+            lv = CInt64_GetULong(&tkintconst);
+            if (lv < 0 || lv > 127) {
+                CPrep_Error(ERR_NUMBER_OUT_RANGE);
+                skipendofline();
+                return;
+            }
+            CPrep_PushOption(OPT_OFFSET(unknownF6), lv);
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        if (t == TK_IDENTIFIER && !strcmp(tkidentifier->name, "reset")) {
+            CPrep_PopOption(OPT_OFFSET(unknownF6));
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        CPrep_Error(ERR_ILLEGAL_TOKEN);
+        skipendofline();
+        return;
+    }
+
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+    skipendofline();
+}
+
+static void pragma_opt_unroll_count(void) {
+    short t;
+    int lv;
+
+    if (notendofline()) {
+        t = plex();
+        if (t == TK_INTCONST) {
+            lv = CInt64_GetULong(&tkintconst);
+            if (lv < 0 || lv > 127) {
+                CPrep_Error(ERR_NUMBER_OUT_RANGE);
+                skipendofline();
+                return;
+            }
+            CPrep_PushOption(OPT_OFFSET(unrollfactor), lv);
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        if (t == TK_IDENTIFIER && !strcmp(tkidentifier->name, "reset")) {
+            CPrep_PopOption(OPT_OFFSET(unrollfactor));
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        CPrep_Error(ERR_ILLEGAL_TOKEN);
+        skipendofline();
+        return;
+    }
+
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+    skipendofline();
+}
+
+static void pragma_opt_unroll_instr_count(void) {
+    short t;
+    int lv;
+
+    if (notendofline()) {
+        t = plex();
+        if (t == TK_INTCONST) {
+            lv = CInt64_GetULong(&tkintconst);
+            if (lv < 0 || lv > 127) {
+                CPrep_Error(ERR_NUMBER_OUT_RANGE);
+                skipendofline();
+                return;
+            }
+            CPrep_PushOption(OPT_OFFSET(unrollinstrfactor), lv);
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        if (t == TK_IDENTIFIER && !strcmp(tkidentifier->name, "reset")) {
+            CPrep_PopOption(OPT_OFFSET(unrollinstrfactor));
+            func_00439EA0();
+            CodeGen_UpdateOptimizerOptions();
+            return;
+        }
+        CPrep_Error(ERR_ILLEGAL_TOKEN);
+        skipendofline();
+        return;
+    }
+
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+    skipendofline();
+}
+#else
 static void pragma_opt_unroll_count(void) {
     short t;
     int lv;
@@ -3712,6 +5434,7 @@ static void pragma_opt_unroll_instr_count(void) {
     }
     skipendofline();
 }
+#endif
 
 static void pragma_pack(void) {
     SInt32 t;
@@ -3969,6 +5692,149 @@ static void pragma_message(void) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1's pragma names (no directive dump; pack is a code generator pragma)
+static void preppragma(void) {
+    CompilerOption* opt;
+    Boolean save_eoltokens;
+    SInt32 count;
+
+    if (!notendofline()) {
+        return;
+    }
+
+    macrocheck = FALSE;
+    if (lexidentifier() != TK_IDENTIFIER) {
+        if (copts.warn_illpragma) {
+            CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+        }
+        skipendofline();
+        macrocheck = TRUE;
+        return;
+    }
+
+    if (!strcmp(tkidentifier->name, "optimization_level")) {
+        pragma_optimization_level();
+    } else if (!strcmp(tkidentifier->name, "once")) {
+        CPrep_PragmaOnce(TRUE);
+    } else if (!strcmp(tkidentifier->name, "notonce")) {
+        CPrep_PragmaOnce(FALSE);
+    } else if (!strcmp(tkidentifier->name, "unused")) {
+        CPrep_PragmaUnused();
+    } else if (!strcmp(tkidentifier->name, "template_depth")) {
+        CPrep_PragmaTemplateDepth();
+    } else if (!strcmp(tkidentifier->name, "inline_depth")) {
+        CPrep_PragmaInlineDepth();
+    } else if (!strcmp(tkidentifier->name, "inline_max_size")) {
+        CPrep_PragmaInlineMaxSize();
+    } else if (!strcmp(tkidentifier->name, "inline_max_total_size")) {
+        CPrep_PragmaInlineMaxTotalSize();
+    } else if (!strcmp(tkidentifier->name, "inline_max_auto_size")) {
+        CPrep_PragmaInlineMaxAutoSize();
+    } else if (!strcmp(tkidentifier->name, "opt_pointer_analysis_mode")) {
+        PointerAnalysis_PragmaMode();
+    } else if (!strcmp(tkidentifier->name, "options")) {
+        pragma_options();
+        macrocheck = TRUE;
+        return;
+    } else if (!strcmp(tkidentifier->name, "segment")) {
+        pragma_segment();
+    } else if (!strcmp(tkidentifier->name, "push")) {
+        pragma_push();
+    } else if (!strcmp(tkidentifier->name, "pop")) {
+        pragma_pop();
+    } else if (!strcmp(tkidentifier->name, "parameter")) {
+        macrocheck = TRUE;
+        CMach_PragmaParams();
+    } else if (!strcmp(tkidentifier->name, "overload")) {
+        macrocheck = TRUE;
+        pragma_overload();
+    } else if (!strcmp(tkidentifier->name, "mark")) {
+        skipendofline();
+        macrocheck = TRUE;
+        return;
+    } else if (!strcmp(tkidentifier->name, "precompile_target")) {
+        pragma_precompile_target();
+    } else if (!strcmp(tkidentifier->name, "message")) {
+        pragma_message();
+    } else if (!strcmp(tkidentifier->name, "opt_full_unroll_limit")) {
+        pragma_opt_full_unroll_limit();
+    } else if (!strcmp(tkidentifier->name, "opt_unroll_count")) {
+        pragma_opt_unroll_count();
+    } else if (!strcmp(tkidentifier->name, "opt_unroll_instr_count")) {
+        pragma_opt_unroll_instr_count();
+    } else if (!strcmp(tkidentifier->name, "exception_terminate")) {
+        if (!preprocessing_only) {
+            CExcept_Terminate();
+        }
+    } else if (!strcmp(tkidentifier->name, "exception_arrayinit")) {
+        if (!preprocessing_only) {
+            CExcept_ArrayInit();
+        }
+    } else if (!strcmp(tkidentifier->name, "exception_magic")) {
+        if (!preprocessing_only) {
+            CExcept_Magic();
+        }
+    } else if (!strcmp(tkidentifier->name, "SOMReleaseOrder")) {
+        macrocheck = TRUE;
+        CSOM_PragmaReleaseOrder();
+    } else if (!strcmp(tkidentifier->name, "SOMClassVersion")) {
+        macrocheck = TRUE;
+        CSOM_PragmaClassVersion();
+    } else if (!strcmp(tkidentifier->name, "SOMMetaClass")) {
+        macrocheck = TRUE;
+        CSOM_PragmaMetaClass();
+    } else if (!strcmp(tkidentifier->name, "SOMCallStyle")) {
+        CSOM_PragmaCallStyle();
+    } else if (!strcmp(tkidentifier->name, "BeginErrorCheck")) {
+        // the test suite's expected-error markers
+        count = 0;
+        if (notendofline()) {
+            if (plex() == TK_INTCONST) {
+                count = CInt64_GetULong(&tkintconst);
+            } else {
+                CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+            }
+        }
+        CError_ExpectErrors(count);
+    } else if (!strcmp(tkidentifier->name, "EndErrorCheck")) {
+        count = -1;
+        if (notendofline()) {
+            if (plex() == TK_INTCONST) {
+                count = CInt64_GetULong(&tkintconst);
+                if (count <= 0) {
+                    CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+                }
+            } else {
+                CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+            }
+        }
+        CError_CheckExpectedErrors(count);
+    } else {
+        for (opt = compileroptions; opt->name; opt++) {
+            if (!strcmp(tkidentifier->name, opt->name) && !(opt->bits & OPT_FLAG_NOPRAGMA)) {
+                pragma_on_off_reset(opt->bits);
+                if (opt->bits & OPT_FLAG_RECONFIGURE) {
+                    CMach_Configure();
+                }
+                goto foundOption;
+            }
+        }
+
+        save_eoltokens = cprep_eoltokens;
+        cprep_eoltokens = TRUE;
+        CodeGen_ParsePragma(tkidentifier);
+        cprep_eoltokens = save_eoltokens;
+        macrocheck = TRUE;
+        return;
+    }
+
+foundOption:
+    goendofline();
+    CPrep_Reconfig();
+    macrocheck = TRUE;
+}
+#else
 static void preppragma(void) {
     CompilerOption* opt;
     Boolean save_eoltokens;
@@ -4084,6 +5950,7 @@ exit:
         CPrep_PreprocessDumpDirectiveEnd();
     }
 }
+#endif
 
 static void prepinclude(Boolean isImport) {
     short t;
@@ -4093,6 +5960,10 @@ static void prepinclude(Boolean isImport) {
     char* save_pos;
     char buf[256];
     StringPtr ptr;
+#if MWCCPSP
+    HashNameNode* namenode;
+    Macro* macro;
+#endif
 
     if (!notendofline()) {
         CPrep_Error(ERR_UNEXPECTED_END_LINE);
@@ -4129,10 +6000,31 @@ static void prepinclude(Boolean isImport) {
     ptr = (StringPtr)buf;
 
     goendofline();
+#if MWCCPSP
+    namenode = CPrep_PragmaOnceName((StringPtr)buf, !fullsearch);
+    if (!ismacroname4(namenode)) {
+        if ((isImport || copts.always_import) && !ismacroname4(namenode)) {
+            macro = galloc(sizeof(Macro));
+            memclrw(macro, sizeof(Macro));
+            macro->name = namenode;
+            macro->next = macrohashtable[namenode->hashval];
+            macro->is_special = FALSE;
+            macrohashtable[namenode->hashval] = macro;
+            if (!copts.old_pragma_once &&
+                copts.warn_pch_portability &&
+                data_0062455C &&
+                !cprep_warned_pch_once) {
+                cprep_warned_pch_once = TRUE;
+                CError_ResetErrorSkip();
+                CError_Warning(ERR_PRAGMA_ONCE_PCH_PORTABILITY);
+            }
+        }
+#else
     if (!ismacroname4(CPrep_PragmaOnceName((StringPtr)buf, !fullsearch))) {
         if (isImport || copts.always_import) {
             CPrep_DefinePragmaOnceMacro((StringPtr)buf, !fullsearch);
         }
+#endif
 
         if (copts.flat_include) {
             for (t = len; t > 0; t--) {
@@ -4149,10 +6041,73 @@ static void prepinclude(Boolean isImport) {
         }
 
 all_done:
+#if MWCCPSP
+        setupfile(ptr, fullsearch, isImport, TRUE);
+#else
         setupfile(ptr, fullsearch, isImport);
+#endif
     }
 }
 
+#if MWCCPSP
+extern void COS_FileMakeSpec(CWFileSpec* spec, const char* path); // 0x439800
+
+// 3.0.1: a #line file name only renames the current file
+static void prepline(void) {
+    short t;
+    short len;
+    char buf[256];
+    char* path;
+
+    cprep_hasprepline = TRUE;
+    if (!notendofline()) {
+        CPrep_Error(ERR_UNEXPECTED_END_LINE);
+        return;
+    }
+
+    if (plex() != TK_INTCONST) {
+        CPrep_Error(ERR_PREPROCESSOR_SYNTAX_ERROR);
+        skipendofline();
+        return;
+    }
+
+    linenumber = CInt64_GetULong(&tkintconst) - 1;
+    if (!notendofline()) {
+        return;
+    }
+
+    if (prepnextchar() != '"') {
+        CPrep_Error(ERR_PREPROCESSOR_SYNTAX_ERROR);
+        skipendofline();
+        return;
+    }
+
+    len = 0;
+    while ((t = prepnextchar()) != '"') {
+        if (!t) {
+            break;
+        }
+        if (len > 252) {
+            CPrep_Error(ERR_STRING_TOO_LONG);
+            skipendofline();
+            return;
+        }
+        buf[len] = t;
+        len++;
+    }
+    buf[len] = 0;
+
+    path = filestack[filesp]->nameNode ? filestack[filesp]->nameNode
+                                       : CTool_GetPathName(&filestack[filesp]->textfile, NULL);
+    filestack[filesp]->nameNode = path;
+    COS_FileMakeSpec(&filestack[filesp]->textfile, buf);
+    goendofline();
+
+    if (preprocessing_only && !copts.simple_prepdump) {
+        CPrep_PreprocessDumpFileInfo(FALSE);
+    }
+}
+#else
 static void prepline(void) {
     short t;
     short len;
@@ -4226,6 +6181,7 @@ static void prepline(void) {
         CPrep_PreprocessDumpFileInfo(FALSE);
     }
 }
+#endif
 
 static short exprtk;
 
@@ -4244,6 +6200,12 @@ static Type* CPrep_GetPrepType(PrepValue* pv) {
         }
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+extern UInt8 data_005E8DE0; // 3.0.1, set while an operand is not evaluated
+#endif
 
 static PrepValue CPrep_ParseUnary(void) {
     PrepValue val;
@@ -4348,6 +6310,11 @@ static PrepValue CPrep_ParseUnary(void) {
 
                     macrocheck = TRUE;
                 }
+#if MWCCPSP
+                else if (!data_005E8DE0 && copts.warn_undefmacro) {
+                    CPrep_WarningName(ERR_UNDEFINED_MACRO_IN_IF, tkidentifier->name);
+                }
+#endif
                 break;
         }
     }
@@ -4366,6 +6333,9 @@ static PrepValue CPrep_ParseBinary(PrepValue* rhs, short precLimit) {
     short op;
     short prec;
     short newprec;
+#if MWCCPSP
+    UInt8 saved;
+#endif
 
     if (!rhs) {
         a = CPrep_ParseUnary();
@@ -4383,7 +6353,20 @@ static PrepValue CPrep_ParseBinary(PrepValue* rhs, short precLimit) {
             return a;
         }
 
+#if MWCCPSP
+        // 3.0.1: the right operand of a decided && or || is not evaluated
+        saved = data_005E8DE0;
+        if ((int)op == TK_LOGICAL_AND && CInt64_IsZero(&a.val)) {
+            data_005E8DE0 = 1;
+        }
+        if ((int)op == TK_LOGICAL_OR && !CInt64_IsZero(&a.val)) {
+            data_005E8DE0 = 1;
+        }
         b = CPrep_ParseUnary();
+        data_005E8DE0 = saved;
+#else
+        b = CPrep_ParseUnary();
+#endif
         while (1) {
             if (exprtk == ')' || !notendofline()) {
                 if (b.is_unsigned) {
@@ -4447,6 +6430,9 @@ static void doevalconstexpr(void) {
     macrocheck = TRUE;
     nlflag = FALSE;
     cprep_incondexpr = TRUE;
+#if MWCCPSP
+    data_005E8DE0 = 0;
+#endif
     v = CPrep_ParseCond();
     if (exprtk) {
         CPrep_Error(ERR_EXPRESSION_SYNTAX_ERROR);
@@ -4466,7 +6452,12 @@ static void pushifstate(SInt16 state) {
     } else {
         ifstack[iflevel].state = state;
         ifstack[iflevel].file = prep_file;
+#if MWCCPSP
+        // 3.0.1: inside a macro expansion, the position in the file
+        ifstack[iflevel].pos = tokenstacklevel ? filestack[filesp]->pos : pos - prep_file_start;
+#else
         ifstack[iflevel].pos = pos - prep_file_start;
+#endif
         iflevel++;
     }
 }
@@ -4499,6 +6490,9 @@ static void positiveif(void) {
     pushifstate(IfState_Active);
 }
 
+#if MWCCPSP
+#pragma auto_inline off // 3.0.1 calls it (0x43B830)
+#endif
 static void negativeif(Boolean isFalse) {
     if (isFalse) {
         pushifstate(IfState_Searching);
@@ -4507,6 +6501,9 @@ static void negativeif(Boolean isFalse) {
         pushifstate(IfState_Done);
     }
 }
+#if MWCCPSP
+#pragma auto_inline reset
+#endif
 
 static void prepif(void) {
     if (iflevel > 0) {
@@ -4597,6 +6594,19 @@ static void prepifndef(void) {
 }
 
 static void prepelif(void) {
+#if MWCCPSP
+    int state;
+
+    if (iflevel <= 0 ||
+        (state = ifstack[iflevel - 1].state) == IfState_ElseActive ||
+        state == IfState_ElseDone) {
+        CPrep_Error(ERR_PRECEDING_IF_MISSING);
+        skipendofline();
+        return;
+    }
+
+    switch (state) {
+#else
     if (iflevel <= 0 ||
         ifstack[iflevel - 1].state == IfState_ElseActive ||
         ifstack[iflevel - 1].state == IfState_ElseDone) {
@@ -4606,6 +6616,7 @@ static void prepelif(void) {
     }
 
     switch (ifstack[iflevel - 1].state) {
+#endif
         case IfState_Searching:
             doevalconstexpr();
             if (!CInt64_IsZero(&tkintconst)) {
@@ -4621,14 +6632,23 @@ static void prepelif(void) {
             prepifskip();
             return;
         default:
+#if MWCCPSP
+            CError_FATAL(7219);
+#else
             CError_FATAL(5787);
+#endif
     }
 }
 
 static void prepelse(void) {
     if (iflevel <= 0 ||
+#if MWCCPSP
+        (int)ifstack[iflevel - 1].state == IfState_ElseActive ||
+        (int)ifstack[iflevel - 1].state == IfState_ElseDone) {
+#else
         ifstack[iflevel - 1].state == IfState_ElseActive ||
         ifstack[iflevel - 1].state == IfState_ElseDone) {
+#endif
         CPrep_Error(ERR_PRECEDING_IF_MISSING);
         skipendofline();
         return;
@@ -4652,7 +6672,11 @@ static void prepelse(void) {
             ifstack[iflevel - 1].state = IfState_ElseDone;
             return;
         default:
+#if MWCCPSP
+            CError_FATAL(7257);
+#else
             CError_FATAL(5825);
+#endif
     }
 }
 
@@ -4765,7 +6789,13 @@ void preprocessor(void) {
     switch (t) {
         case 0:
             CPrep_Error(ERR_UNEXPECTED_END_FILE);
+#if MWCCPSP
+            return; // 3.0.1: case 13 handles the newline now
+#endif
         case 13:
+#if MWCCPSP
+            newline();
+#endif
             return;
     }
 
@@ -4804,7 +6834,15 @@ void preprocessor(void) {
     }
     if (!copts.ANSIstrict) {
         if (!strcmp("warning", tkidentifier->name)) {
+#if MWCCPSP
+            // 3.0.1: #warning stays a warning under warning_errors
+            char save = copts.warningerrors;
+            copts.warningerrors = FALSE;
             CPrep_Warning(ERR_PREPROCESSOR_WARNING_DIRECTIVE);
+            copts.warningerrors = save;
+#else
+            CPrep_Warning(ERR_PREPROCESSOR_WARNING_DIRECTIVE);
+#endif
             skipendofline();
             macrocheck = TRUE;
             return;
@@ -4845,13 +6883,25 @@ void preprocessor(void) {
         prependif();
         return;
     }
+#if MWCCPSP
+    if (!copts.ANSIstrict) {
+#else
     if (copts.objective_c || !copts.ANSIstrict) {
+#endif
         if (!strcmp("import", tkidentifier->name)) {
             prepinclude(TRUE);
             macrocheck = TRUE;
             return;
         }
     }
+#if MWCCPSP
+    // 3.0.1: in assembler with '#' comments an unknown directive is a comment
+    if (in_assembler && copts.asmpoundcomment) {
+        skipendofline();
+        macrocheck = TRUE;
+        return;
+    }
+#endif
     CPrep_Error(ERR_UNDEFINED_PREPROCESSOR_DIRECTIVE);
     skipendofline();
     macrocheck = TRUE;
@@ -4897,3 +6947,44 @@ void CPrep_BrowserFilePosition(CPrepFileInfo** fileinfo, SInt32* offset) {
 CPrepFileInfo* CPrep_BrowserCurrentFile(void) {
     return prep_file;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1: the #include chain for a diagnostic (copts.show_error_filestack),
+// innermost first, one "\t<file>:<line>" per line; NULL at top level
+char* func_0043FFC0(void) {
+    char buf[0x108];
+    GList gl;
+    int i;
+    char* result;
+
+    if (filesp <= 1) {
+        return NULL;
+    }
+    if (InitGList(&gl, 0x100)) {
+        return NULL;
+    }
+
+    for (i = filesp - 1; i >= 0; i--) {
+        snprintf(
+            buf,
+            sizeof(buf),
+            "\t%s:%d%s",
+            func_004393A0(&filestack[i]->textfile),
+            filestack[i]->linenumber,
+            (i > 0) ? "\n" : ""
+        );
+        AppendGListData(&gl, buf, strlen(buf));
+    }
+
+    AppendGListByte(&gl, 0);
+    ShrinkGList(&gl);
+    LockGList(&gl);
+    result = galloc(gl.size);
+    memcpy(result, *gl.data, gl.size);
+    UnlockGList(&gl);
+    FreeGList(&gl);
+    return result;
+}
+#endif

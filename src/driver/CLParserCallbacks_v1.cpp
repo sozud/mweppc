@@ -23,6 +23,72 @@
 
 extern "C" {
 
+#if MWCCPSP
+// 3.0.1's CWNewAccessPathInfo as the shell sees it
+struct ShellNewAccessPathInfo {
+    OSSpec pathSpec;
+    SInt32 position;
+    Boolean recursive;
+    CWAccessPathType type;
+};
+
+// 0x41B920: the 3.0.1 shell gets an OSSpec, and a path that is already there
+// is only added again when that adds its subdirectories
+#define API reinterpret_cast<const ShellNewAccessPathInfo*>(info)
+CW_CALLBACK UCBParserAddAccessPath(CWPluginContext context, const CWNewAccessPathInfo* info) {
+    OSSpec oss;
+    Path* path;
+    Paths* paths;
+    Path* found;
+    int failed;
+
+    oss = API->pathSpec;
+
+    if (optsCmdLine.verbose > 2) {
+        CLReport(CLStr77, " search path", OS_PathSpecToString(&oss.path, STSbuf, sizeof(STSbuf)));
+    }
+
+    if ((API->type & cwAccessPathFlagUser) == 0) {
+        paths = &gTarg->sysPaths;
+    } else {
+        paths = &gTarg->userPaths;
+    }
+
+    if (API->position < 0) {
+        found = Paths_FindPathSpec(paths, &oss.path);
+        if (found && !((API->recursive != 0) > (found->recursive != 0))) {
+            return cwNoErr;
+        }
+    }
+
+    path = Path_New(&oss.path);
+    path->flags = API->type;
+    if (API->position >= 0) {
+        failed = !Paths_InsertPath(paths, API->position, path);
+    } else {
+        failed = !Paths_AddPath(paths, path);
+    }
+    if (failed) {
+        return cwErrRequestFailed;
+    }
+
+    if (API->recursive) {
+        Paths_GatherRecurse(path);
+        if (CheckForUserBreak()) {
+            return cwErrUserCanceled;
+        }
+    }
+
+    if (!(API->type & cwAccessPathFlagUser)) {
+        static_cast<shellContextType*>(context->shellContext)->systemAccessPathsChanged = TRUE;
+    } else {
+        static_cast<shellContextType*>(context->shellContext)->userAccessPathsChanged = TRUE;
+    }
+
+    return cwNoErr;
+}
+#undef API
+#else
 CW_CALLBACK UCBParserAddAccessPath(CWPluginContext context, const CWNewAccessPathInfo* api) {
     OSSpec oss;
     Paths* paths;
@@ -71,6 +137,7 @@ CW_CALLBACK UCBParserAddAccessPath(CWPluginContext context, const CWNewAccessPat
 
     return cwNoErr;
 }
+#endif
 
 CW_CALLBACK UCBParserSwapAccessPaths(CWPluginContext context) {
     Path* tmp;
@@ -90,6 +157,37 @@ CW_CALLBACK UCBParserSwapAccessPaths(CWPluginContext context) {
 
 int (*PrefPanelsChangedCallback)(const char*);
 
+#if MWCCPSP
+// 0x41BB50: the panel data is an OS handle
+CW_CALLBACK UCBParserSetNamedPreferences(
+    CWPluginContext context, const char* panelName, Handle cwpaneldata
+) {
+    OSHandle* paneldata = reinterpret_cast<OSHandle*>(cwpaneldata);
+    PrefPanel* panel;
+    UInt32 size;
+
+    panel = Prefs_FindPanel(panelName);
+    if (panel) {
+        if (!PrefPanel_PutHandle(panel, paneldata)) {
+            return cwErrRequestFailed;
+        }
+    } else {
+        void* data;
+        OS_GetHandleSize(paneldata, &size);
+        data = OS_LockHandle(paneldata);
+        panel = PrefPanel_New(panelName, data, size);
+        OS_UnlockHandle(paneldata);
+        if (!panel || !Prefs_AddPanel(panel)) {
+            return cwErrRequestFailed;
+        }
+    }
+
+    if (PrefPanelsChangedCallback) {
+        PrefPanelsChangedCallback(panelName);
+    }
+    return cwNoErr;
+}
+#else
 CW_CALLBACK UCBParserSetNamedPreferences(
     CWPluginContext context, const char* panelName, Handle paneldata
 ) {
@@ -113,6 +211,7 @@ CW_CALLBACK UCBParserSetNamedPreferences(
 
     return cwNoErr;
 }
+#endif
 
 CW_CALLBACK UCBParserSetFileOutputName(
     CWPluginContext context, SInt32 position, short which, const char* outfilename
@@ -148,13 +247,28 @@ CW_CALLBACK UCBParserSetOutputFileDirectory(CWPluginContext context, const CWFil
     OSSpec fss;
     int err;
 
+#if MWCCPSP
+#if CW_SHELL_OSSPEC
+    fss = *idefss; // the wrapper made it an OSSpec
+#else
     if ((err = OS_FSSpec_To_OSSpec(idefss, &fss))) {
         context->callbackOSError = OS_OSErrorToMacError(err);
         return cwErrInvalidParameter;
     }
+#endif
+#else
+    if ((err = OS_FSSpec_To_OSSpec(idefss, &fss))) {
+        context->callbackOSError = OS_OSErrorToMacError(err);
+        return cwErrInvalidParameter;
+    }
+#endif
 
     gTarg->outputDirectory = fss.path;
+#if MWCCPSP
+    context->outputFileDirectory = fss;
+#else
     context->outputFileDirectory = *idefss;
+#endif
 
     return cwNoErr;
 }
@@ -270,7 +384,12 @@ static CWParserCallbacks parser_cb = {
 // clang-format on
 }
 
+#if MWCCPSP
+CWParserContext::CWParserContext()
+    : CWPluginPrivateContext(CWDROPINPARSERTYPE, sizeof(CWParserContext)) {
+#else
 CWParserContext::CWParserContext() : CWPluginPrivateContext(CWDROPINPARSERTYPE, -1) {
+#endif
     args = NULL;
     cpu = os = 0;
     numPlugins = 0;

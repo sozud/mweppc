@@ -111,7 +111,11 @@ static ArgInfo* analyze_arguments(
         if ((TYPE_IS_8BYTES(type) ||
              (TYPE_IS_SOFT_FLOAT(type) &&
               type->size != 4 &&
+#if MWCCPSP
+              !COPTS_GONE(incompatible_sfpe_double_params))) &&
+#else
               !copts.incompatible_sfpe_double_params)) &&
+#endif
             (gpr_counter % 2) == 0) {
             gpr_counter++;
         }
@@ -228,7 +232,11 @@ static ArgInfo* analyze_arguments(
 
             gpr_counter++;
             arg_size = 4;
+#if MWCCPSP
+        } else if (IS_TYPE_VEC2X32FLOAT(type) && COPTS_GONE(processor) == CPU_PPCGEKKO) {
+#else
         } else if (IS_TYPE_VEC2X32FLOAT(type) && copts.processor == CPU_PPCGEKKO) {
+#endif
             if (fpr_counter <= 8) {
                 info->flags |= AIF_PassInFPR;
                 info->fpr = fpr_counter;
@@ -346,7 +354,11 @@ static void pass_in_memory(ArgInfo* info) {
         load_store_register(
             PC_STVX, info->opnd.reg, 1, NULL, out_param_displ_to_offset(info->offset)
         );
+#if MWCCPSP
+    } else if (IS_TYPE_VEC2X32FLOAT(type) && COPTS_GONE(processor) == CPU_PPCGEKKO) {
+#else
     } else if (IS_TYPE_VEC2X32FLOAT(type) && copts.processor == CPU_PPCGEKKO) {
+#endif
         if (!info->evaluated) {
             GEN_NODE(info->expr, &info->opnd);
         }
@@ -390,7 +402,11 @@ static void pass_in_register(ArgInfo* info) {
         if (info->opnd.reg != info->vr) {
             emitpcode(PC_VMR, info->vr, info->opnd.reg);
         }
+#if MWCCPSP
+    } else if (IS_TYPE_VEC2X32FLOAT(type) && COPTS_GONE(processor) == CPU_PPCGEKKO) {
+#else
     } else if (IS_TYPE_VEC2X32FLOAT(type) && copts.processor == CPU_PPCGEKKO) {
+#endif
         if (!info->evaluated) {
             GEN_NODE_TO_REG(info->expr, info->fpr, 0, &info->opnd);
         }
@@ -683,7 +699,11 @@ void call_function(ENode* expr, Operand* output) {
     }
 
     if (has_varargs) {
+#if MWCCPSP
+        if (has_floats && !COPTS_GONE(soft_float)) {
+#else
         if (has_floats && !copts.soft_float) {
+#endif
             emitpcode(PC_CREQV, 1, 2, 1, 2, 1, 2);
         } else {
             emitpcode(PC_CRXOR, 1, 2, 1, 2, 1, 2);
@@ -732,7 +752,11 @@ void call_function(ENode* expr, Operand* output) {
         output->optype = OpndType_VR;
         output->reg = used_virtual_registers[RegClass_VR]++;
         emitpcode(PC_VMR, output->reg, 2);
+#if MWCCPSP
+    } else if (IS_TYPE_VEC2X32FLOAT(resultType) && COPTS_GONE(processor) == CPU_PPCGEKKO) {
+#else
     } else if (IS_TYPE_VEC2X32FLOAT(resultType) && copts.processor == CPU_PPCGEKKO) {
+#endif
         output->optype = OpndType_FPR;
         output->reg = used_virtual_registers[RegClass_FPR]++;
         emitpcode(PC_PS_MR, output->reg, 1);

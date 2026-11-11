@@ -1,6 +1,11 @@
 #include "driver/CmdLineBuildDate.h"
 #include "version.h"
 
+#if MWCCPSP
+// 3.0.1 (0x5AF000/0x5AF010)
+const char* CMDLINE_BUILD_TIME = "03:56:49";
+const char* CMDLINE_BUILD_DATE = "Aug 24 2006";
+#else
 #if VERSION <= VERSION_GC_2_0P2
 const char* CMDLINE_BUILD_TIME = "15:14:48";
 const char* CMDLINE_BUILD_DATE = "Sep 16 2002";
@@ -13,4 +18,5 @@ const char* CMDLINE_BUILD_DATE = "Jul 14 2003";
 #else
 const char* CMDLINE_BUILD_TIME = "17:19:15";
 const char* CMDLINE_BUILD_DATE = "Jul 22 2004";
+#endif
 #endif

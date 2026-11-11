@@ -10,14 +10,33 @@ extern "C" {
 
 #define OS_PATHSEP '\\'
 
+#if MWCCPSP
+// The MSL that mwccpsp links has the four-argument assert; funcname is 0.
+extern void __assertion_failed(
+    char const* condition, char const* filename, char const* funcname, int lineno
+);
+#define OS_ASSERT_CALL(cond, line) __assertion_failed(cond, __FILE__, 0, line)
+#else
 extern void __assertion_failed(char const* condition, char const* filename, int lineno);
+#endif
 
+#if MWCCPSP
+#define OS_ASSERT(line, cond) \
+    if (!(cond)) { \
+        OS_ASSERT_CALL(#cond, line); \
+    }
+#else
 #define OS_ASSERT(line, cond) \
     if ((cond) == 0) { \
         __assertion_failed(#cond, __FILE__, line); \
     }
+#endif
 
+#if MWCCPSP
+#define OPTION_ASSERT(line, cond) ((cond) ? (void)0 : OS_ASSERT_CALL(#cond, line))
+#else
 #define OPTION_ASSERT(line, cond) ((cond) ? (void)0 : __assertion_failed(#cond, __FILE__, line))
+#endif
 
 typedef SInt16 OSErr;
 typedef SInt16 ScriptCode;
@@ -99,6 +118,12 @@ typedef struct OSHandle {
     UInt32 used;
 } OSHandle;
 
+#if MWCCPSP
+// file text and object data: 3.0.1 keeps them in OS handles, 2.4.7 in Mac
+// handles (CLLoadAndCache, the include cache, VFiles, File)
+typedef OSHandle* DriverHandle;
+
+#endif
 typedef struct OSFileHandle {
     OSSpec spec;
     OSHandle hand;

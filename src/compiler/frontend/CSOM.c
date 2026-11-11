@@ -149,6 +149,9 @@ void CSOM_Setup(Boolean isPrecompiler) {
     csom_selfname = GetHashNameNodeExport("__somself");
 }
 
+#if MWCCPSP
+void CSOM_Cleanup(void) {} // 3.0.1: no SOM
+#else
 void CSOM_Cleanup(void) {
     CSOMStub* stub;
 
@@ -185,6 +188,7 @@ void CSOM_Cleanup(void) {
         }
     }
 }
+#endif
 
 static HashNameNode* CSOM_NameTranslate(HashNameNode* name) {
     if (name == constructor_name_node) {
@@ -575,7 +579,9 @@ void CSOM_ClassComplete(TypeClass* tclass) {
     }
 }
 
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(push, 2)
+#endif
 typedef struct SOMOverride {
     struct SOMOverride* next;
     Object* overrider;
@@ -616,7 +622,9 @@ typedef struct SOMGenerator {
     Boolean hasNew;
     Boolean hasDelete;
 } SOMGenerator;
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(pop)
+#endif
 
 static SOMAncestor* CSOM_FindAddAncestor(
     SOMGenerator* gen, TypeClass* tclass, TypeClass* ancestorClass, UInt16* resultIndex
@@ -773,13 +781,21 @@ static void CSOM_GenerateOverrideIntroLists(SOMGenerator* gen, TypeClass* tclass
 
                         if (IS_TYPE_FUNC(object->type) &&
                             CSOM_NameTranslate(object->name) == order->name) {
+#if MWCCPSP
+                            CError_ASSERT(729, TYPE_METHOD(object->type)->vtbl_index == index);
+#else
                             CError_ASSERT(733, TYPE_METHOD(object->type)->vtbl_index == index);
+#endif
                             method->u.object = object;
                             break;
                         }
                     }
 
+#if MWCCPSP
+                    CError_ASSERT(733, object != NULL);
+#else
                     CError_ASSERT(737, object != NULL);
+#endif
                     break;
 
                 default:
@@ -1780,7 +1796,11 @@ static ENode* CSOM_ComputeSOMSelf(TypeClass* tclass, ENode* selfExpr) {
     obj.datatype = DFUNC;
     selfExpr = funccallexpr(&obj, selfExpr, NULL, NULL, NULL);
 
+#if MWCCPSP
+    CError_ASSERT(1750, ENODE_IS(selfExpr, EFUNCCALL));
+#else
     CError_ASSERT(1761, ENODE_IS(selfExpr, EFUNCCALL));
+#endif
 
     selfExpr->data.funccall.funcref = expr;
 
@@ -1814,7 +1834,11 @@ void CSOM_InitSOMSelf(TypeClass* tclass, Statement* stmt) {
     for (list = locals; list; list = list->next) {
         if (list->object->name == name) {
             selfExpr = CClass_CreateThisSelfExpr();
+#if MWCCPSP
+            CError_ASSERT(1800, selfExpr);
+#else
             CError_ASSERT(1811, selfExpr);
+#endif
 
             selfExpr = CSOM_ComputeSOMSelf(tclass, selfExpr);
 
@@ -1855,8 +1879,12 @@ ENode* CSOM_EnvCheck(ENode* funccall, ENodeList* checkArg) {
                     checkArg->node->data.temp.uniqueid = CParser_GetUniqueID();
                 }
 
+#if MWCCPSP
+                resultTemp = CEXPR_COPYENODE(checkArg->node);
+#else
                 resultTemp = lalloc(sizeof(ENode));
                 *resultTemp = *checkArg->node;
+#endif
                 resultTemp->data.temp.needs_dtor = FALSE;
             } else {
                 resultTemp = CExpr_GetETEMPCopy(checkArg->node);
@@ -1871,14 +1899,22 @@ ENode* CSOM_EnvCheck(ENode* funccall, ENodeList* checkArg) {
     if (!ENODE_IS(arg2->node, EOBJREF)) {
         if (ENODE_IS_INDIRECT_TO(arg2->node, EOBJREF) &&
             arg2->node->data.monadic->data.objref->datatype == DLOCAL) {
+#if MWCCPSP
+            objTemp = CEXPR_COPYENODE(arg2->node);
+#else
             objTemp = lalloc(sizeof(ENode));
             *objTemp = *arg2->node;
+#endif
         } else {
             objTemp = CExpr_GetETEMPCopy(arg2->node);
         }
     } else {
+#if MWCCPSP
+        objTemp = CEXPR_COPYENODE(arg2->node);
+#else
         objTemp = lalloc(sizeof(ENode));
         *objTemp = *arg2->node;
+#endif
     }
 
     if (copts.som_call_optimize) {
@@ -1889,8 +1925,12 @@ ENode* CSOM_EnvCheck(ENode* funccall, ENodeList* checkArg) {
             funccall = makediadicnode(funccall, resultTemp, ECOMMA);
         }
     } else {
+#if MWCCPSP
+        checkExpr = CEXPR_COPYENODE(objTemp);
+#else
         checkExpr = lalloc(sizeof(ENode));
         *checkExpr = *objTemp;
+#endif
         checkExpr = makemonadicnode(checkExpr, EINDIRECT);
         checkExpr->rtype = TYPE(&stsignedlong);
 

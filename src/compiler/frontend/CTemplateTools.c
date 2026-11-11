@@ -21,6 +21,74 @@
 
 short ctempl_instdepth;
 
+#if MWCCPSP
+// 0x624220: #pragma template_depth(n)
+SInt32 ctempl_maxinstdepth;
+
+// 0x4AF440: the current instance stack; inside a function body that is not
+// being instantiated, a point-of-instantiation entry for that function
+TemplStack* CTemplTool_GetInstanceStack(void) {
+    TemplStack* stack;
+
+    if (!ctempl_curinstance && cscope_currentfunc) {
+        stack = galloc(sizeof(TemplStack));
+        stack->next = NULL;
+        stack->u.func = cscope_currentfunc;
+        stack->is_func = TRUE;
+        stack->is_poi = TRUE;
+        return stack;
+    }
+    return ctempl_curinstance;
+}
+
+inline static TemplStack* CTemplTool_GetInstanceStack_inl(void) {
+    TemplStack* stack;
+
+    if (!ctempl_curinstance && cscope_currentfunc) {
+        stack = galloc(sizeof(TemplStack));
+        stack->next = NULL;
+        stack->u.func = cscope_currentfunc;
+        stack->is_func = TRUE;
+        stack->is_poi = TRUE;
+        return stack;
+    }
+    return ctempl_curinstance;
+}
+
+// 0x4AF390: 3.0.1 allocates the entry and returns the stack to restore
+TemplStack* CTemplTool_PushInstance(TypeClass* tmclass, Object* func) {
+    TemplStack* saved;
+    TemplStack* stack;
+
+    saved = ctempl_curinstance;
+    ctempl_curinstance = CTemplTool_GetInstanceStack_inl();
+
+    stack = galloc(sizeof(TemplStack));
+    if (tmclass) {
+        stack->u.theclass = tmclass;
+        stack->is_func = FALSE;
+    } else {
+        stack->u.func = func;
+        stack->is_func = TRUE;
+    }
+    stack->is_poi = FALSE;
+    stack->next = ctempl_curinstance;
+    ctempl_curinstance = stack;
+
+    if (++ctempl_instdepth >= ctempl_maxinstdepth) {
+        CError_ErrorTerm(ERR_TEMPLATE_TOO_COMPLEX_RECURSIVE);
+    }
+    return saved;
+}
+
+// 0x4AF360
+void CTemplTool_PopInstance(TemplStack* saved) {
+    ctempl_curinstance = saved;
+    if (--ctempl_instdepth < 0) {
+        ctempl_instdepth = 0;
+    }
+}
+#else
 void CTemplTool_PushInstance(TemplStack* stack, TypeClass* tmclass, Object* func) {
     if (tmclass) {
         stack->u.theclass = tmclass;
@@ -45,7 +113,12 @@ void CTemplTool_PopInstance(TemplStack* stack) {
         ctempl_instdepth = 0;
     }
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: a member pointer template argument from a name lookup result
+extern ENode* func_004AF140(ENode* expr, Type* type, UInt32 qual);
+#endif
 Boolean CTemplTool_InitDeduceInfo(
     DeduceInfo* info, TemplParam* params, TemplArg* args, Boolean checkUndeduced
 ) {
@@ -111,12 +184,37 @@ Boolean CTemplTool_InitDeduceInfo(
                     param->data.paramdecl.type,
                     param->data.paramdecl.qual
                 )) {
+#if MWCCPSP
+                ENode* expr = buffer[i].data.paramdecl.expr;
+                if (ENODE_IS(expr, EINDIRECT)) {
+                    if (!IS_TYPE_REFERENCE(param->data.paramdecl.type)) {
+                        return FALSE;
+                    }
+                    expr = CExpr_AssignmentPromotion(
+                        expr, param->data.paramdecl.type, param->data.paramdecl.qual, FALSE
+                    );
+                    if (!ENODE_IS(expr, EOBJREF)) {
+                        return FALSE;
+                    }
+                    buffer[i].data.paramdecl.expr = expr;
+                    buffer[i].data.paramdecl.is_ref = TRUE;
+                } else if (ENODE_IS(expr, EOBJACCESS) &&
+                           IS_TYPE_MEMBERPOINTER(param->data.paramdecl.type)) {
+                    buffer[i].data.paramdecl.expr =
+                        func_004AF140(expr, param->data.paramdecl.type, param->data.paramdecl.qual);
+                } else {
+                    buffer[i].data.paramdecl.expr = CExpr_AssignmentPromotion(
+                        expr, param->data.paramdecl.type, param->data.paramdecl.qual, FALSE
+                    );
+                }
+#else
                 buffer[i].data.paramdecl.expr = CExpr_AssignmentPromotion(
                     buffer[i].data.paramdecl.expr,
                     param->data.paramdecl.type,
                     param->data.paramdecl.qual,
                     FALSE
                 );
+#endif
             } else {
                 return FALSE;
             }
@@ -138,7 +236,11 @@ Boolean CTemplTool_InitDeduceInfo(
                         break;
                     case TPT_TEMPLATE:
                     default:
+#if MWCCPSP
+                        CError_FATAL(482);
+#else
                         CError_FATAL(208);
+#endif
                 }
                 buffer[i].is_deduced = TRUE;
             }
@@ -193,6 +295,13 @@ TemplArg* CTemplTool_MakeTemplArgList(DeduceInfo* info) {
         }
 
         *last = info->args[i];
+#if MWCCPSP
+        // 3.0.1 (0x4AED30): non-type arguments get a global copy
+        if (last->pid.type == TPT_NONTYPE && last->data.paramdecl.expr) {
+            last->data.paramdecl.expr =
+                CInline_CopyExpression(last->data.paramdecl.expr, CopyModeGlobal);
+        }
+#endif
     }
 
     last->next = NULL;
@@ -205,7 +314,11 @@ Boolean CTemplTool_IsIdenticalTemplArgList(TemplArg* args, TemplParam* params) {
             return FALSE;
         }
 
+#if MWCCPSP
+        CError_ASSERT(636, params->pid.type == args->pid.type);
+#else
         CError_ASSERT(297, params->pid.type == args->pid.type);
+#endif
 
         switch (args->pid.type) {
             case TPT_TYPE:
@@ -233,7 +346,11 @@ Boolean CTemplTool_IsIdenticalTemplArgList(TemplArg* args, TemplParam* params) {
                 }
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(670);
+#else
                 CError_FATAL(331);
+#endif
         }
 
         args = args->next;
@@ -316,7 +433,11 @@ TemplateFunction* CTemplTool_GetFuncTempl(Object* object) {
         object = object->u.alias.object;
     }
 
+#if MWCCPSP
+    CError_ASSERT(173, IS_TEMPL_FUNC(object->type));
+#else
     CError_ASSERT(416, IS_TEMPL_FUNC(object->type));
+#endif
     return object->u.func.u.templ;
 }
 
@@ -359,11 +480,19 @@ static FuncArg* CTemplTool_GetFirstRealArg(TypeFunc* tfunc) {
     FuncArg* arg = tfunc->args;
 
     if (IS_TYPEFUNC_NONSTATIC_METHOD(tfunc)) {
+#if MWCCPSP
+        CError_ASSERT(835, arg);
+#else
         CError_ASSERT(502, arg);
+#endif
         arg = arg->next;
         if ((tfunc->flags & FUNC_IS_CTOR) &&
             (TYPE_METHOD(tfunc)->theclass->flags & CLASS_HAS_VBASES)) {
+#if MWCCPSP
+            CError_ASSERT(840, arg);
+#else
             CError_ASSERT(507, arg);
+#endif
             arg = arg->next;
         }
     }
@@ -375,14 +504,22 @@ void CTemplTool_MergeArgNames(TypeFunc* src, TypeFunc* dest) {
     FuncArg* destArg;
     FuncArg* srcArg;
 
+#if MWCCPSP
+    CError_ASSERT(857, IS_TYPE_FUNC(dest) && IS_TYPE_FUNC(src));
+#else
     CError_ASSERT(524, IS_TYPE_FUNC(dest) && IS_TYPE_FUNC(src));
+#endif
 
     srcArg = CTemplTool_GetFirstRealArg(src);
     destArg = CTemplTool_GetFirstRealArg(dest);
 
     while (1) {
         if (!srcArg || !destArg || srcArg == &elipsis || destArg == &elipsis) {
+#if MWCCPSP
+            CError_ASSERT(864, srcArg == destArg);
+#else
             CError_ASSERT(531, srcArg == destArg);
+#endif
             break;
         }
 
@@ -392,7 +529,11 @@ void CTemplTool_MergeArgNames(TypeFunc* src, TypeFunc* dest) {
     }
 
     if (IS_TYPEFUNC_NONSTATIC_METHOD(TYPE_FUNC(dest))) {
+#if MWCCPSP
+        CError_ASSERT(871, destArg = TYPE_FUNC(dest)->args);
+#else
         CError_ASSERT(538, destArg = TYPE_FUNC(dest)->args);
+#endif
         if (!destArg->name) {
             destArg->name = this_name_node;
         }
@@ -428,7 +569,11 @@ Boolean CTemplTool_EqualParams(TemplParam* a, TemplParam* b, Boolean copyNames) 
             case TPT_TEMPLATE:
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(909);
+#else
                 CError_FATAL(576);
+#endif
         }
 
         a = a->next;
@@ -461,7 +606,11 @@ NameSpace* CTemplTool_SetupTemplateArgumentNameSpace(
     }
 
     while (params) {
+#if MWCCPSP
+        CError_ASSERT(940, args);
+#else
         CError_ASSERT(607, args);
+#endif
 
         if (params->name) {
             switch (args->pid.type) {
@@ -496,7 +645,11 @@ NameSpace* CTemplTool_SetupTemplateArgumentNameSpace(
                     object->datatype = DEXPR;
                     object->u.expr = args->data.paramdecl.expr;
                     if (IS_TYPE_REFERENCE(params->data.paramdecl.type)) {
+#if MWCCPSP
+                        CError_ASSERT(984, IS_TYPE_POINTER_ONLY(object->u.expr->rtype));
+#else
                         CError_ASSERT(652, IS_TYPE_POINTER_ONLY(object->u.expr->rtype));
+#endif
                         object->u.expr = makemonadicnode(object->u.expr, EINDIRECT);
                         object->u.expr->rtype = TPTR_TARGET(params->data.paramdecl.type);
                     }
@@ -520,7 +673,11 @@ NameSpace* CTemplTool_SetupTemplateArgumentNameSpace(
                     CScope_AddObject(nspace, params->name, OBJ_BASE(objType));
                     break;
                 default:
+#if MWCCPSP
+                    CError_FATAL(1013);
+#else
                     CError_FATAL(681);
+#endif
             }
         }
 
@@ -528,7 +685,11 @@ NameSpace* CTemplTool_SetupTemplateArgumentNameSpace(
         args = args->next;
     }
 
+#if MWCCPSP
+    CError_ASSERT(1017, !args);
+#else
     CError_ASSERT(685, !args);
+#endif
 
     return nspace;
 }
@@ -629,9 +790,17 @@ Boolean CTemplTool_IsTemplateArgumentDependentType(Type* type) {
 }
 
 Boolean CTemplTool_IsTemplateArgumentDependentExpression(ENode* expr) {
+#if MWCCPSP
+    CError_ASSERT(1514, expr);
+    if (IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
+        return TRUE;
+    }
+    return FALSE;
+#else
     if (!expr) {
         return FALSE;
     }
+#endif
 
     return IS_TYPE_TEMPLDEPEXPR(expr->rtype);
 }
@@ -639,11 +808,19 @@ Boolean CTemplTool_IsTemplateArgumentDependentExpression(ENode* expr) {
 Boolean CTemplTool_IsSameTemplate(TemplParam* params, TemplArg* args) {
     while (1) {
         if (!args) {
+#if MWCCPSP
+            CError_ASSERT(1616, !params);
+#else
             CError_ASSERT(850, !params);
+#endif
             return TRUE;
         }
 
+#if MWCCPSP
+        CError_ASSERT(1619, params && args->pid.type == params->pid.type);
+#else
         CError_ASSERT(853, params && args->pid.type == params->pid.type);
+#endif
 
         switch (args->pid.type) {
             case TPT_TYPE:
@@ -669,7 +846,11 @@ Boolean CTemplTool_IsSameTemplate(TemplParam* params, TemplArg* args) {
                 }
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(1652);
+#else
                 CError_FATAL(886);
+#endif
         }
 
         args = args->next;
@@ -690,6 +871,19 @@ TemplClass* CTemplTool_IsTemplate(TypeTemplDep* ttd) {
         return NULL;
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1 (0x4ADEB0): is the expression's type template-dependent
+Boolean CTemplTool_IsTemplDepExpr(ENode* expr) {
+    CError_ASSERT(1411, expr);
+    if (IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
 
 Type* CTemplTool_IsDependentTemplate(TemplClass* tmclass, TemplArg* args) {
     TemplParam* param;
@@ -844,7 +1038,11 @@ Boolean CTemplTool_EqualExprTypes(ENode* a, ENode* b) {
 }
 
 ENode* CTempl_MakeTemplDepExpr(ENode* left, ENodeType nt, ENode* right) {
+#if MWCCPSP
+    if (!ENODE_IS_TEMPLDEPEXPR(right)) {
+#else
     if (!IS_TYPE_TEMPLDEPEXPR(right->rtype)) {
+#endif
         right = pointer_generation(right);
         if (!ENODE_IS(right, EINTCONST)) {
             CError_Error(ERR_ILLEGAL_TEMPLATE_ARGUMENT_DEPENDENT_EXPRESSION);
@@ -853,7 +1051,11 @@ ENode* CTempl_MakeTemplDepExpr(ENode* left, ENodeType nt, ENode* right) {
     }
 
     if (left) {
+#if MWCCPSP
+        if (!ENODE_IS_TEMPLDEPEXPR(left)) {
+#else
         if (!IS_TYPE_TEMPLDEPEXPR(left->rtype)) {
+#endif
             left = pointer_generation(left);
             if (!ENODE_IS(left, EINTCONST)) {
                 CError_Error(ERR_ILLEGAL_TEMPLATE_ARGUMENT_DEPENDENT_EXPRESSION);
@@ -908,7 +1110,11 @@ Boolean CTemplTool_EqualArgs(TemplArg* a, TemplArg* b) {
                 }
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(2049);
+#else
                 CError_FATAL(1215);
+#endif
         }
 
         a = a->next;
@@ -1175,8 +1381,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
     UInt32 qual;
 
     if (!CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+#if MWCCPSP
+        newExpr = CEXPR_COPYENODE(expr);
+#else
         newExpr = lalloc(sizeof(ENode));
         *newExpr = *expr;
+#endif
         return newExpr;
     }
 
@@ -1186,8 +1396,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                 case TDE_PARAM:
                     if (deduce->processingArgument &&
                         expr->data.templdep.u.pid.nindex == deduce->nindex) {
+#if MWCCPSP
+                        newExpr = CEXPR_COPYENODE(expr);
+#else
                         newExpr = lalloc(sizeof(ENode));
                         *newExpr = *expr;
+#endif
                         return newExpr;
                     }
 
@@ -1197,8 +1411,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                             CError_ASSERT(
                                 1562, arg->pid.type == TPT_NONTYPE && arg->data.paramdecl.expr
                             );
+#if MWCCPSP
+                            newExpr = CEXPR_COPYENODE(arg->data.paramdecl.expr);
+#else
                             newExpr = lalloc(sizeof(ENode));
                             *newExpr = *arg->data.paramdecl.expr;
+#endif
                             return newExpr;
                         }
                     }
@@ -1210,8 +1428,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                                 CError_ASSERT(
                                     1575, arg->pid.type == TPT_NONTYPE && arg->data.paramdecl.expr
                                 );
+#if MWCCPSP
+                                newExpr = CEXPR_COPYENODE(arg->data.paramdecl.expr);
+#else
                                 newExpr = lalloc(sizeof(ENode));
                                 *newExpr = *arg->data.paramdecl.expr;
+#endif
                                 return newExpr;
                             }
                         }
@@ -1227,8 +1449,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                     CDecl_CompleteType(type);
 
                     if (CTemplTool_IsTemplateArgumentDependentType(type)) {
+#if MWCCPSP
+                        newExpr = CEXPR_COPYENODE(expr);
+#else
                         newExpr = lalloc(sizeof(ENode));
                         *newExpr = *expr;
+#endif
                         newExpr->data.templdep.u.typeexpr.type = type;
                         return newExpr;
                     }
@@ -1243,8 +1469,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                     CDecl_CompleteType(type);
 
                     if (CTemplTool_IsTemplateArgumentDependentType(type)) {
+#if MWCCPSP
+                        newExpr = CEXPR_COPYENODE(expr);
+#else
                         newExpr = lalloc(sizeof(ENode));
                         *newExpr = *expr;
+#endif
                         newExpr->data.templdep.u.typeexpr.type = type;
                         return newExpr;
                     }
@@ -1279,8 +1509,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                             ERR_NOT_STRUCT_UNION_CLASS_MEMBER, expr->data.templdep.u.qual.name->name
                         );
                     } else if (IS_TYPE_TEMPLATE(type) && !deduce->inst) {
+#if MWCCPSP
+                        newExpr = CEXPR_COPYENODE(expr);
+#else
                         newExpr = lalloc(sizeof(ENode));
                         *newExpr = *expr;
+#endif
                         newExpr->data.templdep.u.qual.type = TYPE_TEMPLATE(type);
                         return newExpr;
                     } else {
@@ -1366,8 +1600,12 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
         default:
             CError_FATAL(1727);
         case EINTCONST:
+#if MWCCPSP
+            newExpr = CEXPR_COPYENODE(expr);
+#else
             newExpr = lalloc(sizeof(ENode));
             *newExpr = *expr;
+#endif
             return newExpr;
     }
 }
@@ -1509,7 +1747,9 @@ static Type* CTemplTool_DeduceClassInstanceCopy(
 
                 switch (arg->data.paramdecl.expr->type) {
                     case EINTCONST:
+#if !MWCCPSP // not a 3.0.1 node kind
                     case EOBJLIST:
+#endif
                     case EMEMBER:
                         break;
                     case EOBJREF:
@@ -2113,3 +2353,44 @@ Type* CTemplTool_ResolveMemberSelfRefs(TemplClass* templ, Type* type, UInt32* re
 Boolean CTemplTool_IsSameTemplateType(Type* a, Type* b) {
     return CTemplTool_GetSelfRefTemplate(b) == a;
 }
+#if MWCCPSP
+
+// 3.0.1: a class as its template, checked (0x4AF5D0)
+TemplClass* CTemplTool_GetTemplClass(TypeClass* tclass) {
+    if (!tclass) {
+        return NULL;
+    }
+    CError_ASSERT(118, tclass->flags & CLASS_IS_TEMPL);
+    return (TemplClass*)tclass;
+}
+
+// 3.0.1: the template of a class template instance, checked (0x4AF4D0; the
+// exe reaches it through a template header embedded in TemplClass)
+TemplClass* CTemplTool_GetInstTemplate(TypeClass* tclass) {
+    CError_ASSERT(133, tclass->flags & CLASS_IS_TEMPL_INST);
+    return TEMPL_CLASS_INST(tclass)->templ;
+}
+
+// 3.0.1: a class as its template instance, checked (0x4AF590)
+TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass) {
+    if (!tclass) {
+        return NULL;
+    }
+    CError_ASSERT(133, tclass->flags & CLASS_IS_TEMPL_INST);
+    return (TemplClassInst*)tclass;
+}
+
+#endif
+#if MWCCPSP
+// 0x4AF260: the class being defined, if it is a class template
+TemplClass* func_004AF260(void) {
+    TypeClass* tclass;
+
+    if (cscope_currentclass && (cscope_currentclass->flags & CLASS_IS_TEMPL)) {
+        tclass = cscope_currentclass;
+        CError_ASSERT(118, !tclass || (tclass->flags & CLASS_IS_TEMPL));
+        return TEMPL_CLASS(tclass);
+    }
+    return NULL;
+}
+#endif

@@ -20,6 +20,11 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if MWCCPSP_NATIVE
+// paths here have Windows separators; the native shim translates them
+extern FILE* win32_fopen(const char* path, const char* mode);
+#define fopen win32_fopen
+#endif
 #include <string.h>
 
 static Boolean ioPiping;
@@ -67,9 +72,11 @@ static void SetupConsoleInfo(void) {
             optsEnvir.cols = 256;
         }
     }
+#if !MWCCPSP_NATIVE // MSL's stdio table; the host libc does no newline translation
     _HandleTable[0]->translate = 0;
     _HandleTable[1]->translate = 0;
     _HandleTable[2]->translate = 0;
+#endif
 }
 
 static void Crash(void) {
@@ -77,7 +84,11 @@ static void Crash(void) {
 }
 
 void SetupDebuggingTraps(void) {
+#if MWCCPSP_NATIVE
+    signal(SIGABRT, (void (*)(int))Crash);
+#else
     signal(SIGABRT, (__signal_func_ptr)Crash);
+#endif
 }
 
 Boolean IO_Initialize(void) {
@@ -116,6 +127,82 @@ Boolean IO_HelpTerminate(void) {
     return TRUE;
 }
 
+#if MWCCPSP
+// 3.0.1: writes the lines of a text buffer with CRLF endings; a final line
+// without an end-of-line character gets none
+static Boolean SendTextToFile(FILE* file, char* text, UInt32 size) {
+    char* ptr;
+    char* lineEnd;
+    char* end;
+    Boolean eol;
+
+    if (file != stdout && file != stderr) {
+        setvbuf(file, NULL, _IOFBF, 0x1000);
+    }
+
+    end = text + size;
+    for (ptr = text; ptr < end; ptr = lineEnd) {
+        lineEnd = ptr;
+        while (lineEnd < end && *lineEnd != '\n' && *lineEnd != '\r') {
+            lineEnd++;
+        }
+        eol = *lineEnd == '\n' || *lineEnd == '\r';
+
+        if (lineEnd - ptr) {
+            if (fwrite(ptr, lineEnd - ptr, 1, file) != 1) {
+                CLReportCError(CLStr10, errno);
+                return FALSE;
+            }
+        }
+
+        if (CheckForUserBreak()) {
+            return TRUE;
+        }
+
+        if (eol) {
+            if (fwrite("\r\n", 2, 1, file) != 1) {
+                CLReportCError(CLStr10, errno);
+                return FALSE;
+            }
+            if (lineEnd < end && *(lineEnd++) == '\r' && *lineEnd == '\n') {
+                ++lineEnd;
+            }
+        }
+    }
+
+    fflush(file);
+    if (file != stdout && file != stderr) {
+        setvbuf(file, NULL, _IONBF, 0x1000);
+    }
+
+    return TRUE;
+}
+
+static Boolean SendHandleToFile(FILE* file, OSHandle* text) {
+    Boolean ret;
+    char* ptr;
+    UInt32 size;
+
+    ptr = OS_LockHandle(text);
+    if (!ptr) {
+        return FALSE;
+    }
+
+    OS_GetHandleSize(text, &size);
+    if (size && ptr[size - 1] == 0) {
+        size--;
+    }
+
+    if (size == 0) {
+        ret = TRUE;
+    } else {
+        ret = SendTextToFile(file, ptr, size);
+    }
+
+    OS_UnlockHandle(text);
+    return ret;
+}
+#else
 static Boolean SendHandleToFile(FILE* file, Handle text, SInt32 size) {
     Boolean ret;
     char* ptr;
@@ -180,6 +267,10 @@ fail:
     return ret;
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 void FixHandleForIDE(Handle text, UInt32 size) {
     char* ptr;
 
@@ -192,6 +283,41 @@ void FixHandleForIDE(Handle text, UInt32 size) {
     HUnlock(text);
 }
 
+#if MWCCPSP
+Boolean ShowHandle(OSHandle* text, Boolean decorate) {
+    static const char* const border = "===============\n";
+    Boolean ret;
+
+    if (decorate) {
+        fprintf(stdout, border);
+    }
+    ret = SendHandleToFile(stdout, text);
+    if (decorate) {
+        fprintf(stdout, border);
+    }
+    fflush(stdout);
+
+    return ret;
+}
+
+Boolean WriteHandleToFile(OSSpec* spec, OSHandle* text, OSType creator, OSType type) {
+    FILE* file;
+    char path[256];
+
+    OS_SpecToString(spec, path, sizeof(OSPathSpec));
+    file = fopen(path, "w+b");
+    if (!file) {
+        CLReportCError(CLStr8, errno, path);
+        return FALSE;
+    }
+
+    SendHandleToFile(file, text);
+    fclose(file);
+
+    OS_SetMacFileCreatorAndType(spec, creator, type);
+    return TRUE;
+}
+#else
 Boolean ShowHandle(Handle text, UInt32 size, Boolean decorate) {
     static const char* const border = "===============\n";
 
@@ -227,9 +353,16 @@ Boolean WriteHandleToFile(OSSpec* spec, Handle text, UInt32 size, OSType creator
     return TRUE;
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 Boolean WriteBinaryHandleToFile(OSSpec* spec, OSType maccreator, OSType mactype, OSHandle* text) {
     int err;
     OSFileHandle file;
+#if MWCCPSP
+
+#endif
 
     if ((err = OS_NewFileHandle(spec, text, TRUE, &file)) ||
         (err = OS_FreeFileHandle(&file)) ||
@@ -241,6 +374,25 @@ Boolean WriteBinaryHandleToFile(OSSpec* spec, OSType maccreator, OSType mactype,
     return TRUE;
 }
 
+#if MWCCPSP
+Boolean AppendHandleToFile(OSSpec* spec, OSHandle* text, OSType maccreator, OSType mactype) {
+    FILE* file;
+    char path[256];
+
+    OS_SpecToString(spec, path, sizeof(OSPathSpec));
+    file = fopen(path, "a+b");
+    if (!file) {
+        CLReportCError(CLStr8, errno, path);
+        return FALSE;
+    }
+
+    SendHandleToFile(file, text);
+    fclose(file);
+
+    OS_SetMacFileCreatorAndType(spec, maccreator, mactype);
+    return TRUE;
+}
+#else
 Boolean AppendHandleToFile(
     OSSpec* spec, Handle text, UInt32 size, OSType maccreator, OSType mactype
 ) {
@@ -260,6 +412,7 @@ Boolean AppendHandleToFile(
     OS_SetMacFileCreatorAndType(spec, maccreator, mactype);
     return TRUE;
 }
+#endif
 
 void InitWorking(void) {}
 
@@ -326,10 +479,18 @@ inline void appendChar(TextBuffer* f, char c) {
 }
 
 static void StartLine(TextBuffer* f) {
+#if MWCCPSP
+    char* nl;
+    f->col = 0;
+    if (!optsEnvir.underIDE && (nl = f->newline)) {
+        appendText(f, nl);
+    }
+#else
     f->col = 0;
     if (!optsEnvir.underIDE && f->newline) {
         appendText(f, f->newline);
     }
+#endif
 }
 
 inline void newLine(TextBuffer* f) {
@@ -347,11 +508,22 @@ static void WrapText(TextBuffer* f) {
     char c;
 
     wrapped = 0;
+#if MWCCPSP
+    {
+        char* nl;
+        if (optsCmdLine.noWrapOutput ||
+            !(nl = f->newline) ||
+            strlen(nl) > (size_t)(optsEnvir.cols / 2)) {
+            return;
+        }
+    }
+#else
     if (optsCmdLine.noWrapOutput ||
         !f->newline ||
         strlen(f->newline) > (size_t)(optsEnvir.cols / 2)) {
         return;
     }
+#endif
 
     while (wrapped < (optsEnvir.cols - 1) && (size_t)f->col > strlen(f->newline)) {
         c = f->buffer[f->pos - 1];
@@ -429,12 +601,26 @@ static char* IO_VFormatText(
         }
     }
 
+#if MWCCPSP
+    {
+        char* nl;
+        SInt16 col;
+        if ((nl = f.newline)) {
+            col = f.col;
+            if ((size_t)(int)col == strlen(nl)) {
+                f.pos -= col;
+                f.col = 0;
+            }
+        }
+    }
+#else
     if (f.newline) {
         if ((size_t)(int)f.col == strlen(f.newline)) {
             f.pos -= f.col;
             f.col = 0;
         }
     }
+#endif
 
     appendChar(&f, 0);
 
@@ -467,7 +653,11 @@ void CLPrintDispatch(int unused, SInt16 msgtype, const char* message) {
     } else if (msgtype == Msg_Warning || msgtype == Msg_Error || msgtype == Msg_Alert) {
         out = stderr;
     } else {
+#if MWCCPSP
+        OS_ASSERT(898, 0);
+#else
         OS_ASSERT(847, 0);
+#endif
     }
 
     if (!printedAnything && !ioPiping) {
@@ -557,9 +747,17 @@ static char* Arrows(MessageRef* ref) {
 }
 
 static Boolean IsLikelyAnImporter(Plugin* plugin) {
+#if MWCCPSP
+    // 3.0.1 still counts a plugin with the 0x40000000 flag as an importer
+    if ((Plugin_CL_GetObjectFlags(plugin)->flags & 0x80000000) &&
+        !(Plugin_CL_GetObjectFlags(plugin)->flags & 0x40000000)) {
+        return FALSE;
+    }
+#else
     if (Plugin_CL_GetObjectFlags(plugin)->flags & 0x80000000) {
         return FALSE;
     }
+#endif
 
     if (plugin ==
         Plugins_CL_MatchTarget(NULL, gTarg->cpu, gTarg->os, clState.plugintype, clState.language)) {
@@ -590,7 +788,11 @@ static char* GuessTool(Plugin* plugin) {
             case CWDROPINCOMPILERTYPE:
                 if (df->edit_language == Lang_C_CPP || df->edit_language == Lang_Pascal) {
                     return "Compiler";
+#if MWCCPSP
+                } else if (df->edit_language == 'Asm ' || df->edit_language == 'MAsm') {
+#else
                 } else if (df->edit_language == 'Asm ') {
+#endif
                     return "Assembler";
                 } else if (IsLikelyAnImporter(plugin)) {
                     return "Importer";
@@ -728,7 +930,11 @@ static void styledMessage_Default(
             }
             *ptr = 0;
             if (ptr - lineBuf >= (cols = optsEnvir.cols) - 1) {
+#if MWCCPSP
+                *(lineBuf + cols - 1) = 0;
+#else
                 lineBuf[cols - 1] = 0;
+#endif
             }
             strcat(lineBuf, "\n");
             CLPrintDispatch(0, msgType, lineBuf);
@@ -791,14 +997,29 @@ static void styledMessage_Terse(
             );
         }
     } else if (msgType != Msg_Status) {
+#if MWCCPSP
+        if (msgnames_gcc[msgType][0]) {
+            headPtr = mprintf(
+                header, sizeof(header), "%s:%s: ", clState.programName, msgnames_gcc[msgType]
+            );
+        } else {
+            headPtr = mprintf(header, sizeof(header), "%s: ", clState.programName);
+        }
+#else
         headPtr = mprintf(header, sizeof(header), "%s: ", clState.programName);
+#endif
     } else {
         header[0] = 0;
         headPtr = header;
     }
 
     msgPtr = IO_VFormatText(msgBuf, sizeof(msgBuf), headPtr, format, va);
+#if MWCCPSP
+    if ((strstr(msgPtr, "preprocessor #warning") || strstr(msgPtr, " preprocessor #error")) &&
+        ref->sourceline[0]) {
+#else
     if ((strstr(msgPtr, "#warning") || strstr(msgPtr, "#error")) && ref->sourceline[0]) {
+#endif
         errPtr = IO_FormatText(errBuf, sizeof(errBuf), headPtr, "%", ref->sourceline);
     } else {
         errPtr = NULL;
@@ -824,11 +1045,15 @@ static void styledMessage_Terse(
             errPtr = NULL;
         }
 
+#if MWCCPSP
+        msg = *ptr ? ptr + 1 : ptr;
+#else
         if (*ptr) {
             msg = ptr + 1;
         } else {
             msg = ptr;
         }
+#endif
     }
 
     if (msgPtr != msgBuf) {
@@ -986,7 +1211,11 @@ static void FixupMessageRef(MessageRef* ref) {
         ref->sourceline[len] = 0;
 
         for (scan = 0; scan < len; scan++) {
+#if MWCCPSP
+            if (ref->sourceline[scan] < ' ') {
+#else
             if (ref->sourceline[scan] < ' ' || ref->sourceline[scan] >= 127) {
+#endif
                 ref->sourceline[scan] = ' ';
             }
         }
@@ -1001,6 +1230,9 @@ SInt16 CLStyledMessageDispatch(
     va_list va;
     MessageRef myref;
     UInt32 ptype;
+#if MWCCPSP
+    int style;
+#endif
 
     if (msgType == Msg_Warning) {
         if (plugin) {
@@ -1033,6 +1265,16 @@ SInt16 CLStyledMessageDispatch(
     }
 
     va_start(va, format);
+#if MWCCPSP
+    style = optsCmdLine.msgStyle;
+    if (style == 2) {
+        styledMessage_MPW(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
+    } else if (style == 1) {
+        styledMessage_Terse(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
+    } else if (style == 3) {
+        styledMessage_IDE(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
+    } else if (style == 4) {
+#else
     if ((ptype = optsCmdLine.msgStyle) == 2) {
         styledMessage_MPW(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
     } else if (ptype == 1) {
@@ -1040,6 +1282,7 @@ SInt16 CLStyledMessageDispatch(
     } else if (ptype == 3) {
         styledMessage_IDE(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
     } else if (ptype == 4) {
+#endif
         styledMessage_Parseable(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);
     } else {
         styledMessage_Default(plugin, ref ? &myref : NULL, errorNumber, msgType, format, va);

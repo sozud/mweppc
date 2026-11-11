@@ -22,14 +22,37 @@ struct NameResult {
     struct ObjBase* object;
     struct NameSpaceObjectList* objects;
     struct BClassList* basePath;
+#if MWCCPSP
+    // 3.0.1: 0x28 bytes, is_qualified at +0x22. One pointer after objects
+    // and one Boolean before is_qualified are new; where exactly they sit
+    // among their neighbours is not settled by the matched code.
+    void* unk1C;
+    UInt8 access; // +0x20: a found type's access (CScope_SetupParseNameResult)
+#endif
     Boolean is_destructor;
     Boolean is_qualified;
     Boolean isambig;
     Boolean unused;
     Boolean is_type;
     Boolean is_conv_operator;
+#if MWCCPSP_NATIVE
+    // 3.0.1 keeps only the ends of the path to a class member: basePath holds
+    // the most derived class and unk1C the class the member is in. Code here
+    // still written the 2.4.7 way reads the whole path from this field (see
+    // NAMERESULT_PATH).
+    struct BClassList* path;
+#endif
 };
 #pragma pack(pop)
+#if MWCCPSP
+
+// the path to a class member, for code written the 2.4.7 way
+#if MWCCPSP_NATIVE
+#define NAMERESULT_PATH(pr) ((pr)->path)
+#else
+#define NAMERESULT_PATH(pr) ((pr)->basePath)
+#endif
+#endif
 struct CScopeObjectIterator {
     struct NameSpace* nspace;
     struct NameSpaceName* nextname;
@@ -76,11 +99,25 @@ extern Boolean CScope_FindQualifiedClassMember(
 extern Type* CScope_GetType(NameSpace* nspace, HashNameNode* name, UInt32* qual);
 extern Type* CScope_GetTagType(NameSpace* nspace, HashNameNode* name);
 extern Boolean CScope_ParseExprName(NameResult* result);
+#if MWCCPSP
+// 3.0.1 takes the namespace to look in (NULL: the current scope)
+extern Boolean CScope_ParseDeclName(NameResult* result, NameSpace* nspace);
+#define CSCOPE_PARSEDECLNAME(result) CScope_ParseDeclName(result, NULL)
+// 3.0.1 takes the namespace to start from (callers pass NULL)
+extern Boolean CScope_ParseQualifiedNameSpace(
+    NameResult* result, NameSpace* nspace, Boolean allowOperator, Boolean noTemplateArgs
+);
+#define CSCOPE_PARSEQUALNS(result, a, b) CScope_ParseQualifiedNameSpace(result, NULL, a, b)
+#else
 extern Boolean CScope_ParseDeclName(NameResult* result);
 extern Boolean CScope_ParseQualifiedNameSpace(
     NameResult* result, Boolean allowOperator, Boolean noTemplateArgs
 );
+#endif
 extern Boolean CScope_ParseElaborateName(NameResult* result);
+#if MWCCPSP
+extern Boolean CScope_ParseTypeName(NameResult* result);
+#endif
 extern Boolean CScope_FindNonClassObject(NameSpace* nspace, NameResult* result, HashNameNode* name);
 extern NameSpaceObjectList* CScope_FindObjectList(NameResult* result, HashNameNode* name);
 extern Boolean CScope_PossibleTypeName(HashNameNode* name);
@@ -90,7 +127,11 @@ extern Boolean CScope_FindClassMemberObject(
 extern void CScope_InitObjectIterator(CScopeObjectIterator* iterator, NameSpace* nspace);
 extern ObjBase* CScope_NextObjectIteratorObject(CScopeObjectIterator* iterator);
 extern NameSpaceObjectList* CScope_NextObjectIteratorObjectList(CScopeObjectIterator* iterator);
+#if MWCCPSP
+extern struct ObjTypeTag* CScope_DefineTypeTag(NameSpace* nspace, HashNameNode* name, Type* type);
+#else
 extern void CScope_DefineTypeTag(NameSpace* nspace, HashNameNode* name, Type* type);
+#endif
 extern Type* CScope_GetLocalTagType(NameSpace* nspace, HashNameNode* name);
 extern Boolean CScope_FindTypeName(NameSpace* nspace, HashNameNode* name, NameResult* result);
 extern NameSpaceObjectList* CScope_GetLocalObject(NameSpace* nspace, HashNameNode* name);

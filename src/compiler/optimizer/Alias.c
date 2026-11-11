@@ -35,6 +35,9 @@ static TypePointer worst_case_memory_type = {TYPEARRAY, 0xFFFFFF, TYPE(&stchar)}
 static TypePointer virtual_object_type = {TYPEARRAY, 0xFFFFFF, TYPE(&stchar)};
 #endif
 
+#if MWCCPSP
+#pragma auto_inline off // 3.0.1 calls it
+#endif
 static Boolean is_safe_const(Object* obj) {
     Type* type;
 
@@ -48,10 +51,19 @@ static Boolean is_safe_const(Object* obj) {
         type = TPTR_TARGET(type);
     }
 
+#if MWCCPSP // 3.0.1: no vector types
+    if (type->type == TYPEINT ||
+        type->type == TYPEENUM ||
+        type->type == TYPEPOINTER ||
+        IS_TYPE_4BYTES_MEMBERPOINTER(type) ||
+        IS_TYPE_FLOAT(type) ||
+        IS_TYPE_STRUCT(type)) {
+#else
     if (TYPE_FITS_IN_REGISTER(type) ||
         IS_TYPE_VECTOR(type) ||
         IS_TYPE_FLOAT_NOT_VEC2X32FLOAT(type) ||
         IS_TYPE_STRUCT(type)) {
+#endif
         return is_const_object(obj);
     }
 
@@ -61,6 +73,9 @@ static Boolean is_safe_const(Object* obj) {
 
     return FALSE;
 }
+#if MWCCPSP
+#pragma auto_inline reset
+#endif
 
 #if VERSION < VERSION_GC_2_5
 static inline Alias* make_alias_set(void);
@@ -94,11 +109,20 @@ Alias* make_distinct_virtual_alias(Object* obj) {
 
     is_readonly = FALSE;
     type = obj->type;
+#if MWCCPSP
+    if (obj->type->type != TYPEPOINTER) {
+#else
     if (!IS_TYPE_POINTER(obj->type)) {
+#endif
         return NULL;
     }
 
     if (!(CParser_GetTypeQualifiers(obj->type, obj->qual) & Q_RESTRICT)) {
+#if MWCCPSP // 3.0.1: const pointees count only with #pragma opt_constnonchanging
+        if (!copts.opt_constnonchanging) {
+            return NULL;
+        }
+#endif
         if (CParser_IsReadOnly(TPTR_TARGET(type), obj->qual)) {
             if (IS_TYPE_CLASS(type) && !CClass_IsPODClass(TYPE_CLASS(type))) {
                 return NULL;
@@ -172,7 +196,11 @@ void add_aliased_locals_to_worst_case(Alias* alias) {
         }
 #endif
     } else {
+#if MWCCPSP
+        CError_FATAL(353);
+#else
         CError_FATAL(259);
+#endif
     }
 }
 
@@ -209,6 +237,10 @@ static inline Alias* make_alias_set(void) {
     return create_alias(AliasType_Set, NULL, 0, 0, FALSE);
 }
 
+#if MWCCPSP
+extern ObjectList*
+    data_00625008; // locals the code generator collected (CodeGen_Generator clears it)
+#endif
 void initialize_aliases(void) {
     int i;
 
@@ -232,19 +264,38 @@ void initialize_aliases(void) {
     worst_case_func = make_alias_set();
     add_alias_member(worst_case_func, make_alias(&worst_case_obj, 0, 0));
 #endif
+#if MWCCPSP // 3.0.1: locals that cannot live in registers may be reached by any call
+    {
+        ObjectList* list;
+        Object* obj;
+        for (list = data_00625008; list; list = list->next) {
+            obj = list->object;
+            if (Registers_GetVarInfo(obj)->noregister) {
+                add_alias_member(worst_case_func, make_alias(obj, 0, 0));
+            }
+        }
+    }
+#endif
 }
 
 Alias* make_alias(Object* object, SInt32 offset, SInt32 size) {
     Alias* alias2;
     Alias* alias;
 
+#if MWCCPSP
+    CError_ASSERT(470, object);
+#endif
     if (!size) {
         offset = 0;
         size = object->type->size;
     }
 
     for (alias = alias_hash[hash_alias(object, offset, size)]; alias; alias = alias->hashNext) {
+#if MWCCPSP // 3.0.1: the same object reached through another declaration counts
+        if (same_object(alias->object, object) && alias->offset == offset && alias->size == size) {
+#else
         if (alias->object == object && alias->offset == offset && alias->size == size) {
+#endif
             goto found;
         }
     }
@@ -287,7 +338,12 @@ found:
     }
 }
 
+#if MWCCPSP
+// 0x481740 (3.0.1 keeps it out of line)
+static Alias* create_alias_union(Alias* a, Alias* b) {
+#else
 static inline Alias* create_alias_union(Alias* a, Alias* b) {
+#endif
     if (a == b) {
         return a;
     }
@@ -343,7 +399,12 @@ void add_alias_member(Alias* parent, Alias* child) {
 #undef CError_LINE_SHIFT
 #define CError_LINE_SHIFT -48
 #endif
+#if MWCCPSP
+// 0x481630 (3.0.1 keeps it out of line)
+static Alias* make_displ_alias(Alias* alias, SInt32 offset, SInt32 size) {
+#else
 static inline Alias* make_displ_alias(Alias* alias, SInt32 offset, SInt32 size) {
+#endif
     Alias* a;
 
     if (size && alias->size != alias->object->type->size) {
@@ -355,7 +416,11 @@ static inline Alias* make_displ_alias(Alias* alias, SInt32 offset, SInt32 size) 
     } else {
         a = make_alias(alias->object, 0, 0);
     }
+#if MWCCPSP
+    CError_ASSERT(786, a);
+#else
     CError_ASSERT(948, a);
+#endif
     return a;
 }
 
@@ -1132,6 +1197,31 @@ static void gather_instruction_alias(PCode* pcode, UInt32* myvec) {
 }
 #endif
 
+#if MWCCPSP
+// 3.0.1's gather_alias_info (0x481370) walks MPCode: AliasPropagation.c.
+// This is its tail, which needs this file's alias list.
+void Alias_GatherMembervecs301(void) {
+    Alias* alias;
+    AliasMember* member;
+    AliasMember* member2;
+
+    if (n_gathered_aliases != n_aliases) {
+        for (alias = aliases; alias; alias = alias->next) {
+            if (alias->type == AliasType_Set) {
+                alias->membervec = lalloc(4 * ((n_aliases + 31) >> 5));
+                bitvectorinitialize(alias->membervec, n_aliases, 0);
+                for (member = alias->parents; member; member = member->nextParent) {
+                    bitvectorsetbit(member->child->index, alias->membervec);
+                    for (member2 = member->child->parents; member2; member2 = member2->nextParent) {
+                        bitvectorsetbit(member2->child->index, alias->membervec);
+                    }
+                }
+            }
+        }
+        n_gathered_aliases = n_aliases;
+    }
+}
+#else
 void gather_alias_info(void) {
     Alias* alias;
     AliasMember* member;
@@ -1214,10 +1304,15 @@ void gather_alias_info(void) {
         n_gathered_aliases = n_aliases;
     }
 }
+#endif
 
 #if VERSION < VERSION_GC_2_5
 #undef CError_LINE_SHIFT
 #define CError_LINE_SHIFT -81
+#endif
+#if MWCCPSP // 3.0.1 asserts sit 540 lines earlier
+#undef CError_LINE_SHIFT
+#define CError_LINE_SHIFT -540
 #endif
 static Boolean may_alias_alias(Alias* a, Alias* b) {
     switch ((a->type * 3) + b->type) {
@@ -1249,6 +1344,10 @@ static Boolean may_alias_alias(Alias* a, Alias* b) {
             return TRUE;
     }
 }
+#if MWCCPSP
+#undef CError_LINE_SHIFT
+#define CError_LINE_SHIFT 0
+#endif
 
 Boolean may_alias(PCode* a, PCode* b) {
     return may_alias_alias(a->alias, b->alias);
@@ -1325,16 +1424,86 @@ Boolean uniquely_aliases(PCode* a, PCode* b) {
 }
 #endif
 
+#if MWCCPSP
+extern SInt32 func_0048FBE0(UInt16 op);
+// MPCode.op: +0x28 in 3.0.1; natively from the struct (src/native/layout.c)
+#if MWCCPSP_NATIVE
+extern const int mpcode_op_offset;
+#define PCODE_OP301(pc) (*(UInt16*)((char*)(pc) + mpcode_op_offset))
+#else
+#define PCODE_OP301(pc) (*(UInt16*)((char*)(pc) + 0x28))
+#endif
+
+// 0x481030
+Boolean may_alias_worst_case(PCode* pcode) {
+    return may_alias_alias(pcode->alias, worst_case_ptr);
+}
+
+// 0x481050: does the instruction access exactly the alias (the same object
+// part, whole)?
+Boolean uniquely_aliases_alias(PCode* a, Alias* b) {
+    SInt32 size;
+
+    if (may_alias_alias(a->alias, b) &&
+        a->alias &&
+        b &&
+        a->alias == b &&
+        a->alias->type < AliasType_Set &&
+        b->type < AliasType_Set &&
+        b->size == (size = a->alias->size) &&
+        size == func_0048FBE0(PCODE_OP301(a))) {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// 0x4810B0
+Boolean uniquely_aliases(PCode* a, PCode* b) {
+    SInt32 size;
+
+    if (may_alias_alias(a->alias, b->alias) &&
+        a->alias &&
+        b->alias &&
+        a->alias == b->alias &&
+        a->alias->type < AliasType_Set &&
+        b->alias->type < AliasType_Set &&
+        b->alias->size == (size = a->alias->size) &&
+        size == func_0048FBE0(PCODE_OP301(a)) &&
+        size == func_0048FBE0(PCODE_OP301(b))) {
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+#if MWCCPSP
+
+// create_alias_union for AliasPropagation.c (3.0.1 moved the alias
+// gathering there)
+Alias* Alias_CreateUnion301(Alias* a, Alias* b) {
+    return create_alias_union(a, b);
+}
+Alias* Alias_MakeDisplAlias301(Alias* alias, SInt32 offset, SInt32 size) {
+    return make_displ_alias(alias, offset, size);
+}
+
+#endif
 Boolean may_alias_object(PCode* pcode, Object* object) {
     return may_alias_alias(pcode->alias, make_alias(object, 0, 0));
 }
 
 #if VERSION >= VERSION_GC_2_5
+#if MWCCPSP
+extern SInt32 func_0048FBE0(UInt16 op); // bytes the memory instruction accesses
+#endif
 Boolean must_alias_object(PCode* pcode, Object* object) {
     if ((pcode->alias->type == AliasType_ObjectPart || pcode->alias->type == AliasType_Object) &&
         pcode->alias->object == object &&
         pcode->alias->size == object->type->size &&
+#if MWCCPSP // 3.0.1: sized by the opcode (MPCode.op at +0x28)
+        pcode->alias->size == func_0048FBE0(PCODE_OP301(pcode))) {
+#else
         pcode->alias->size == nbytes_loaded_or_stored_by(pcode)) {
+#endif
         return TRUE;
     }
     return FALSE;
@@ -1353,6 +1522,10 @@ void initialize_alias_values(void) {
 #if VERSION < VERSION_GC_2_5
 #undef CError_LINE_SHIFT
 #define CError_LINE_SHIFT -140
+#endif
+#if MWCCPSP // 3.0.1 asserts sit 537 lines earlier
+#undef CError_LINE_SHIFT
+#define CError_LINE_SHIFT -537
 #endif
 void update_alias_value(Alias* alias, PCode* pcode) {
     AliasMember* member2;
@@ -1415,6 +1588,10 @@ void update_alias_value(Alias* alias, PCode* pcode) {
             break;
     }
 }
+#if MWCCPSP
+#undef CError_LINE_SHIFT
+#define CError_LINE_SHIFT 0
+#endif
 
 void update_all_alias_values(void) {
     Alias* alias;

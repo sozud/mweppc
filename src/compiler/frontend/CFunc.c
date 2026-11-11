@@ -55,13 +55,20 @@ static short temp_expression_has_conditionals;
 static DeclBlock* firstblock;
 static DeclBlock* currentblock;
 static short blockcount;
+#if MWCCPSP
+static DeclBlock* cfunc_curblock; // 3.0.1: the innermost block
+#endif
 static Object* sinit_first_object;
 static CLabel* sinit_label;
 static Boolean ainit_only_one;
 static ENode* ainit_expr;
 static FuncArg* check_arglist;
 static Boolean cfunc_is_extern_c;
+#if MWCCPSP
+static SInt32 cfunc_staticvarcount; // a word in 3.0.1 (0x5EDCBC)
+#else
 static SInt16 cfunc_staticvarcount;
+#endif
 static void* destroyobjects;
 static Boolean cfunc_hasdtortemp;
 
@@ -103,6 +110,24 @@ typedef struct CFuncSave {
 } CFuncSave;
 
 static void statement(DeclThing* thing);
+#if MWCCPSP
+static void CFunc_AutoResultCheck(ENode* expr);
+static ENode* returnstatementadjust(ENode* expr, Type* type, UInt32 qual);
+static void ifstatement(Boolean ifTrue, ENode* expr, CLabel* label, Boolean isLoopBranch);
+static void makeifstatement(
+    ENode* expr, CLabel* label1, CLabel* label2, Boolean ifTrue, Boolean isLoopBranch
+);
+static ENode* CFunc_ParseLocalDeclarationList(
+    Boolean isParameterList, Boolean isCondition, Boolean isForInit, Boolean isStatement
+);
+
+static Object* CFunc_LocalDataDeclarator(
+    DeclInfo* di, TStreamElement* deftoken, Boolean isParameterList
+);
+void CFunc_NameLocalStaticDataObject(Object* obj);
+extern void func_0049F5A0(Object* obj, Object* func, SInt32 index);
+static void scancase(DeclThing* thing);
+#endif
 
 static void CFunc_LoopIncrement(void) {
     if (curstmtvalue >= 0x1000) {
@@ -132,10 +157,13 @@ static void CFunc_LoopDecrement(void) {
     }
 }
 
+#if !MWCCPSP
 DeclBlock* CFunc_NewDeclBlock(void) {
     DeclBlock* block;
     NameSpace* nspace;
+#endif
 
+#if !MWCCPSP
     block = lalloc(sizeof(DeclBlock));
     if (firstblock) {
         currentblock->next = block;
@@ -164,6 +192,7 @@ void CFunc_RestoreBlock(DeclBlock* block) {
     cscope_current = block->parent_nspace;
     cexcept_dobjstack = block->dobjstack;
 }
+#endif
 
 void CFunc_SetupLocalVarInfo(Object* obj) {
     obj->u.var.info = CodeGen_GetNewVarInfo();
@@ -317,6 +346,108 @@ static ENode* CFunc_DefaultArg(Type* type, UInt32 qual, FuncArg* args) {
     return CInline_CopyExpression(expr, CopyModeGlobal);
 }
 
+#if MWCCPSP
+extern void CFunc_DefaultArg301(FuncArg* arg, FuncArg* args); // 0x46EB10: may defer the parse
+extern void func_00500E60(DeclInfo* di, void* list); // appends to di->unk44list
+
+// 3.0.1 (0x46E630): the parameter declaration inherits the outer unk10, its
+// collected unk44list goes to the outer declaration, and a default argument
+// is parsed (or deferred) by CFunc_DefaultArg301.
+static FuncArg* parameter_list(DeclInfo* declinfo) {
+    Boolean is_first;
+    FuncArg* arg;
+    FuncArg* args;
+    DeclInfo my_di;
+    Boolean isArray;
+
+    args = NULL;
+    is_first = TRUE;
+
+    while (1) {
+        if (tk == TK_ELLIPSIS) {
+            if (is_first) {
+                if (!copts.cplusplus && copts.ANSIstrict) {
+                    CError_Warning(ERR_ILLEGAL_FUNCTION_DEFINITION);
+                }
+                args = &elipsis;
+            } else {
+                CFunc_AppendArg(&args, &elipsis);
+            }
+
+            tk = lex();
+            return args;
+        }
+
+        memclrw(&my_di, sizeof(my_di));
+        my_di.unk10 = declinfo->unk10;
+        CParser_GetDeclSpecs(&my_di, FALSE);
+        if (my_di.missingTypeSpecifier) {
+            CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+        }
+
+        if (my_di.storageclass &&
+            (int)my_di.storageclass != TK_REGISTER &&
+            (!copts.cplusplus || (int)my_di.storageclass != TK_AUTO)) {
+            CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+            my_di.storageclass = 0;
+        }
+
+        my_di.name = NULL;
+
+        scandeclarator(&my_di);
+
+        if (is_first) {
+            is_first = FALSE;
+            if (my_di.thetype == &stvoid) {
+                if (my_di.storageclass || my_di.qual || my_di.name) {
+                    CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+                }
+                return NULL;
+            }
+        }
+
+        isArray = IS_TYPE_ARRAY(my_di.thetype);
+        adjustargumenttype(&my_di);
+
+        if (my_di.name) {
+            if (args && CFunc_IsInArgList(args, my_di.name)) {
+                CError_Error(ERR_IDENTIFIER_REDECLARED, my_di.name->name);
+            }
+        } else {
+            my_di.name = no_name_node;
+        }
+
+        if (my_di.thetype == &stvoid) {
+            CError_Error(ERR_ILLEGAL_USE_VOID, &stvoid, 0);
+        }
+
+        arg = CParser_NewFuncArg();
+        arg->name = my_di.name;
+        arg->type = my_di.thetype;
+        arg->qual = my_di.qual;
+        arg->sclass = my_di.storageclass;
+        arg->is_array = isArray;
+        CFunc_AppendArg(&args, arg);
+
+        if (my_di.unk44list) {
+            func_00500E60(declinfo, my_di.unk44list);
+        }
+
+        if (copts.cplusplus && tk == '=') {
+            tk = lex();
+            CFunc_DefaultArg301(arg, args);
+        }
+
+        if (tk != ',') {
+            if (tk != TK_ELLIPSIS || !copts.cplusplus) {
+                return args;
+            }
+        } else {
+            tk = lex();
+        }
+    }
+}
+#else
 static FuncArg* parameter_list(DeclInfo* declinfo) {
     Boolean is_first;
     FuncArg* arg;
@@ -406,6 +537,7 @@ static FuncArg* parameter_list(DeclInfo* declinfo) {
         }
     }
 }
+#endif
 
 Boolean CFunc_ParseFakeArgList(Boolean stopAtComma) {
     DeclInfo di;
@@ -447,6 +579,40 @@ Boolean CFunc_ParseFakeArgList(Boolean stopAtComma) {
     return TRUE;
 }
 
+#if MWCCPSP
+// 3.0.1 (0x46E580): C++ always parses a parameter list
+FuncArg* parameter_type_list(DeclInfo* declinfo) {
+    FuncArg* args;
+    NameSpace* nspace;
+    Boolean save_in_func_arglist;
+
+    declinfo->hasParameterNames = FALSE;
+    declinfo->oldStyleParameters = FALSE;
+    declinfo->parameterScope = NULL;
+
+    if (!copts.cplusplus) {
+        if (tk != TK_ELLIPSIS && !isdeclaration(0, 0, 0, 0)) {
+            identifier_list(declinfo);
+            return &oldstyle;
+        }
+        nspace = CScope_NewListNameSpace(NULL, FALSE);
+        nspace->parent = cscope_current;
+        save_in_func_arglist = in_func_arglist;
+        in_func_arglist = TRUE;
+        cscope_current = nspace;
+        args = parameter_list(declinfo);
+        cscope_current = nspace->parent;
+        in_func_arglist = save_in_func_arglist;
+        if (!CScope_IsEmptyNameSpace(nspace)) {
+            declinfo->parameterScope = nspace;
+        }
+    } else {
+        args = parameter_list(declinfo);
+    }
+
+    return args;
+}
+#else
 FuncArg* parameter_type_list(DeclInfo* declinfo) {
     FuncArg* args;
     NameSpace* nspace;
@@ -487,6 +653,7 @@ FuncArg* parameter_type_list(DeclInfo* declinfo) {
 
     return args;
 }
+#endif
 
 CLabel* findlabel(void) {
     CLabel* scan;
@@ -511,10 +678,16 @@ CLabel* newlabel(void) {
 Statement* CFunc_AppendStatement(StatementType sttype) {
     Statement* stmt = lalloc(sizeof(Statement));
 
+#if MWCCPSP
+    memclrw(stmt, sizeof(Statement));
+    stmt->type = sttype;
+    stmt->value = curstmtvalue;
+#else
     stmt->next = NULL;
     stmt->type = sttype;
     stmt->value = curstmtvalue;
     stmt->flags = 0;
+#endif
     stmt->sourceoffset = sourceoffset;
     stmt->sourcefilepath = sourcefilepath;
     stmt->dobjstack = cexcept_dobjstack;
@@ -527,11 +700,19 @@ Statement* CFunc_AppendStatement(StatementType sttype) {
 Statement* CFunc_InsertStatement(StatementType sttype, Statement* after) {
     Statement* stmt = lalloc(sizeof(Statement));
 
+#if MWCCPSP
+    memclrw(stmt, sizeof(Statement)); // 0x46E4A0
+    stmt->next = after->next;
+    after->next = stmt;
+    stmt->type = sttype;
+    stmt->value = after->value;
+#else
     stmt->next = after->next;
     after->next = stmt;
     stmt->type = sttype;
     stmt->value = after->value;
     stmt->flags = 0;
+#endif
     stmt->sourceoffset = after->sourceoffset;
     stmt->sourcefilepath = after->sourcefilepath;
     stmt->dobjstack = after->dobjstack;
@@ -571,9 +752,11 @@ Object* create_temp_object(Type* type) {
 ENode* create_temp_node(Type* type) {
     ENode* node;
 
+#if !MWCCPSP // 3.0.1 (0x46E350) has no initializer hook here
     if (cinit_tempnodefunc) {
         return cinit_tempnodefunc(type, FALSE);
     }
+#endif
 
     node = CExpr_NewETEMPNode(type, FALSE);
     if (IS_TYPE_CLASS(type) && CClass_Destructor(TYPE_CLASS(type))) {
@@ -585,9 +768,11 @@ ENode* create_temp_node(Type* type) {
 ENode* create_temp_node2(Type* type) {
     ENode* node;
 
+#if !MWCCPSP // 3.0.1 (0x46E330): the initializer hook is gone
     if (cinit_tempnodefunc) {
         return cinit_tempnodefunc(type, TRUE);
     }
+#endif
 
     node = CExpr_NewETEMPNode(type, FALSE);
     node->data.temp.needs_dtor = TRUE;
@@ -662,7 +847,9 @@ void CFunc_CodeCleanup(Statement* stmt) {
         CSOM_InitSOMSelf(cscope_currentclass, stmt);
     }
 
+#if !MWCCPSP
     CFunc_WarnUnused();
+#endif
     CExcept_ExceptionTansform(stmt);
 }
 
@@ -993,6 +1180,152 @@ void CFunc_DestructorCleanup(Statement* first) {
     }
 }
 
+#if MWCCPSP
+extern void func_0046DCB0(Statement* first); // computed-goto label handling
+extern Boolean data_005EDCB8;
+
+// 0x469000: a GCC statement expression ({ ... }): its statements, with the
+// value of the last expression statement
+ENode* func_00469000(void) {
+    Statement first;
+    Statement* savestmt;
+    ExceptionAction* savedobj;
+    DeclThing thing;
+    Statement* scan;
+    Statement* last;
+    ENode* expr;
+
+    if (!cscope_currentfunc) {
+        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+        return nullnode();
+    }
+    savestmt = curstmt;
+    savedobj = cexcept_dobjstack;
+    memclrw(&first, sizeof(Statement));
+    first.value = curstmtvalue;
+    curstmt = &first;
+    first.type = ST_NOP;
+    cexcept_dobjstack = NULL;
+    memclrw(&thing, sizeof(DeclThing));
+    CFunc_CompoundStatement(&thing);
+    if (tk == ')') {
+        tk = lex();
+    } else {
+        CError_ErrorSkip(ERR_RPAREN_EXPECTED);
+    }
+    curstmt = savestmt;
+    cexcept_dobjstack = savedobj;
+    last = NULL;
+    for (scan = &first; scan; scan = scan->next) {
+        if (scan->type != ST_EXPRESSION || !ENODE_IS(scan->expr, ESCOPEEND)) {
+            last = scan;
+        }
+    }
+    if (last && last->type == ST_EXPRESSION) {
+        expr = CExpr_NewENode(ESTMT);
+        expr->rtype = last->expr->rtype;
+        expr->flags = last->expr->flags;
+        *(Statement**)&expr->data = first.next;
+        data_005EDCB8 = TRUE;
+        return expr;
+    }
+    CError_Error(ERR_EXPRESSION_SYNTAX_ERROR);
+    return nullnode();
+}
+
+extern Boolean data_005EDCB8;
+
+// 0x46D890 (3.0.1): the jump checks moved to CFunc_WarnUnused301; what is
+// left inserts the destructor calls on scope exits
+void CFunc_DestructorCleanup301(Statement* first) {
+    Statement *stmt, *next;
+
+    if (data_005EDCB8) {
+        func_0046DCB0(first);
+    }
+    if (!cexcept_hasdobjects) {
+        return;
+    }
+    stmt = first;
+    for (;;) {
+        if (!(next = stmt->next)) {
+            if (stmt->type != ST_RETURN && stmt->dobjstack) {
+                CFunc_EmitAllCleanups(stmt, stmt->dobjstack);
+            }
+            break;
+        }
+        switch (next->type) {
+            case ST_GOTO:
+                if (stmt->dobjstack != next->label->stmt->dobjstack &&
+                    CFunc_NeedsCleanup(stmt, next->label->stmt)) {
+                    CFunc_EmitCleanups(
+                        stmt, stmt->dobjstack, CFunc_CommonScope(stmt, next->label->stmt->dobjstack)
+                    );
+                }
+                stmt = next;
+                break;
+            case ST_RETURN:
+                if (next->expr && CFunc_AnyCleanup(stmt->dobjstack)) {
+                    DestructorReturnTransform(stmt, next);
+                } else if (stmt->dobjstack) {
+                    CFunc_EmitAllCleanups(stmt, stmt->dobjstack);
+                }
+                stmt = next;
+                break;
+            default:
+                switch (stmt->type) {
+                    case ST_NOP:
+                    case ST_LABEL:
+                    case ST_EXPRESSION:
+                    case ST_IFGOTO:
+                    case ST_IFNGOTO:
+                    case ST_BEGINCATCH:
+                    case ST_ENDCATCH:
+                    case ST_ENDCATCHDTOR:
+                    case ST_ASM:
+                        if (stmt->dobjstack != next->dobjstack && CFunc_NeedsCleanup(stmt, next)) {
+                            CFunc_EmitCleanups(
+                                stmt, stmt->dobjstack, CFunc_CommonScope(stmt, next->dobjstack)
+                            );
+                        }
+                        break;
+                    case ST_GOTO:
+                    case ST_SWITCH:
+                    case ST_RETURN:
+                        break;
+                    default:
+                        CError_FATAL(1250);
+                        break;
+                }
+                switch (next->type) {
+                    case ST_NOP:
+                    case ST_LABEL:
+                    case ST_EXPRESSION:
+                    case ST_SWITCH:
+                    case ST_BEGINCATCH:
+                    case ST_ENDCATCH:
+                    case ST_ENDCATCHDTOR:
+                    case ST_ASM:
+                        stmt = next;
+                        break;
+                    case ST_IFGOTO:
+                    case ST_IFNGOTO:
+                        if (next->dobjstack != next->label->stmt->dobjstack &&
+                            CFunc_NeedsCleanup(next, next->label->stmt)) {
+                            stmt = DestructorIfTransform(next);
+                        } else {
+                            stmt = next;
+                        }
+                        break;
+                    default:
+                        CError_FATAL(1280);
+                        break;
+                }
+        }
+    }
+}
+#endif
+#if !MWCCPSP
 static void scancase(DeclThing* thing) {
     SwitchCase* swcase;
     Statement* stmt;
@@ -1049,6 +1382,7 @@ static void CFunc_NameLocalStaticDataObject(Object* obj, char* str) {
         obj->sclass = 0;
     }
 }
+#endif
 
 static void sinit_insert_expr(ENode* expr) {
     Statement* stmt;
@@ -1057,7 +1391,12 @@ static void sinit_insert_expr(ENode* expr) {
         sinit_first_object = CParser_NewCompilerDefDataObject();
         sinit_first_object->type = TYPE(&stsignedchar);
         sinit_first_object->sclass = TK_STATIC;
+#if MWCCPSP
+        sinit_first_object->name = GetHashNameNodeExport("init");
+        CFunc_NameLocalStaticDataObject(sinit_first_object);
+#else
         CFunc_NameLocalStaticDataObject(sinit_first_object, "init");
+#endif
         CInit_DeclareData(sinit_first_object, NULL, NULL, sinit_first_object->type->size);
 
         sinit_label = newlabel();
@@ -1091,6 +1430,7 @@ static ENode* ainit_register_object(Type* type, Object* local, SInt32 offset, Bo
     );
 }
 
+#if !MWCCPSP
 static void CFunc_LocalDataDeclarator(
     DeclInfo* di, TStreamElement* deftoken, Boolean isParameterList, Boolean isCondition
 ) {
@@ -1622,6 +1962,7 @@ Statement* CFunc_GenerateLoop(
     return stmt;
 }
 
+#endif
 static Boolean checklabel(void) {
     HashNameNode* savename;
     short savesize;
@@ -1634,6 +1975,7 @@ static Boolean checklabel(void) {
     tksize = savesize;
 
     return token == ':';
+#if !MWCCPSP
 }
 
 static ENode* returnstatementadjust(ENode* expr, Type* type, UInt32 qual) {
@@ -1696,8 +2038,648 @@ static void CFunc_AutoResultCheck(ENode* expr) {
         }
         break;
     }
+#endif
 }
 
+#if MWCCPSP
+// 3.0.1: a template-dependent expression keeps the token it came from
+static ENode* CFunc_TemplDepSourceRef(ENode* expr) {
+    TStreamElement* element;
+    ENode* templdepexpr;
+
+    if (expr && (element = CPrep_CurStreamElement()) && element->tokenfile) {
+        templdepexpr = CExpr_NewTemplDepENode(TDE_SOURCEREF);
+        templdepexpr->data.templdep.u.sourceref.expr = expr;
+        templdepexpr->data.templdep.u.sourceref.token = galloc(sizeof(TStreamElement));
+        *templdepexpr->data.templdep.u.sourceref.token = *element;
+        return templdepexpr;
+    }
+    return expr;
+}
+
+static ENode* CFunc_ReturnValue(ENode* expr);
+static void CFunc_LoopStatement(DeclThing* thing, Boolean isFor);
+static ENode* CFunc_ParseCondition(DeclBlock** block, Boolean isCondition);
+static void CFunc_ParseLocalDeclaration(Boolean isParameterList);
+
+// 3.0.1: for/while, the condition with an optional declaration, and local
+// declarations are separate functions after statement
+static void statement(DeclThing* thing) {
+    Statement* stmt;
+    Statement* stmt2;
+    CLabel* label;
+    DeclBlock* block;
+    ENode* expr;
+    HashNameNode* name;
+    DeclThing subthing;
+
+    CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+
+    switch (tk) {
+        case TK_RETURN:
+            tk = lex();
+            if (!thing->thetype) {
+                CError_Error(ERR_ILLEGAL_USE, "return");
+                if (tk != ';') {
+                    expression();
+                }
+                break;
+            }
+
+            if ((thing->thetype == &stvoid && !copts.cplusplus) ||
+                CClass_IsConstructor(cscope_currentfunc) ||
+                CClass_IsDestructor(cscope_currentfunc)) {
+                if (tk != ';') {
+                    CError_Error(ERR_ILLEGAL_RETURN_VALUE_VOID_CONSTRUCTOR_DESTRUCTOR);
+                    expression();
+                }
+
+                stmt = CFunc_AppendStatement(ST_RETURN);
+                stmt->expr = NULL;
+                CError_ResetErrorSkip();
+                tk = lex();
+                return;
+            }
+
+            if (tk == ';') {
+                if (thing->thetype != &stvoid && (copts.pedantic || copts.cplusplus)) {
+                    CError_Warning(ERR_RETURN_VALUE_EXPECTED);
+                }
+
+                stmt = CFunc_AppendStatement(ST_RETURN);
+                stmt->expr = NULL;
+                CError_ResetErrorSkip();
+                tk = lex();
+                return;
+            }
+
+            if (!copts.old_argmatch) {
+                expr = s_expression();
+            } else {
+                expr = expression();
+            }
+
+            if (CTemplTool_IsTemplateArgumentDependentExpression(expr) ||
+                CTemplTool_IsTemplateArgumentDependentType(thing->thetype)) {
+                stmt = CFunc_AppendStatement(ST_RETURN);
+                stmt->expr = CFunc_TemplDepSourceRef(expr);
+                break;
+            }
+
+            if (thing->thetype == &stvoid) {
+                if (expr->rtype != &stvoid) {
+                    CError_Error(ERR_ILLEGAL_RETURN_VALUE_VOID_CONSTRUCTOR_DESTRUCTOR);
+                }
+
+                stmt = CFunc_AppendStatement(ST_EXPRESSION);
+                stmt->expr = expr;
+
+                stmt = CFunc_AppendStatement(ST_RETURN);
+                stmt->expr = NULL;
+            } else {
+                stmt = CFunc_AppendStatement(ST_RETURN);
+                stmt->expr = CFunc_ReturnValue(expr);
+            }
+            break;
+
+        case TK_CASE:
+            scancase(thing);
+            return;
+
+        case TK_DEFAULT:
+            if (!thing->switchinfo) {
+                CError_Error(ERR_ILLEGAL_USE_KEYWORD);
+                return;
+            }
+
+            if (lex() != ':') {
+                CError_ErrorSkip(ERR_COLON_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            if (thing->switchinfo->defaultlabel) {
+                CError_ErrorSkip(ERR_DEFAULT_LABEL_DEFINED_MORE_THAN_ONCE);
+            }
+
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = newlabel();
+            stmt->label->stmt = stmt;
+            thing->switchinfo->defaultlabel = stmt->label;
+            statement(thing);
+            return;
+
+        case TK_SWITCH:
+            if (lex() != '(') {
+                CError_ErrorSkip(ERR_LPAREN_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            block = NULL;
+            expr = CFunc_ParseCondition(&block, FALSE);
+
+            stmt = CFunc_AppendStatement(ST_SWITCH);
+            stmt->label = (CLabel*)lalloc(sizeof(SwitchInfo));
+            ((SwitchInfo*)stmt->label)->defaultlabel = NULL;
+            ((SwitchInfo*)stmt->label)->cases = NULL;
+            ((SwitchInfo*)stmt->label)->depcases = NULL;
+
+            if (CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+                stmt->expr = expr;
+                ((SwitchInfo*)stmt->label)->exprtype = NULL;
+            } else {
+                stmt->expr = CExpr_ConvertToIntegral(expr);
+                ((SwitchInfo*)stmt->label)->exprtype = stmt->expr->rtype;
+            }
+
+            if (tk != ')') {
+                CError_ErrorSkip(ERR_RPAREN_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            label = newlabel();
+            subthing = *thing;
+            subthing.loopBreak = label;
+            subthing.switchinfo = (SwitchInfo*)stmt->label;
+            CFunc_CompoundStatement(&subthing);
+
+            if (!subthing.switchinfo->defaultlabel) {
+                subthing.switchinfo->defaultlabel = label;
+            }
+
+            if (!subthing.switchinfo->cases && !subthing.switchinfo->depcases) {
+                stmt->type = ST_EXPRESSION;
+                stmt2 = lalloc(sizeof(Statement));
+                *stmt2 = *stmt;
+                stmt->next = stmt2;
+                stmt2->type = ST_GOTO;
+                stmt2->label = subthing.switchinfo->defaultlabel;
+                stmt2->dobjstack = cexcept_dobjstack;
+            }
+
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = label;
+            label->stmt = stmt;
+
+            if (block) {
+                CFunc_RestoreBlock(block);
+            }
+            return;
+
+        case TK_GOTO:
+            if ((tk = lex()) != TK_IDENTIFIER) {
+                CError_Error(ERR_IDENTIFIER_EXPECTED);
+                return;
+            }
+
+            stmt = CFunc_AppendStatement(ST_GOTO);
+            if (!(stmt->label = findlabel())) {
+                stmt->label = newlabel();
+                stmt->label->next = Labels;
+                Labels = stmt->label;
+                stmt->label->name = tkidentifier;
+            }
+            tk = lex();
+            break;
+
+        case TK_BREAK:
+            if (thing->loopBreak) {
+                stmt = CFunc_AppendStatement(ST_GOTO);
+                stmt->label = thing->loopBreak;
+            } else {
+                CError_Error(ERR_ILLEGAL_USE_KEYWORD);
+            }
+            tk = lex();
+            break;
+
+        case TK_CONTINUE:
+            if (thing->loopContinue) {
+                stmt = CFunc_AppendStatement(ST_GOTO);
+                stmt->label = thing->loopContinue;
+            } else {
+                CError_Error(ERR_ILLEGAL_USE_KEYWORD);
+            }
+            tk = lex();
+            break;
+
+        case TK_FOR:
+            CFunc_LoopStatement(thing, TRUE);
+            return;
+
+        case TK_WHILE:
+            CFunc_LoopStatement(thing, FALSE);
+            return;
+
+        case TK_DO: {
+            CLabel* label1;
+            CLabel* label2;
+            CLabel* label3;
+
+            CFunc_LoopIncrement();
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = newlabel();
+            (label1 = stmt->label)->stmt = stmt;
+
+            label2 = newlabel();
+            label3 = newlabel();
+
+            subthing = *thing;
+            subthing.loopContinue = label2;
+            subthing.loopBreak = label3;
+
+            tk = lex();
+            CFunc_CompoundStatement(&subthing);
+
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = label2;
+            label2->stmt = stmt;
+
+            if (tk != TK_WHILE) {
+                CError_Error(ERR_ILLEGAL_TOKEN);
+            }
+
+            if (lex() != '(') {
+                CError_ErrorSkip(ERR_LPAREN_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            expr = expression();
+            if (CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+                expr = CFunc_TemplDepSourceRef(expr);
+            } else {
+                expr = CExpr_ConvertToCondition(expr);
+            }
+            CExpr_CheckUnwantedAssignment(expr);
+
+            if (tk != ')') {
+                CError_ErrorSkip(ERR_RPAREN_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            ifstatement(TRUE, expr, label1, TRUE);
+
+            CFunc_LoopDecrement();
+
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = label3;
+            label3->stmt = stmt;
+            break;
+        }
+
+        case TK_IF: {
+            CLabel* label1;
+
+            if ((tk = lex()) != '(') {
+                CError_ErrorSkip(ERR_LPAREN_EXPECTED);
+            } else {
+                tk = lex();
+            }
+
+            block = NULL;
+            expr = CFunc_ParseCondition(&block, TRUE);
+
+            label1 = newlabel();
+            ifstatement(FALSE, expr, label1, FALSE);
+
+            if (tk != ')') {
+                CError_ErrorSkip(ERR_RPAREN_EXPECTED);
+            } else {
+                if (copts.warn_possunwant) {
+                    spaceskip = FALSE;
+                    if ((tk = lex()) == ';' && !spaceskip) {
+                        CError_Warning(ERR_POSSIBLE_UNWANTED_SEMICOLON);
+                    }
+                } else {
+                    tk = lex();
+                }
+            }
+
+            CFunc_CompoundStatement(thing);
+
+            if (tk == TK_ELSE) {
+                if (copts.warn_possunwant) {
+                    spaceskip = FALSE;
+                    if ((tk = lex()) == ';' && !spaceskip) {
+                        CError_Warning(ERR_POSSIBLE_UNWANTED_SEMICOLON);
+                    }
+                } else {
+                    tk = lex();
+                }
+
+                stmt = CFunc_AppendStatement(ST_GOTO);
+                stmt->label = newlabel();
+                label = stmt->label;
+
+                stmt = CFunc_AppendStatement(ST_LABEL);
+                stmt->label = label1;
+                label1->stmt = stmt;
+
+                CFunc_CompoundStatement(thing);
+
+                label1 = label;
+            }
+
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = label1;
+            label1->stmt = stmt;
+
+            if (block) {
+                CFunc_RestoreBlock(block);
+            }
+            return;
+        }
+
+        case '{':
+            CFunc_CompoundStatement(thing);
+            return;
+
+        case TK_ASM:
+            if (copts.cplusplus || !copts.ANSIstrict) {
+                tk = lex();
+                volatileasm = FALSE;
+
+                if (tk == TK_VOLATILE ||
+                    (tk == TK_IDENTIFIER && !strcmp(tkidentifier->name, "__volatile__"))) {
+                    tk = lex();
+                    volatileasm = TRUE;
+                }
+
+                if (tk == '(') {
+                    InlineAsm_Assemble();
+                    if (tk == ')') {
+                        tk = lex();
+                        break;
+                    } else {
+                        CError_Error(ERR_RPAREN_EXPECTED);
+                        return;
+                    }
+                }
+
+                if (tk == '{') {
+                    InlineAsm_Assemble();
+                    if (tk != '}') {
+                        CError_Error(ERR_RBRACE_EXPECTED);
+                        return;
+                    }
+                    if ((tk = lex()) == ';') {
+                        tk = lex();
+                    }
+                    CError_ResetErrorSkip();
+                    return;
+                }
+
+                CError_Error(ERR_LPAREN_EXPECTED);
+                return;
+            }
+            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+            return;
+
+        case TK_TRY:
+            tk = lex();
+            CExcept_ScanTryBlock(thing, FALSE);
+            return;
+
+        case TK_USING:
+            if ((tk = lex()) == TK_NAMESPACE) {
+                tk = lex();
+                CScope_ParseUsingDirective(cscope_current);
+            } else {
+                CScope_ParseUsingDeclaration(cscope_current, ACCESSPUBLIC, FALSE);
+            }
+            return;
+
+        case TK_NAMESPACE:
+            if ((tk = lex()) != TK_IDENTIFIER) {
+                CError_Error(ERR_IDENTIFIER_EXPECTED);
+                return;
+            }
+            name = tkidentifier;
+            if ((tk = lex()) != '=') {
+                CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                return;
+            }
+
+            CScope_ParseNameSpaceAlias(name);
+            break;
+
+        case ';':
+            break;
+
+        case TK_IDENTIFIER:
+            if (checklabel()) {
+                stmt = CFunc_AppendStatement(ST_LABEL);
+                if ((stmt->label = findlabel())) {
+                    if (stmt->label->stmt) {
+                        CError_Error(ERR_LABEL_REDEFINED, tkidentifier->name);
+                    }
+                } else {
+                    stmt->label = newlabel();
+                    stmt->label->next = Labels;
+                    Labels = stmt->label;
+                    stmt->label->name = tkidentifier;
+                }
+
+                stmt->label->stmt = stmt;
+                tk = lex();
+                tk = lex();
+                statement(thing);
+                return;
+            }
+            tk = TK_IDENTIFIER;
+
+        default:
+            if ((copts.c9x || copts.cplusplus) && isdeclaration(1, 0, 0, 0)) {
+                CFunc_ParseLocalDeclaration(FALSE);
+                tk = lex();
+                return;
+            }
+
+            expr = expression();
+            if (CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+                expr = CFunc_TemplDepSourceRef(expr);
+            } else {
+                CExpr_CheckUnusedExpression(expr);
+            }
+            stmt = CFunc_AppendStatement(ST_EXPRESSION);
+            stmt->expr = expr;
+    }
+
+    if (tk == ';') {
+        CPrep_TokenStreamFlush();
+        tk = lex();
+        CError_ResetErrorSkip();
+    } else {
+        CError_ErrorSkip(ERR_SEMICOLON_EXPECTED);
+    }
+}
+
+static void CFunc_LoopStatement(DeclThing* thing, Boolean isFor) {
+    DeclThing subthing;
+    DeclBlock* block;
+    CLabel* condlabel;
+    ENode* cond;
+    ENode* inc;
+    ENode* expr;
+    CLabel* toplabel;
+    CLabel* continuelabel;
+    CLabel* breaklabel;
+    Statement* stmt;
+
+    block = NULL;
+    if (lex() != '(') {
+        CError_ErrorSkip(ERR_LPAREN_EXPECTED);
+    } else {
+        tk = lex();
+    }
+
+    if (isFor) {
+        if (tk != ';') {
+            if ((copts.cplusplus || copts.c9x) && isdeclaration(1, 0, 0, 0)) {
+                if (!copts.ARMscoping) {
+                    block = CFunc_NewDeclBlock();
+                }
+                CFunc_ParseLocalDeclaration(FALSE);
+                if (block && CScope_IsEmptyNameSpace(cscope_current)) {
+                    CFunc_RestoreBlock(block);
+                    block = NULL;
+                }
+            } else {
+                expr = expression();
+                CExpr_CheckUnusedExpression(expr);
+                stmt = CFunc_AppendStatement(ST_EXPRESSION);
+                stmt->expr = expr;
+            }
+
+            if (tk == ';') {
+                CError_ResetErrorSkip();
+            } else {
+                CError_Error(ERR_SEMICOLON_EXPECTED);
+            }
+        } else {
+            CError_ResetErrorSkip();
+        }
+        tk = lex();
+    }
+
+    toplabel = newlabel();
+    continuelabel = newlabel();
+    breaklabel = newlabel();
+    condlabel = NULL;
+
+    CFunc_LoopIncrement();
+
+    if (isFor && tk == ';') {
+        stmt = CFunc_AppendStatement(ST_LABEL);
+        stmt->label = toplabel;
+        toplabel->stmt = stmt;
+        tk = lex();
+        cond = NULL;
+    } else {
+        if (copts.cplusplus && !copts.ARMscoping && isdeclaration(1, 0, 0, '=')) {
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = toplabel;
+            toplabel->stmt = stmt;
+            cond = CFunc_ParseCondition(&block, TRUE);
+            ifstatement(FALSE, cond, breaklabel, TRUE);
+        } else {
+            condlabel = newlabel();
+            stmt = CFunc_AppendStatement(ST_GOTO);
+            stmt->label = condlabel;
+            stmt = CFunc_AppendStatement(ST_LABEL);
+            stmt->label = toplabel;
+            toplabel->stmt = stmt;
+            cond = CFunc_ParseCondition(&block, TRUE);
+        }
+
+        if (isFor) {
+            if (tk == ';') {
+                CError_ResetErrorSkip();
+                tk = lex();
+            } else {
+                CError_Error(ERR_SEMICOLON_EXPECTED);
+            }
+        }
+    }
+
+    if (isFor && tk != ')') {
+        inc = expression();
+        CExpr_CheckUnusedExpression(inc);
+    } else {
+        inc = NULL;
+    }
+
+    if (tk != ')') {
+        CError_ErrorSkip(ERR_RPAREN_EXPECTED);
+    } else {
+        if (copts.warn_possunwant) {
+            spaceskip = FALSE;
+            if ((tk = lex()) == ';' && !spaceskip) {
+                CError_Warning(ERR_POSSIBLE_UNWANTED_SEMICOLON);
+            }
+        } else {
+            tk = lex();
+        }
+    }
+
+    subthing = *thing;
+    subthing.loopContinue = continuelabel;
+    subthing.loopBreak = breaklabel;
+    CFunc_CompoundStatement(&subthing);
+
+    stmt = CFunc_AppendStatement(ST_LABEL);
+    stmt->label = continuelabel;
+    continuelabel->stmt = stmt;
+
+    if (inc) {
+        stmt = CFunc_AppendStatement(ST_EXPRESSION);
+        stmt->expr = inc;
+    }
+
+    if (condlabel) {
+        stmt = CFunc_AppendStatement(ST_LABEL);
+        stmt->label = condlabel;
+        condlabel->stmt = stmt;
+        ifstatement(TRUE, cond, toplabel, TRUE);
+    } else {
+        stmt = CFunc_AppendStatement(ST_GOTO);
+        stmt->label = toplabel;
+    }
+
+    CFunc_LoopDecrement();
+
+    stmt = CFunc_AppendStatement(ST_LABEL);
+    stmt->label = breaklabel;
+    breaklabel->stmt = stmt;
+
+    if (block) {
+        CFunc_RestoreBlock(block);
+    }
+}
+
+// the value of a return statement (0x46B100)
+static ENode* CFunc_ReturnValue(ENode* expr) {
+    Type* type;
+    UInt32 qual;
+
+    CError_ASSERT(2630, cscope_currentfunc && IS_TYPE_FUNC(cscope_currentfunc->type));
+    type = TYPE_FUNC(cscope_currentfunc->type)->functype;
+    qual = TYPE_FUNC(cscope_currentfunc->type)->qual;
+    if (CMach_GetFunctionResultClass(TYPE_FUNC(cscope_currentfunc->type)) == 1) {
+        expr = returnstatementadjust(expr, type, qual);
+    } else {
+        expr = CExpr_AssignmentPromotion(expr, type, qual, TRUE);
+    }
+
+    if (IS_TYPE_POINTER_ONLY(type)) {
+        CFunc_AutoResultCheck(expr);
+    }
+    return expr;
+}
+#else
 static void statement(DeclThing* thing) {
     Statement* stmt;
     Statement* stmt2;
@@ -2374,7 +3356,1009 @@ static void statement(DeclThing* thing) {
         CError_ErrorSkip(ERR_SEMICOLON_EXPECTED);
     }
 }
+#endif
 
+#if MWCCPSP
+static void CFunc_AutoResultCheck(ENode* expr) {
+    while (1) {
+        while (ENODE_IS(expr, ECOMMA)) {
+            expr = expr->data.diadic.right;
+        }
+
+        switch ((int)expr->type) {
+            case EOBJREF:
+                if (expr->data.objref->datatype != DLOCAL) {
+                    break;
+                }
+            case ETEMP:
+                CError_Warning(ERR_FUNCTION_RESULT_POINTER_REFERENCE_AUTOMATIC_VARIABLE);
+                break;
+            case EADD:
+            case ESUB:
+                CFunc_AutoResultCheck(expr->data.diadic.left);
+                expr = expr->data.diadic.right;
+                continue;
+        }
+        break;
+    }
+}
+
+extern Boolean func_00528AD0(
+    ENode* expr, Type* type, ENode** resultexpr
+); // CExpr_IsTempConstruction (3.0.1)
+extern ENode* func_00518C10(
+    ENode* objexpr, ENode* arg, TypeClass* tclass, UInt32 qual, Boolean flag1, Boolean flag2
+);
+
+// 3.0.1 (0x46B340): a class result is copied in by func_00518C10
+static ENode* returnstatementadjust(ENode* expr, Type* type, UInt32 qual) {
+    Object* object;
+    ENode* expr2;
+    ENode* objexpr;
+    ObjectList* list;
+
+    for (list = arguments; list; list = list->next) {
+        if (list->object->name == temp_argument_name) {
+            break;
+        }
+    }
+
+    CError_ASSERT(2555, list);
+
+    object = list->object;
+    if (func_00528AD0(expr, type, &objexpr) && ENODE_IS(objexpr, ETEMP)) {
+        *objexpr = *create_objectnode(object);
+        return expr;
+    }
+
+    if (IS_TYPE_CLASS(type)) {
+        return func_00518C10(create_objectnode(object), expr, TYPE_CLASS(type), qual, TRUE, FALSE);
+    }
+
+    expr2 = makemonadicnode(create_objectnode(object), EINDIRECT);
+    expr2->rtype = type;
+    expr2 = makediadicnode(expr2, CExpr_AssignmentPromotion(expr, type, qual, TRUE), EASS);
+    return expr2;
+}
+
+Statement* CFunc_GenerateLoop(
+    Statement* stmt,
+    Type* type,
+    ENode* lowerBound,
+    ENode* upperBound,
+    ENode* increment1,
+    ENode* increment2,
+    ENode* (*callback)(ENode*, ENode*)
+) {
+    ENode* cursor;
+    ENode* cursor2;
+    CLabel* label;
+    ENode* ind;
+    ENode* ind2;
+    Statement* s;
+
+    cursor = CExpr_NewETEMPNode(type, TRUE);
+    ind = CEXPR_COPYENODE(cursor);
+    ind = makemonadicnode(ind, EINDIRECT);
+    ind->rtype = type;
+
+    if (stmt) {
+        s = stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+    } else {
+        s = CFunc_AppendStatement(ST_EXPRESSION);
+    }
+    s->expr = makediadicnode(ind, lowerBound, EASS);
+
+    if (increment2) {
+        cursor2 = CExpr_NewETEMPNode(type, TRUE);
+        ind = CEXPR_COPYENODE(cursor2);
+        ind = makemonadicnode(ind, EINDIRECT);
+        ind->rtype = type;
+
+        if (stmt) {
+            s = stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+        } else {
+            s = CFunc_AppendStatement(ST_EXPRESSION);
+        }
+        s->expr = makediadicnode(ind, increment2, EASS);
+    }
+
+    label = newlabel();
+    if (stmt) {
+        s = stmt = CFunc_InsertStatement(ST_LABEL, stmt);
+    } else {
+        s = CFunc_AppendStatement(ST_LABEL);
+    }
+    s->label = label;
+    label->stmt = s;
+
+    if (callback) {
+        ind = CEXPR_COPYENODE(cursor);
+        ind = makemonadicnode(ind, EINDIRECT);
+        ind->rtype = type;
+
+        if (increment2) {
+            ind2 = CEXPR_COPYENODE(cursor2);
+            ind2 = makemonadicnode(ind2, EINDIRECT);
+            ind2->rtype = type;
+        } else {
+            ind2 = NULL;
+        }
+
+        if ((ind = callback(ind, ind2))) {
+            if (stmt) {
+                s = stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+            } else {
+                s = CFunc_AppendStatement(ST_EXPRESSION);
+            }
+            s->expr = ind;
+        }
+    }
+
+    if (increment1) {
+        ind = CEXPR_COPYENODE(cursor);
+        ind = makemonadicnode(ind, EINDIRECT);
+        ind->rtype = type;
+
+        if (stmt) {
+            s = stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+        } else {
+            s = CFunc_AppendStatement(ST_EXPRESSION);
+        }
+        s->expr = makediadicnode(ind, increment1, EADDASS);
+
+        if (increment2) {
+            ind = CEXPR_COPYENODE(cursor2);
+            ind = makemonadicnode(ind, EINDIRECT);
+            ind->rtype = type;
+
+            if (stmt) {
+                s = stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+            } else {
+                s = CFunc_AppendStatement(ST_EXPRESSION);
+            }
+            s->expr = makediadicnode(ind, increment1, EADDASS);
+        }
+    }
+
+    ind = CEXPR_COPYENODE(cursor);
+    ind = makemonadicnode(ind, EINDIRECT);
+    ind->rtype = type;
+
+    if (stmt) {
+        s = stmt = CFunc_InsertStatement(ST_IFGOTO, stmt);
+    } else {
+        s = CFunc_AppendStatement(ST_IFGOTO);
+    }
+    s->expr = makediadicnode(ind, upperBound, ELESS);
+    s->expr->rtype = TYPE(&stbool);
+    s->label = label;
+    s->flags = StmtFlag_LoopBranch;
+
+    return stmt;
+}
+
+static void CFunc_HasDtorTempCallBack(ENode* expr) {
+    // 3.0.1 hands every node to the callback
+    if (ENODE_IS(expr, ETEMP) && (expr->data.temp.needs_dtor || expr->data.temp.uniqueid)) {
+        cfunc_hasdtortemp = TRUE;
+    }
+}
+
+static void ifstatement(Boolean ifTrue, ENode* expr, CLabel* label, Boolean isLoopBranch) {
+    Statement* stmt;
+    CLabel* endlabel;
+
+    // 3.0.1: a template-dependent condition is kept whole
+    if (expr && CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+        stmt = CFunc_AppendStatement(ifTrue ? ST_IFGOTO : ST_IFNGOTO);
+        stmt->label = label;
+        stmt->expr = expr;
+        if (isLoopBranch) {
+            stmt->flags |= StmtFlag_LoopBranch;
+        }
+        return;
+    }
+
+    if (expr && copts.cplusplus && copts.exceptions) {
+        cfunc_hasdtortemp = FALSE;
+        CExpr_SearchExprTree(expr, CFunc_HasDtorTempCallBack);
+        if (cfunc_hasdtortemp) {
+            stmt = CFunc_AppendStatement(ifTrue ? ST_IFGOTO : ST_IFNGOTO);
+            stmt->label = label;
+            stmt->expr = expr;
+            if (isLoopBranch) {
+                stmt->flags |= StmtFlag_LoopBranch;
+            }
+            return;
+        }
+    }
+
+    endlabel = newlabel();
+    makeifstatement(expr, label, endlabel, ifTrue, isLoopBranch);
+    endlabel->stmt = CFunc_AppendStatement(ST_LABEL);
+    endlabel->stmt->label = endlabel;
+}
+
+static void makeifstatement(
+    ENode* expr, CLabel* label1, CLabel* label2, Boolean ifTrue, Boolean isLoopBranch
+) {
+    Statement* stmt;
+    CLabel* nextlabel;
+
+    if (!expr) {
+        if (ifTrue) {
+            stmt = CFunc_AppendStatement(ST_GOTO);
+            stmt->label = label1;
+            return;
+        }
+        return;
+    }
+
+    if (ENODE_IS(expr, ETYPCON) &&
+        IS_TYPE_INT(expr->rtype) &&
+        IS_TYPE_INT(expr->data.monadic->rtype) &&
+        expr->rtype->size >= expr->data.monadic->rtype->size) {
+        expr = expr->data.monadic;
+    }
+
+    if (isnotzero(expr)) {
+        if (ifTrue) {
+            stmt = CFunc_AppendStatement(ST_GOTO);
+            stmt->label = label1;
+            return;
+        }
+        return;
+    }
+
+    if (iszero(expr)) {
+        if (!ifTrue) {
+            stmt = CFunc_AppendStatement(ST_GOTO);
+            stmt->label = label1;
+            return;
+        }
+        return;
+    }
+
+    if (ENODE_IS(expr, ELOGNOT)) {
+        makeifstatement(expr->data.monadic, label1, label2, !ifTrue, isLoopBranch);
+        return;
+    }
+
+    if (ENODE_IS(expr, ELOR)) {
+        nextlabel = newlabel();
+        if (ifTrue) {
+            makeifstatement(expr->data.diadic.left, label1, nextlabel, TRUE, isLoopBranch);
+            nextlabel->stmt = CFunc_AppendStatement(ST_LABEL);
+            nextlabel->stmt->label = nextlabel;
+            makeifstatement(expr->data.diadic.right, label1, label2, TRUE, isLoopBranch);
+            return;
+        } else {
+            makeifstatement(expr->data.diadic.left, label2, nextlabel, TRUE, isLoopBranch);
+            nextlabel->stmt = CFunc_AppendStatement(ST_LABEL);
+            nextlabel->stmt->label = nextlabel;
+            makeifstatement(expr->data.diadic.right, label1, label2, FALSE, isLoopBranch);
+            return;
+        }
+    }
+
+    if (ENODE_IS(expr, ELAND)) {
+        nextlabel = newlabel();
+        if (ifTrue) {
+            makeifstatement(expr->data.diadic.left, label2, nextlabel, FALSE, isLoopBranch);
+            nextlabel->stmt = CFunc_AppendStatement(ST_LABEL);
+            nextlabel->stmt->label = nextlabel;
+            makeifstatement(expr->data.diadic.right, label1, label2, TRUE, isLoopBranch);
+            return;
+        } else {
+            makeifstatement(expr->data.diadic.left, label1, nextlabel, FALSE, isLoopBranch);
+            nextlabel->stmt = CFunc_AppendStatement(ST_LABEL);
+            nextlabel->stmt->label = nextlabel;
+            makeifstatement(expr->data.diadic.right, label1, label2, FALSE, isLoopBranch);
+            return;
+        }
+    }
+
+    stmt = CFunc_AppendStatement(ST_IFGOTO);
+    stmt->label = label1;
+    stmt->expr = expr;
+    if (!ifTrue) {
+        stmt->type = ST_IFNGOTO;
+    }
+    if (isLoopBranch) {
+        stmt->flags |= StmtFlag_LoopBranch;
+    }
+}
+
+// 3.0.1 (0x46C100): a condition, or in C++ a declaration with an
+// initializer whose object is the condition
+static ENode* CFunc_ParseCondition(DeclBlock** block, Boolean isCondition) {
+    DeclInfo di;
+    TStreamElement deftoken;
+    Object* obj;
+    ENode* expr;
+
+    if (copts.cplusplus && !copts.ARMscoping && isdeclaration(1, 0, 0, '=')) {
+        if (!*block) {
+            *block = CFunc_NewDeclBlock();
+        }
+
+        CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+        memclrw(&di, sizeof(di));
+        di.is_extern_c = cfunc_is_extern_c;
+        CParser_GetDeclSpecs(&di, FALSE);
+        deftoken = *CPrep_CurStreamElement();
+        scandeclarator(&di);
+
+        if (!di.name) {
+            CError_Error(ERR_DECLARATOR_EXPECTED);
+            return nullnode();
+        }
+        if (di.storageclass == TK_EXTERN || di.storageclass == TK_TYPEDEF) {
+            CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+            return nullnode();
+        }
+        if (IS_TYPE_FUNC(di.thetype) || IS_TYPE_ARRAY(di.thetype)) {
+            CError_Error(ERR_ILLEGAL_TYPE);
+            return nullnode();
+        }
+        if (tk != '=') {
+            CError_Error(ERR_EXPRESSION_SYNTAX_ERROR);
+            return nullnode();
+        }
+        if (!(obj = CFunc_LocalDataDeclarator(&di, &deftoken, FALSE))) {
+            CError_Error(ERR_EXPRESSION_SYNTAX_ERROR);
+            return nullnode();
+        }
+
+        expr = create_objectnode(obj);
+        if (CScope_IsEmptyNameSpace(cscope_current)) {
+            CFunc_RestoreBlock(*block);
+            *block = NULL;
+        }
+    } else {
+        expr = expression();
+        if (!isCondition) {
+            return expr;
+        }
+        CExpr_CheckUnwantedAssignment(expr);
+    }
+
+    if (!isCondition) {
+        return expr;
+    }
+    if (CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+        return CFunc_TemplDepSourceRef(expr);
+    }
+    return CExpr_ConvertToCondition(expr);
+}
+
+// 3.0.1 (0x46C450): one local declaration statement
+static void CFunc_ParseLocalDeclaration(Boolean isParameterList) {
+    DeclInfo di2;
+    DeclInfo di;
+    TStreamElement deftoken;
+
+    CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+    memclrw(&di, sizeof(di));
+    di.is_extern_c = cfunc_is_extern_c;
+    CParser_GetDeclSpecs(&di, FALSE);
+
+    if (tk == ';') {
+        CParser_CheckAnonymousUnion(&di, TRUE);
+        return;
+    }
+
+    while (1) {
+        deftoken = *CPrep_CurStreamElement();
+        di2 = di;
+        scandeclarator(&di2);
+
+        if (di2.name) {
+            if (di2.storageclass == TK_TYPEDEF) {
+                CDecl_TypedefDeclarator(&di2, ACCESSPUBLIC);
+            } else if (IS_TYPE_FUNC(di2.thetype)) {
+                if (!CDecl_FunctionDeclarator(
+                        &di2, CScope_FindGlobalNS(cscope_current), FALSE, FALSE
+                    )) {
+                    return;
+                }
+            } else {
+                CFunc_LocalDataDeclarator(&di2, &deftoken, isParameterList);
+            }
+        } else {
+            CError_Error(ERR_DECLARATOR_EXPECTED);
+        }
+
+        if (tk == ';') {
+            return;
+        }
+        if (tk != ',') {
+            CError_Error(ERR_SEMICOLON_EXPECTED);
+            return;
+        }
+        tk = lex();
+    }
+}
+
+static ENode* CFunc_ParseLocalDeclarationList(
+    Boolean isParameterList, Boolean isCondition, Boolean isForInit, Boolean isStatement
+) {
+    Type* type;
+    UInt32 qual;
+    DeclInfo di;
+    TStreamElement deftoken;
+
+    ainit_expr = NULL;
+    ainit_only_one = isCondition;
+
+    while (isCondition || isdeclaration(copts.cplusplus, 0, 0, 0)) {
+        CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+
+        memclrw(&di, sizeof(di));
+        di.is_extern_c = cfunc_is_extern_c;
+        CParser_GetDeclSpecs(&di, FALSE);
+
+        if (IS_TYPE_TEMPLATE(di.thetype)) {
+            CError_Error(ERR_ILLEGAL_TYPE);
+            di.thetype = TYPE(&stsignedint);
+        }
+
+        type = di.thetype;
+        qual = di.qual;
+
+        if (tk != ';') {
+            while (1) {
+                deftoken = *CPrep_CurStreamElement();
+                di.name = NULL;
+                scandeclarator(&di);
+
+                if (di.name) {
+                    if (di.storageclass != TK_TYPEDEF) {
+                        if (IS_TYPE_FUNC(di.thetype)) {
+                            if (!CDecl_FunctionDeclarator(
+                                    &di, CScope_FindGlobalNS(cscope_current), FALSE, FALSE
+                                )) {
+                                break;
+                            }
+                        } else {
+                            CFunc_LocalDataDeclarator(&di, &deftoken, isParameterList);
+                        }
+                    } else {
+                        CDecl_TypedefDeclarator(&di, ACCESSPUBLIC);
+                    }
+                } else {
+                    CError_Error(ERR_DECLARATOR_EXPECTED);
+                }
+
+                if (tk == ';') {
+                    break;
+                }
+
+                if (tk != ',') {
+                    if (!isCondition) {
+                        CError_Error(ERR_SEMICOLON_EXPECTED);
+                    }
+                    break;
+                }
+
+                di.nspace = NULL;
+                di.thetype = type;
+                di.qual = qual;
+                tk = lex();
+            }
+        } else {
+            CParser_CheckAnonymousUnion(&di, TRUE);
+        }
+
+        if (isCondition) {
+            break;
+        }
+        if (isStatement) {
+            break;
+        }
+        tk = lex();
+    }
+
+    if (isCondition) {
+        if (!ainit_expr) {
+            if (!isForInit) {
+                CError_Error(ERR_EXPRESSION_SYNTAX_ERROR);
+                ainit_expr = nullnode();
+            }
+        } else {
+            ainit_expr = checkreference(ainit_expr);
+        }
+    }
+
+    return ainit_expr;
+}
+
+// 3.0.1 (0x46C620): one local object. Initializers are parsed into a record
+// (CInit_ParseInitRecord) that CInit consumes (CInit_StaticObject for statics,
+// CInit_LocalObject for locals); inside a template the declaration becomes a
+// template-dependent statement.
+extern Boolean func_004AF320(void); // inside a template definition
+extern void func_00500E90(void* list); // checks the access records CDecl collected
+extern void func_004E1C10(Object* obj, Boolean flag);
+extern void func_0049F5A0(Object* obj, Object* func, SInt32 index);
+
+#define TDE_LOCALINIT 0x17
+#define TDE_STATICINIT 0x18
+
+// 0x46ED80: 3.0.1 keeps locals in declaration order
+void CFunc_AppendLocal(Object* object) {
+    ObjectList* list;
+
+    if (locals) {
+        for (list = locals; list->next; list = list->next) {}
+        list = list->next = lalloc(sizeof(ObjectList));
+    } else {
+        list = locals = lalloc(sizeof(ObjectList));
+    }
+    list->next = NULL;
+    list->object = object;
+}
+
+static Object* CFunc_LocalDataDeclarator(
+    DeclInfo* di, TStreamElement* deftoken, Boolean isParameterList
+) {
+    Boolean inTemplate;
+    Object* object;
+    Object* gobj;
+    NameSpace* globalNS;
+    NameSpaceObjectList* nsol;
+    HashNameNode* name;
+    Boolean special;
+    void* init;
+    ENode* expr;
+    Statement* stmt;
+    Type* type;
+    TypeTemplDep* tdtype;
+    Object* func;
+
+    CError_ASSERT(1808, cscope_currentfunc && IS_TYPE_FUNC(cscope_currentfunc->type));
+    inTemplate = func_004AF320();
+
+    if (di->nspace) {
+        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+    }
+
+    CDecl_CompleteType(di->thetype);
+
+    object = NULL;
+    if ((nsol = CScope_FindName(cscope_current, di->name))) {
+        switch (nsol->object->otype) {
+            case OT_OBJECT:
+                object = OBJECT(nsol->object);
+                break;
+            case OT_NAMESPACE:
+                CError_Error(ERR_ILLEGAL_USE_NAMESPACE_NAME);
+                return NULL;
+            case OT_ENUMCONST:
+            case OT_TYPE:
+                CError_Error(ERR_ILLEGAL_NAME_OVERLOADING);
+                break;
+            case OT_TYPETAG:
+                break;
+            default:
+                CError_FATAL(1836);
+        }
+    }
+
+    if (object) {
+        CError_Error(ERR_OBJECT_REDEFINED, object);
+    }
+
+    switch (di->storageclass) {
+        case TK_EXTERN:
+            gobj = NULL;
+            globalNS = CScope_FindGlobalNS(cscope_current);
+            if ((nsol = CScope_FindName(globalNS, di->name))) {
+                switch (nsol->object->otype) {
+                    case OT_OBJECT:
+                        gobj = OBJECT(nsol->object);
+                        break;
+                    case OT_NAMESPACE:
+                        CError_Error(ERR_ILLEGAL_USE_NAMESPACE_NAME);
+                        return NULL;
+                    case OT_ENUMCONST:
+                    case OT_TYPE:
+                        CError_Error(ERR_ILLEGAL_NAME_OVERLOADING);
+                        break;
+                    case OT_TYPETAG:
+                        break;
+                    default:
+                        CError_FATAL(1873);
+                }
+            }
+
+            if (gobj) {
+                if (!is_typesame(di->thetype, gobj->type) ||
+                    (di->qual &
+                     (Q_CONST | Q_VOLATILE | Q_PASCAL | Q_IMPLICIT_WEAK | Q_WEAK |
+                      Q_ALIGNED_MASK)) !=
+                        (gobj->qual &
+                         (Q_CONST | Q_VOLATILE | Q_PASCAL | Q_IMPLICIT_WEAK | Q_WEAK |
+                          Q_ALIGNED_MASK))) {
+                    CError_Error(
+                        ERR_IDENTIFIER_REDECLARED_WAS_DECLARED_AS_NOW,
+                        di->name->name,
+                        gobj->type,
+                        gobj->qual,
+                        di->thetype,
+                        di->qual
+                    );
+                }
+            } else {
+                gobj = CParser_NewGlobalDataObject(di);
+                gobj->nspace = globalNS;
+            }
+
+            CParser_NewAliasObject(gobj, 0);
+            return NULL;
+
+        case TK_STATIC:
+            func_00500E90(di->unk44list);
+            object = CParser_NewObject(di);
+            object->nspace = cscope_root;
+            object->name = di->name;
+            object->type = di->thetype;
+            object->qual = di->qual;
+            object->sclass = di->storageclass;
+            object->u.data.islocalstatic = TRUE;
+            object->datatype = DDATA;
+
+            if (isParameterList) {
+                CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+                return NULL;
+            }
+            if (!CanCreateObject(di->thetype)) {
+                return NULL;
+            }
+
+            CError_QualifierCheck(
+                di->qual &
+                ~(Q_CONST | Q_VOLATILE | Q_PASCAL | Q_IMPLICIT_WEAK | Q_WEAK | Q_ALIGNED_MASK)
+            );
+            CScope_AddObject(cscope_current, object->name, OBJ_BASE(object));
+
+            if (inTemplate) {
+                init = CInit_ParseInitRecord(object->type, TRUE);
+                expr = CExpr_NewTemplDepENode(TDE_STATICINIT);
+                expr->data.templdep.u.sourceref.expr = (ENode*)object;
+                expr->data.templdep.u.sourceref.token = init;
+                expr = CFunc_TemplDepSourceRef(expr);
+                stmt = CFunc_AppendStatement(ST_EXPRESSION);
+                stmt->expr = expr;
+                if (IS_TYPE_INT(object->type) && (object->qual & Q_CONST)) {
+                    tdtype = CDecl_NewTemplDepType((TypeTemplDepType)6);
+                    tdtype->u.qual.type = (TypeTemplDep*)object->type;
+                    object->type = TYPE(tdtype);
+                }
+                return NULL;
+            }
+
+            CError_ASSERT(1697, CParser_IsDataObject(object));
+            func = cscope_currentfunc;
+            if (!func) {
+                special = FALSE;
+            } else if (func->qual & Q_IMPLICIT_WEAK) {
+                special = TRUE;
+            } else if ((func->qual & Q_INLINE) && func->sclass != TK_STATIC) {
+                special = TRUE;
+            } else {
+                special = FALSE;
+            }
+
+            if (!special) {
+                name = object->name;
+                object->name = CParser_AppendUniqueName(name->name);
+                CMangler_GetLinkName(object);
+                object->name = name;
+            } else {
+                func_0049F5A0(object, cscope_currentfunc, cfunc_staticvarcount++);
+                object->qual |= Q_IMPLICIT_WEAK;
+                object->sclass = 0;
+            }
+
+            CParser_UpdateObject(object, di);
+            CInit_StaticObject(object, CInit_ParseInitRecord(object->type, TRUE), NULL, TRUE);
+            IsCompleteType(di->thetype);
+            return NULL;
+
+        default:
+            func_00500E90(di->unk44list);
+            switch (di->storageclass) {
+                case 0:
+                case TK_AUTO:
+                case TK_REGISTER:
+                    break;
+                case TK_MUTABLE:
+                    CError_Error(ERR_ILLEGAL_USE, "mutable");
+                    di->storageclass = 0;
+                    break;
+                default:
+                    CError_FATAL(1985);
+            }
+
+            if (!CanCreateObject(di->thetype)) {
+                return NULL;
+            }
+    }
+
+    CError_QualifierCheck(di->qual & ~(Q_CONST | Q_VOLATILE | Q_PASCAL | Q_ALIGNED_MASK));
+    object = CParser_NewObject(di);
+    object->name = di->name;
+    object->type = di->thetype;
+    object->qual = di->qual;
+    object->sclass = di->storageclass;
+    object->datatype = DLOCAL;
+    object->u.var.uid = CParser_GetUniqueID();
+    object->u.var.info = CodeGen_GetNewVarInfo();
+    object->u.var.info->func = cscope_currentfunc;
+    if (object->sclass == TK_REGISTER) {
+        if (!copts.optimizesize) {
+            object->u.var.info->usage = 100;
+        } else {
+            object->u.var.info->usage = 5;
+        }
+    }
+    if (object->type && is_volatile_object(object)) {
+        object->u.var.info->noregister = TRUE;
+    }
+    object->u.var.info->deftoken = *deftoken;
+    if (object->sclass == TK_REGISTER && isParameterList) {
+        object->u.var.info->usage = 100;
+    }
+
+    CScope_AddObject(cscope_current, object->name, OBJ_BASE(object));
+
+    if (isParameterList) {
+        CFunc_AppendLocal(object);
+        return object;
+    }
+
+    if (IS_TYPE_CLASS(di->thetype) && TYPE_CLASS(di->thetype)->sominfo) {
+        CSOM_InitAutoClass(object);
+        IsCompleteType(di->thetype);
+        return object;
+    }
+
+    if (inTemplate) {
+        init = CInit_ParseInitRecord(object->type, TRUE);
+        if (init) {
+            object->flags |= OBJECT_USED;
+        }
+        expr = CExpr_NewTemplDepENode(TDE_LOCALINIT);
+        expr->data.templdep.u.sourceref.expr = (ENode*)object;
+        expr->data.templdep.u.sourceref.token = init;
+        expr = CFunc_TemplDepSourceRef(expr);
+        stmt = CFunc_AppendStatement(ST_EXPRESSION);
+        stmt->expr = expr;
+        object->nspace = NULL;
+
+        if (CTemplTool_IsTemplateArgumentDependentType(object->type)) {
+            func_004E1C10(object, TRUE);
+            object->flags |= OBJECT_USED;
+        } else {
+            type = object->type;
+            while (IS_TYPE_ARRAY(type)) {
+                type = TPTR_TARGET(type);
+            }
+            if (IS_TYPE_POINTER(type) && (TYPE_POINTER(type)->qual & Q_REFERENCE)) {
+                type = TPTR_TARGET(type);
+            }
+            if (IS_TYPE_CLASS(type)) {
+                object->flags |= OBJECT_USED;
+                if (CClass_Destructor(TYPE_CLASS(type))) {
+                    func_004E1C10(object, TRUE);
+                }
+            }
+        }
+
+        if (IS_TYPE_INT(object->type) && (object->qual & Q_CONST)) {
+            tdtype = CDecl_NewTemplDepType((TypeTemplDepType)6);
+            tdtype->u.qual.type = (TypeTemplDep*)object->type;
+            object->type = TYPE(tdtype);
+        }
+    } else {
+        CInit_LocalObject(object, CInit_ParseInitRecord(object->type, TRUE), NULL, TRUE);
+        IsCompleteType(di->thetype);
+    }
+
+    if (object->datatype == DLOCAL) {
+        CFunc_AppendLocal(object);
+    }
+    return object;
+}
+
+// 3.0.1: statics of inline functions are named by the mangler (weak); the
+// others get a unique name
+void CFunc_NameLocalStaticDataObject(Object* obj) {
+    Object* func;
+    HashNameNode* name;
+    Boolean special;
+
+    CError_ASSERT(1697, CParser_IsDataObject(obj));
+    func = cscope_currentfunc;
+    if (!func) {
+        special = FALSE;
+    } else if (func->qual & Q_IMPLICIT_WEAK) {
+        special = TRUE;
+    } else if ((func->qual & Q_INLINE) && func->sclass != TK_STATIC) {
+        special = TRUE;
+    } else {
+        special = FALSE;
+    }
+
+    if (!special) {
+        name = obj->name;
+        obj->name = CParser_AppendUniqueName(name->name);
+        CMangler_GetLinkName(obj);
+        obj->name = name;
+    } else {
+        func_0049F5A0(obj, cscope_currentfunc, cfunc_staticvarcount++);
+        obj->qual |= Q_IMPLICIT_WEAK;
+        obj->sclass = 0;
+    }
+}
+
+// a case whose value depends on template arguments (3.0.1: SwitchInfo.depcases)
+typedef struct SwitchDepCase {
+    struct SwitchDepCase* next;
+    CLabel* label;
+    ENode* min;
+    ENode* max;
+} SwitchDepCase;
+
+// 0x46D1E0 (3.0.1): a case (or GCC case range), checked against the others
+static void CFunc_AddSwitchCase(SwitchInfo* info, CInt64* pmin, CInt64* pmax, CLabel* label) {
+    SwitchCase* c;
+    CInt64 min;
+    CInt64 max;
+
+    min = CExpr_IntConstConvert(info->exprtype, info->exprtype, *pmin);
+    max = min;
+    if (pmax) {
+        max = CExpr_IntConstConvert(info->exprtype, info->exprtype, *pmax);
+        if (CInt64_Greater(min, max)) {
+            CError_Error(ERR_CASE_EMPTY_RANGE_VALUES);
+        }
+    }
+
+    for (c = info->cases; c; c = c->next) {
+        if (CInt64_GreaterEqual(c->min, min) && CInt64_LessEqual(c->min, max)) {
+            CError_Error(ERR_CASE_CONSTANT_DEFINED_MORE_THAN_ONCE);
+        }
+        if (CInt64_GreaterEqual(c->max, min) && CInt64_LessEqual(c->max, max)) {
+            CError_Error(ERR_CASE_CONSTANT_DEFINED_MORE_THAN_ONCE);
+        }
+        if (CInt64_Less(c->min, min) && CInt64_Greater(c->max, max)) {
+            CError_Error(ERR_CASE_CONSTANT_DEFINED_MORE_THAN_ONCE);
+        }
+    }
+
+    c = lalloc(sizeof(SwitchCase));
+    c->next = info->cases;
+    c->label = label;
+    c->min = min;
+    c->max = max;
+    info->cases = c;
+}
+
+static inline ENode* CFunc_CaseSourceRef(ENode* expr) {
+    TStreamElement* element;
+    ENode* ref;
+
+    if (expr && (element = CPrep_CurStreamElement()) && element->tokenfile) {
+        ref = CExpr_NewTemplDepENode(TDE_SOURCEREF);
+        ref->data.templdep.u.sourceref.expr = expr;
+        ref->data.templdep.u.sourceref.token = galloc(sizeof(TStreamElement));
+        *ref->data.templdep.u.sourceref.token = *element;
+        return ref;
+    }
+    return expr;
+}
+
+// 3.0.1 (0x46CF30): GCC case ranges, and template-dependent case values
+static void scancase(DeclThing* thing) {
+    ENode* min;
+    ENode* max;
+    Statement* stmt;
+    CLabel* label;
+    SwitchDepCase* dep;
+
+    max = NULL;
+    if (!thing->switchinfo) {
+        CError_Error(ERR_ILLEGAL_USE_KEYWORD);
+        return;
+    }
+
+    tk = lex();
+    min = CExpr_IntegralConstOrDepExpr();
+    if (tk == TK_ELLIPSIS && !copts.ANSIstrict) {
+        tk = lex();
+        max = CExpr_IntegralConstOrDepExpr();
+    }
+
+    stmt = CFunc_AppendStatement(ST_LABEL);
+    label = lalloc(sizeof(CLabel));
+    memclrw(label, sizeof(CLabel));
+    label->name = label->uniquename = CParser_GetUniqueName();
+    stmt->label = label;
+    stmt->label->stmt = stmt;
+
+    if (!thing->switchinfo->exprtype ||
+        CTemplTool_IsTemplateArgumentDependentExpression(min) ||
+        (max && CTemplTool_IsTemplateArgumentDependentExpression(max))) {
+        dep = lalloc(sizeof(SwitchDepCase));
+        dep->next = (SwitchDepCase*)thing->switchinfo->depcases;
+        dep->label = stmt->label;
+        dep->min = CFunc_CaseSourceRef(min);
+        dep->max = CFunc_CaseSourceRef(max);
+        thing->switchinfo->depcases = dep;
+    } else if (ENODE_IS(min, EINTCONST) && (!max || ENODE_IS(max, EINTCONST))) {
+        if (!max) {
+            CFunc_AddSwitchCase(thing->switchinfo, &min->data.intval, NULL, stmt->label);
+        } else {
+            CFunc_AddSwitchCase(
+                thing->switchinfo, &min->data.intval, &max->data.intval, stmt->label
+            );
+        }
+    } else {
+        CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+    }
+
+    if (tk != ':') {
+        CError_ErrorSkip(ERR_COLON_EXPECTED);
+    } else {
+        tk = lex();
+    }
+
+    statement(thing);
+}
+
+void CFunc_RestoreBlock(DeclBlock* block) {
+    DeclBlockScope* scope;
+    Statement* stmt;
+
+    if (curstmt && curstmt->dobjstack != cexcept_dobjstack) {
+        stmt = CFunc_AppendStatement(ST_EXPRESSION);
+        stmt->expr = nullnode();
+    }
+
+    for (scope = block->scopes; scope; scope = scope->next) {
+        stmt = CFunc_AppendStatement(ST_EXPRESSION);
+        stmt->expr = CExpr_NewENode(ESCOPEEND);
+        stmt->expr->rtype = &stvoid;
+        stmt->expr->data.monadic = scope->scope;
+    }
+
+    cscope_current = block->parent_nspace;
+    cexcept_dobjstack = block->dobjstack;
+    cfunc_curblock = block->prev;
+}
+
+DeclBlock* CFunc_NewDeclBlock(void) {
+    DeclBlock* block;
+    NameSpace* nspace;
+
+    block = lalloc(sizeof(DeclBlock));
+    memclrw(block, sizeof(DeclBlock));
+    block->prev = cfunc_curblock;
+    block->parent_nspace = cscope_current;
+    block->dobjstack = cexcept_dobjstack;
+
+    nspace = CScope_NewListNameSpace(NULL, FALSE);
+    nspace->parent = cscope_current;
+    cscope_current = nspace;
+
+    cfunc_curblock = block;
+    return block;
+}
+
+#endif
 void CFunc_CompoundStatement(DeclThing* thing) {
     DeclBlock* block;
 
@@ -2382,9 +4366,20 @@ void CFunc_CompoundStatement(DeclThing* thing) {
 
     if (tk == '{') {
         tk = lex();
+#if MWCCPSP
+        // 3.0.1: C declarations at the start of a block (C99 and C++ mix
+        // them with statements)
+        if (!copts.cplusplus && !copts.c9x) {
+            while (isdeclaration(0, 0, 0, 0)) {
+                CFunc_ParseLocalDeclaration(FALSE);
+                tk = lex();
+            }
+        }
+#else
         if (!copts.cplusplus && isdeclaration(0, 0, 0, 0)) {
             CFunc_ParseLocalDeclarationList(FALSE, FALSE, FALSE, FALSE);
         }
+#endif
 
         while (tk != '}') {
             statement(thing);
@@ -2463,6 +4458,54 @@ static void CFunc_AdjustOldStyleArgs(void) {
     }
 }
 
+#if MWCCPSP
+extern Boolean func_004AF320(void); // TemplContext.c: global allocation while in a template context
+
+// 0x468C10 (3.0.1): an argument that CMach_PassResultInHiddenArg says is
+// passed by address. The argument becomes a pointer with a fresh name and a
+// local copy takes its place, assigned from *arg at function entry (or
+// after `stmt`). Name not known.
+static void CFunc_CopyHiddenArgument(Statement* stmt, Object* arg) {
+    Object* local;
+    ObjectList* list;
+    ObjectList* scan;
+    Statement* copy;
+    ENode* ind;
+
+    local = func_004AF320() ? galloc(sizeof(Object)) : lalloc(sizeof(Object));
+    *local = *arg;
+    CFunc_SetupLocalVarInfo(local);
+
+    if (!locals) {
+        list = lalloc(sizeof(ObjectList));
+        locals = list;
+    } else {
+        for (scan = locals; scan->next; scan = scan->next) {}
+        list = lalloc(sizeof(ObjectList));
+        scan->next = list;
+    }
+    list->next = NULL;
+    list->object = local;
+
+    arg->name = CParser_GetUniqueName();
+    arg->type = CDecl_NewPointerType(arg->type);
+
+    if (!stmt) {
+        local->u.var.uid = CParser_GetUniqueID();
+        CScope_InsertName(cscope_current, local->name)->object = OBJ_BASE(local);
+        copy = CFunc_AppendStatement(ST_EXPRESSION);
+    } else {
+        local->u.var.uid = arg->u.var.uid;
+        arg->u.var.uid = CParser_GetUniqueID();
+        copy = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+    }
+
+    ind = makemonadicnode(create_objectnode(arg), EINDIRECT);
+    ind->rtype = local->type;
+    copy->expr = makediadicnode(create_objectnode(local), ind, EASS);
+}
+
+#endif
 void CFunc_SetupNewFuncArgs(Object* func, FuncArg* args) {
     Object* obj;
     ObjectList* newlist;
@@ -2487,11 +4530,20 @@ void CFunc_SetupNewFuncArgs(Object* func, FuncArg* args) {
 
             CFunc_SetupLocalVarInfo(obj);
 
+#if MWCCPSP
+            if (IS_TYPE_CLASS(obj->type) && CClass_ReferenceArgument(TYPE_CLASS(obj->type))) {
+                obj->type = CDecl_NewPointerType(obj->type);
+                TPTR_QUAL(obj->type) = Q_REFERENCE | Q_RESTRICT;
+            } else if (CMach_PassResultInHiddenArg(obj->type)) {
+                CFunc_CopyHiddenArgument(NULL, obj);
+            }
+#else
             if ((IS_TYPE_CLASS(obj->type) && CClass_ReferenceArgument(TYPE_CLASS(obj->type))) ||
                 CMach_PassResultInHiddenArg(obj->type)) {
                 obj->type = CDecl_NewPointerType(obj->type);
                 TPTR_QUAL(obj->type) = Q_REFERENCE | Q_RESTRICT;
             }
+#endif
 
             if (obj->name == no_name_node &&
                 copts.ANSIstrict &&
@@ -2548,6 +4600,112 @@ static ObjectList* CFunc_CopyObjectList(const FuncArg* args) {
     return list;
 }
 
+#if MWCCPSP
+// 0x468810 (3.0.1, name not known): the hidden argument a struct result is
+// returned through
+static void CFunc_SetupResultArgument(Object* func) {
+    ObjectList* list;
+    Object* resultobj;
+
+    if (CMach_GetFunctionResultClass(TYPE_FUNC(func->type)) == 1) {
+        resultobj = CParser_NewLocalDataObject(NULL, FALSE);
+        resultobj->name = temp_argument_name;
+        resultobj->type = CDecl_NewPointerType(TYPE_FUNC(func->type)->functype);
+        CFunc_SetupLocalVarInfo(resultobj);
+
+        list = lalloc(sizeof(ObjectList));
+        list->object = resultobj;
+        if (CABI_GetStructResultArgumentIndex(TYPE_FUNC(func->type))) {
+            CError_ASSERT(4170, arguments);
+            list->next = arguments->next;
+            arguments->next = list;
+        } else {
+            list->next = arguments;
+            arguments = list;
+        }
+    }
+}
+
+// 0x4685C0 (3.0.1): takes the parameter names and the old-style flag
+// instead of the DeclInfo
+void SetupFunctionArguments301(
+    Object* func, Statement* firstStmt, FuncArg* names, Boolean oldStyle
+) {
+    ObjectList* list;
+    Object* obj;
+    Type* type;
+    DeclInfo my_di;
+
+    if (TYPE_FUNC(func->type)->args) {
+        if (oldStyle) {
+            arguments = CFunc_CopyObjectList(names);
+            while (tk != '{') {
+                memclrw(&my_di, sizeof(my_di));
+                CParser_GetDeclSpecs(&my_di, FALSE);
+
+                type = my_di.thetype;
+                if (my_di.storageclass && my_di.storageclass != TK_REGISTER) {
+                    CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+                }
+
+                while (1) {
+                    my_di.thetype = type;
+                    my_di.name = NULL;
+                    scandeclarator(&my_di);
+                    if (!my_di.name) {
+                        CError_Error(ERR_IDENTIFIER_EXPECTED);
+                        break;
+                    }
+
+                    adjustargumenttype(&my_di);
+                    IsCompleteType(my_di.thetype);
+
+                    if ((obj = CFunc_IsInObjList(arguments, my_di.name))) {
+                        if (obj->type) {
+                            CError_Error(ERR_OBJECT_REDEFINED, obj);
+                        }
+                        obj->type = my_di.thetype;
+                        obj->sclass = my_di.storageclass;
+                        obj->qual = my_di.qual;
+                    } else {
+                        CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+                    }
+
+                    if (tk != ',') {
+                        break;
+                    }
+                    tk = lex();
+                }
+
+                if (tk != ';') {
+                    CError_ErrorSkip(ERR_SEMICOLON_EXPECTED);
+                } else {
+                    tk = lex();
+                }
+            }
+
+            for (list = arguments; list; list = list->next) {
+                if (!list->object->type) {
+                    list->object->type = TYPE(&stsignedint);
+                }
+            }
+        } else {
+            CFunc_SetupNewFuncArgs(func, TYPE_FUNC(func->type)->args);
+        }
+    }
+
+    CFunc_SetupResultArgument(func);
+
+    for (list = arguments; list; list = list->next) {
+        NameSpaceObjectList* nsol = CScope_InsertName(cscope_current, list->object->name);
+        nsol->object = OBJ_BASE(list->object);
+    }
+}
+#endif
+#if MWCCPSP
+
+#endif
+#if !MWCCPSP
 static void SetupFunctionArguments(Object* func, DeclInfo* di, Statement* firstStmt) {
     ObjectList* list;
     Object* resultobj;
@@ -2640,6 +4798,17 @@ static void SetupFunctionArguments(Object* func, DeclInfo* di, Statement* firstS
         nsol->object = OBJ_BASE(list->object);
     }
 }
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1 per-function state reset in CFunc_FuncGenSetup (roles not settled)
+extern SInt32 data_006258B8;
+extern void* data_00624D78;
+extern SInt32 data_006247B8; // numbers strings in inline functions
+extern Boolean data_005EDCB8;
+#endif
 
 NameSpace* CFunc_FuncGenSetup(Statement* stmt, Object* func) {
     NameSpace* nspace;
@@ -2649,12 +4818,20 @@ NameSpace* CFunc_FuncGenSetup(Statement* stmt, Object* func) {
     nspace->parent = cscope_current;
     cscope_current = nspace;
 
+#if MWCCPSP
+    data_006258B8 = 0;
+    data_00624D78 = NULL;
+#endif
     arguments = NULL;
     locals = NULL;
     Labels = NULL;
 
     localcount = 0;
     cfunc_staticvarcount = 0;
+#if MWCCPSP
+    data_006247B8 = 0;
+    data_005EDCB8 = FALSE;
+#endif
 
     CExcept_Setup();
 
@@ -2663,6 +4840,12 @@ NameSpace* CFunc_FuncGenSetup(Statement* stmt, Object* func) {
     stmt->type = ST_NOP;
     stmt->value = curstmtvalue = 1;
 
+#if MWCCPSP
+    block = lalloc(sizeof(DeclBlock));
+    memclrw(block, sizeof(DeclBlock));
+    block->parent_nspace = cscope_current;
+    cfunc_curblock = block;
+#else
     blockcount = 0;
     block = lalloc(sizeof(DeclBlock));
     memclrw(block, sizeof(DeclBlock));
@@ -2670,6 +4853,7 @@ NameSpace* CFunc_FuncGenSetup(Statement* stmt, Object* func) {
     block->parent_nspace = cscope_current;
 
     currentblock = firstblock = block;
+#endif
 
     return nspace;
 }
@@ -3096,11 +5280,482 @@ static Object* CFunc_DeclareFuncName(char* str, HashNameNode* name) {
     aliasobj = CParser_NewAliasObject(obj, 0);
     obj->nspace = cscope_root;
     obj->datatype = DDATA;
+#if MWCCPSP
+    CFunc_NameLocalStaticDataObject(obj);
+#else
     CFunc_NameLocalStaticDataObject(obj, obj->name->name);
+#endif
 
     return aliasobj;
 }
 
+#if MWCCPSP
+// 0x46D750 (3.0.1, name not known): marks the statements control can reach
+// from `stmt`; a call to a noreturn void function ends a path
+static void CFunc_MarkReachable(Statement* stmt) {
+    ExceptionAction* ea;
+    SwitchCase* c;
+    CLabel* label;
+
+    while (stmt && !stmt->marked) {
+        stmt->marked = TRUE;
+        for (ea = stmt->dobjstack; ea; ea = ea->prev) {
+            switch (ea->type) {
+                case EAT_CATCHBLOCK:
+                    CFunc_MarkReachable(ea->data.catch_block.catch_label->stmt);
+                    break;
+                case EAT_SPECIFICATION:
+                    CFunc_MarkReachable(ea->data.specification.unexp_label->stmt);
+                    break;
+            }
+        }
+
+        switch (stmt->type) {
+            case ST_NOP:
+            case ST_LABEL:
+            case ST_BEGINCATCH:
+            case ST_ENDCATCH:
+            case ST_ENDCATCHDTOR:
+            case ST_GOTOEXPR:
+                break;
+            case ST_GOTO:
+            case ST_EXIT:
+                stmt = stmt->label->stmt;
+                continue;
+            case ST_EXPRESSION:
+                if (ENODE_IS(stmt->expr, EFUNCCALL) &&
+                    stmt->expr->rtype == &stvoid &&
+                    (stmt->expr->flags & ENODE_FLAG_VOLATILE)) {
+                    return;
+                }
+                break;
+            case ST_SWITCH:
+                for (c = ((SwitchInfo*)stmt->label)->cases; c; c = c->next) {
+                    CFunc_MarkReachable(c->label->stmt);
+                }
+                for (c = (SwitchCase*)((SwitchInfo*)stmt->label)->depcases; c; c = c->next) {
+                    CFunc_MarkReachable(c->label->stmt);
+                }
+                stmt = ((SwitchInfo*)stmt->label)->defaultlabel->stmt;
+                continue;
+            case ST_IFGOTO:
+            case ST_IFNGOTO:
+            case ST_ENTRY:
+                CFunc_MarkReachable(stmt->label->stmt);
+                break;
+            case ST_RETURN:
+                return;
+            case ST_ASM:
+                if ((label = InlineAsm_GetReferencedLabel(stmt))) {
+                    CFunc_MarkReachable(label->stmt);
+                }
+                break;
+            default:
+                CError_FATAL(1421);
+                break;
+        }
+        stmt = stmt->next;
+    }
+}
+
+static inline void CFunc_CheckJumpTo(Statement* stmt, ExceptionAction* to) {
+    if (stmt->dobjstack != to && !CFunc_ScopeContains(stmt->dobjstack, to)) {
+        while (to) {
+            if (CExcept_ActionNeedsDestruction(to) && to->type != EAT_ACTIVECATCHBLOCK) {
+                CError_Warning(ERR_ILLEGAL_JUMP_PAST_INITIALIZER);
+                break;
+            }
+            to = to->prev;
+        }
+    }
+}
+
+// 0x46D370 (3.0.1): unused variables and arguments, a value-returning
+// function that can fall off its end (pedantic or C++), and C++ jumps into
+// the scope of an object with a destructor
+void CFunc_WarnUnused301(Object* func, Statement* first) {
+    ObjectList* list;
+    Statement* stmt;
+    SwitchCase* c;
+
+    if (copts.warn_unusedvar) {
+        for (list = locals; list; list = list->next) {
+            if (!(list->object->flags & OBJECT_USED) &&
+                !IsTempName(list->object->name) &&
+                !(list->object->qual & Q_INLINE_DATA)) {
+                CError_SetErrorToken(&list->object->u.var.info->deftoken);
+                CError_Warning(ERR_VARIABLE_ARGUMENT_NOT_USED_FUNCTION, list->object->name->name);
+            }
+        }
+    }
+
+    if (copts.warn_unusedarg) {
+        for (list = arguments; list; list = list->next) {
+            if (!(list->object->flags & OBJECT_USED) &&
+                !IsTempName(list->object->name) &&
+                list->object->name != this_name_node &&
+                list->object->name != self_name_node) {
+                CError_SetErrorToken(&symdecltoken);
+                CError_Warning(ERR_VARIABLE_ARGUMENT_NOT_USED_FUNCTION, list->object->name->name);
+            }
+        }
+    }
+
+    if ((copts.pedantic || copts.cplusplus) &&
+        func &&
+        TYPE_FUNC(func->type)->functype != &stvoid &&
+        !CClass_IsConstructor(func) &&
+        !CClass_IsDestructor(func)) {
+        for (stmt = first; stmt; stmt = stmt->next) {
+            stmt->marked = FALSE;
+            if (!stmt->next) {
+                if (stmt->type != ST_GOTO &&
+                    (stmt->type != ST_RETURN ||
+                     (!stmt->expr && !(stmt->flags & StmtFlag_AfterNoReturn)))) {
+                    CFunc_MarkReachable(first);
+                    if (stmt->marked) {
+                        CError_Warning(ERR_RETURN_VALUE_EXPECTED);
+                    }
+                }
+                break;
+            }
+            if (stmt->type == ST_RETURN && !stmt->expr && !(stmt->flags & StmtFlag_AfterNoReturn)) {
+                CError_Warning(ERR_RETURN_VALUE_EXPECTED);
+                break;
+            }
+        }
+    }
+
+    if (!copts.cplusplus) {
+        return;
+    }
+
+    for (stmt = first; stmt; stmt = stmt->next) {
+        switch (stmt->type) {
+            case ST_NOP:
+            case ST_LABEL:
+            case ST_EXPRESSION:
+            case ST_RETURN:
+            case ST_BEGINCATCH:
+            case ST_ENDCATCH:
+            case ST_ENDCATCHDTOR:
+            case ST_ASM:
+                break;
+            case ST_GOTO:
+            case ST_IFGOTO:
+            case ST_IFNGOTO:
+                CFunc_CheckJumpTo(stmt, stmt->label->stmt->dobjstack);
+                break;
+            case ST_SWITCH:
+                CFunc_CheckJumpTo(stmt, ((SwitchInfo*)stmt->label)->defaultlabel->stmt->dobjstack);
+                for (c = ((SwitchInfo*)stmt->label)->cases; c; c = c->next) {
+                    CFunc_CheckJumpTo(stmt, c->label->stmt->dobjstack);
+                }
+                for (c = (SwitchCase*)((SwitchInfo*)stmt->label)->depcases; c; c = c->next) {
+                    CFunc_CheckJumpTo(stmt, c->label->stmt->dobjstack);
+                }
+                break;
+            default:
+                CError_FATAL(1552);
+        }
+    }
+}
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+typedef struct FuncNames {
+    Object* func; // __func__
+    Object* FUNCTION; // __FUNCTION__
+    Object* pretty; // __PRETTY_FUNCTION__
+    char* prettyname;
+} FuncNames;
+
+// 3.0.1's __func__-style names: a static const char array under a unique
+// name, reached through an alias with the plain name
+static inline Object* CFunc_DeclareFuncName301(char* str, HashNameNode* name) {
+    Object* obj;
+    Object* aliasobj;
+
+    obj = CParser_NewCompilerDefDataObject();
+    obj->type = CDecl_NewArrayType(TYPE(&stchar), strlen(str) + 1);
+    obj->name = name;
+    obj->qual = Q_CONST;
+    obj->sclass = TK_STATIC;
+    aliasobj = CParser_NewAliasObject(obj, 0);
+    obj->name = CParser_AppendUniqueName(name->name);
+    return aliasobj;
+}
+
+// 0x467BA0 (name not known)
+static void CFunc_DeclareFuncNames(FuncNames* names, Object* func) {
+    memclrw(names, sizeof(FuncNames));
+    if (func->name) {
+        names->func = CFunc_DeclareFuncName301(func->name->name, GetHashNameNodeExport("__func__"));
+        names->FUNCTION =
+            CFunc_DeclareFuncName301(func->name->name, GetHashNameNodeExport("__FUNCTION__"));
+        names->prettyname = CError_GetObjectName(func);
+        names->pretty = CFunc_DeclareFuncName301(
+            names->prettyname, GetHashNameNodeExport("__PRETTY_FUNCTION__")
+        );
+    }
+}
+
+extern void func_00467D10(void); // constructor initializers (3.0.1)
+extern void func_0046AE40(Object* func, Statement* first); // #pragma opt_classresults
+extern void func_004F8630(Object* func); // an asm function's body
+
+// 3.0.1 (0x466E50)
+void CFunc_ParseFuncDef(
+    Object* func,
+    DeclInfo* di,
+    TypeClass* tclass,
+    Boolean is_method,
+    Boolean is_static,
+    NameSpace* nspace
+) {
+    Statement* beforebody;
+    Statement* laststmt;
+    Boolean has_try;
+    Boolean packed;
+    Boolean oldStyle;
+    CLabel* label;
+    ObjectList* list;
+    CScopeSave scope;
+    Statement firstStmt;
+    DeclThing thing;
+    FuncNames names;
+    CI_FuncData funcdata;
+
+    CError_ASSERT(5406, func->type->type == TYPEFUNC);
+    if (TYPE_FUNC(func->type)->flags & FUNC_AUTO_GENERATED) {
+        CError_Error(ERR_OBJECT_REDEFINED, func);
+    }
+    if ((TYPE_FUNC(func->type)->flags & FUNC_DEFINED) && func->datatype != DINLINEFUNC) {
+        CError_Error(ERR_OBJECT_REDEFINED, func);
+    }
+    TYPE_FUNC(func->type)->flags |= FUNC_DEFINED;
+
+    CParser_UpdateObject(func, di);
+
+    if (!is_method) {
+        CScope_SetFunctionScope(func, &scope);
+        if (tclass) {
+            cscope_current = tclass->nspace;
+        }
+    } else {
+        CScope_SetMethodScope(func, tclass, is_static, &scope);
+    }
+
+    if (nspace) {
+        cscope_current = nspace;
+    }
+
+    if (cscope_currentclass) {
+        CClass_MemberDef(func, cscope_currentclass);
+    }
+
+    cfunc_is_extern_c = di->is_extern_c;
+
+    CError_ASSERT(5425, func->type->type == TYPEFUNC);
+    if (di->oldStyleParameters && (func->qual & Q_ASM)) {
+        CError_Error(ERR_ILLEGAL_TYPE_QUALIFIERS);
+    }
+
+    if (cparamblkptr->precompile == 1 && !(func->qual & Q_INLINE)) {
+        CError_ErrorTerm(ERR_ILLEGAL_USE_PRECOMPILED_HEADER);
+    }
+
+    if (di->isType) {
+        CError_Error(ERR_ILLEGAL_FUNCTION_DEFINITION);
+    }
+
+    CFunc_FuncGenSetup(&firstStmt, func);
+    if (TYPE_FUNC(func->type)->functype->type != TYPEVOID) {
+        IsCompleteType(TYPE_FUNC(func->type)->functype);
+    }
+
+    SetupFunctionArguments301(func, &firstStmt, di->parameterNames, di->oldStyleParameters);
+
+    beforebody = curstmt;
+    CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+    functionbodyoffset = sourceoffset;
+    functionbodypath = sourcefilepath;
+    firstStmt.sourceoffset = functionbodyoffset;
+    firstStmt.sourcefilepath = functionbodypath;
+
+    if (di->oldStyleParameters) {
+        for (list = arguments; list; list = list->next) {
+            if (IS_TYPE_FLOAT(list->object->type) && list->object->type->size < stdouble.size) {
+                CFunc_InsertArgumentCopyConversion(
+                    list->object, TYPE(&stdouble), list->object->type, FALSE
+                );
+            }
+            if (CMach_PassResultInHiddenArg(list->object->type)) {
+                CError_FATAL(3965);
+            }
+        }
+    }
+
+    if (di->parameterScope) {
+        CScope_MergeNameSpace(cscope_current, di->parameterScope);
+    }
+
+    CFunc_DeclareFuncNames(&names, func);
+
+    has_try = tk == TK_TRY;
+    if (has_try) {
+        tk = lex();
+    }
+
+    if (CClass_IsConstructor(func)) {
+#if MWCCPSP_NATIVE
+        // 3.0.1 (0x467D10) wraps the initializers in an ECTORINIT statement
+        // for its own CABI; the CABI here still takes 2.4.7's ctor_chain
+        CError_ASSERT(5029, cscope_currentclass);
+        CFunc_ParseCtorInitializer();
+        CFunc_CheckCtorInitializer(cscope_currentclass, ctor_chain);
+#else
+        func_00467D10();
+#endif
+    }
+
+    CPrep_TokenStreamFlush();
+
+    if (!(func->qual & Q_ASM)) {
+        if (tk == '{') {
+            if (!has_try) {
+                tk = lex();
+            }
+        } else {
+            CError_ErrorSkip(ERR_LBRACE_EXPECTED);
+            has_try = FALSE;
+        }
+
+        if (!copts.cplusplus) {
+            while (isdeclaration(0, 0, 0, 0)) {
+                CFunc_ParseLocalDeclaration(FALSE);
+                tk = lex();
+            }
+        }
+
+        thing.switchinfo = NULL;
+        thing.loopContinue = NULL;
+        thing.loopBreak = NULL;
+        thing.thetype = TYPE_FUNC(func->type)->functype;
+        thing.qual = TYPE_FUNC(func->type)->qual;
+
+        if (!has_try) {
+            while (tk != '}') {
+                statement(&thing);
+            }
+        } else {
+            CExcept_ScanTryBlock(&thing, CClass_IsConstructor(func) || CClass_IsDestructor(func));
+            if (tk != 0) {
+                CPrep_UnLex();
+            }
+            tk = '}';
+        }
+
+        if (curstmt->type != ST_RETURN && curstmt->type != ST_GOTO) {
+            laststmt = curstmt;
+            CPrep_GetFileOffsetInfo2(&cparser_fileoffset, &sourceoffset, &sourcefilepath);
+            CFunc_AppendStatement(ST_RETURN);
+
+            curstmt->dobjstack = NULL;
+            curstmt->expr = NULL;
+
+            if ((copts.cplusplus || copts.c9x) &&
+                !strcmp(func->name->name, "main") &&
+                TYPE_FUNC(func->type)->functype == TYPE(&stsignedint)) {
+                curstmt->expr = intconstnode(TYPE(&stsignedint), 0);
+            }
+
+            if (laststmt->type == ST_EXPRESSION &&
+                laststmt->expr->type == EFUNCCALL &&
+                laststmt->expr->rtype == &stvoid &&
+                (laststmt->expr->flags & ENODE_FLAG_VOLATILE)) {
+                curstmt->flags |= StmtFlag_AfterNoReturn;
+            }
+        }
+
+        for (label = Labels; label; label = label->next) {
+            if (!label->stmt) {
+                CError_Error(ERR_UNDEFINED_LABEL, label->name->name);
+            }
+        }
+
+        if (names.func && (names.func->flags & OBJECT_USED)) {
+            CInit_DeclareData(
+                names.func->u.alias.object, func->name->name, NULL, strlen(func->name->name) + 1
+            );
+        }
+        if (names.FUNCTION && (names.FUNCTION->flags & OBJECT_USED)) {
+            CInit_DeclareData(
+                names.FUNCTION->u.alias.object, func->name->name, NULL, strlen(func->name->name) + 1
+            );
+        }
+        if (names.pretty && (names.pretty->flags & OBJECT_USED)) {
+            CInit_DeclareData(
+                names.pretty->u.alias.object, names.prettyname, NULL, strlen(names.prettyname) + 1
+            );
+        }
+
+        if (!fatalerrors) {
+            if (copts.opt_classresults) {
+                func_0046AE40(func, &firstStmt);
+            }
+            if (CClass_IsConstructor(func)) {
+                CABI_TransConstructor(func, beforebody, cscope_currentclass, NULL, has_try);
+            }
+            if (CClass_IsDestructor(func)) {
+                CABI_TransDestructor(func, func, &firstStmt, cscope_currentclass, CABIDestroyBase);
+            }
+
+            CFunc_WarnUnused301(func, &firstStmt);
+            CFunc_DestructorCleanup301(&firstStmt);
+            if (cscope_currentclass && cscope_currentclass->sominfo) {
+                CSOM_InitSOMSelf(cscope_currentclass, &firstStmt);
+            }
+            CExcept_ExceptionTansform(&firstStmt);
+            symdeclend = CPrep_GetFileOffsetInfo(&cparser_fileoffset);
+
+            oldStyle = di->oldStyleParameters;
+            if ((TYPE_FUNC(func->type)->flags & FUNC_COVARIANT) && !anyerrors) {
+                CInline_PackIFunctionData(&funcdata, &firstStmt, func);
+                packed = TRUE;
+            } else {
+                packed = FALSE;
+            }
+            CInline_GenFunc(&firstStmt, func, oldStyle);
+            if (packed) {
+                CClass_DefineCovariantFuncs(func, &funcdata);
+            }
+        }
+    } else {
+        if (tk == '{') {
+            in_assembler = TRUE;
+            tk = lex();
+            in_assembler = FALSE;
+        } else {
+            CError_ErrorSkip(ERR_LBRACE_EXPECTED);
+        }
+
+        while (isdeclaration(0, 0, 0, 0)) {
+            CFunc_ParseLocalDeclaration(TRUE);
+            tk = lex();
+        }
+        func_004F8630(func);
+    }
+
+    if (tk != '}') {
+        CError_Error(ERR_RBRACE_EXPECTED);
+    }
+
+    CScope_RestoreScope(&scope);
+}
+#else
 void CFunc_ParseFuncDef(
     Object* func,
     DeclInfo* di,
@@ -3314,6 +5969,7 @@ void CFunc_ParseFuncDef(
 
     CScope_RestoreScope(&scope);
 }
+#endif
 
 void InitExpr_Register(ENode* expr, Object* object) {
     InitExpr* initexpr;
@@ -3373,10 +6029,12 @@ void CFunc_GenerateSingleExprFunc(Object* func, ENode* expr) {
     Statement firstStmt;
     Statement* stmt;
 
+#if !MWCCPSP
     if (cparamblkptr->precompile == 1) {
         CError_Error(ERR_ILLEGAL_USE_PRECOMPILED_HEADER);
         return;
     }
+#endif
 
     if (!anyerrors) {
         nspace = CFunc_FuncGenSetup(&firstStmt, func);
@@ -3407,10 +6065,12 @@ void CFunc_GenerateDummyCtorFunc(Object* func, Object* real_ctor) {
     Statement firstStmt;
     Statement* stmt;
 
+#if !MWCCPSP
     if (cparamblkptr->precompile == 1) {
         CError_Error(ERR_ILLEGAL_USE_PRECOMPILED_HEADER);
         return;
     }
+#endif
 
     if (!anyerrors) {
         cscope_currentfunc = func;
@@ -3429,26 +6089,43 @@ void CFunc_GenerateDummyCtorFunc(Object* func, Object* real_ctor) {
         expr->data.funccall.funcref = CExpr_MakeObjRefNode(real_ctor, FALSE);
         expr->data.funccall.functype = TYPE_FUNC(func->type);
 
+#if MWCCPSP
+        CError_ASSERT(5716, IS_TYPE_FUNC(real_ctor->type));
+        CError_ASSERT(5718, TYPE_FUNC(real_ctor->type)->flags & FUNC_METHOD);
+        CError_ASSERT(5719, arg = TYPE_FUNC(real_ctor->type)->args);
+        CError_ASSERT(5725, arg = arg->next);
+        CError_ASSERT(5726, arguments);
+#else
         CError_ASSERT(3718, IS_TYPE_FUNC(real_ctor->type));
         CError_ASSERT(3719, TYPE_FUNC(real_ctor->type)->flags & FUNC_METHOD);
         CError_ASSERT(3720, arg = TYPE_FUNC(real_ctor->type)->args);
         CError_ASSERT(3722, arg = arg->next);
         CError_ASSERT(3723, arguments);
+#endif
 
         list = lalloc(sizeof(ENodeList));
         expr->data.funccall.args = list;
         list->node = create_objectnode(arguments->object);
 
         if (TYPE_METHOD(real_ctor->type)->theclass->flags & CLASS_HAS_VBASES) {
+#if MWCCPSP
+            CError_ASSERT(5735, arg = arg->next);
+            CError_ASSERT(5714, arguments->next);
+#else
             CError_ASSERT(3729, arg = arg->next);
             CError_ASSERT(3730, arguments->next);
+#endif
             list->next = lalloc(sizeof(ENodeList));
             list = list->next;
             list->node = create_objectnode(arguments->next->object);
         }
 
         while (arg) {
+#if MWCCPSP
+            CError_ASSERT(5715, arg->dexpr);
+#else
             CError_ASSERT(3739, arg->dexpr);
+#endif
             list->next = lalloc(sizeof(ENodeList));
             list = list->next;
             list->node = CExpr_GetDefaultArgument(expr->data.funccall.funcref, arg);

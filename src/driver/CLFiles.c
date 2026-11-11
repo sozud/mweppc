@@ -1,5 +1,8 @@
 #include "driver/CLFiles.h"
 #include "driver/CLLoadAndCache.h"
+#if MWCCPSP
+#include "driver/Generic.h"
+#endif
 #include "driver/cmdline.h"
 #include "driver/Memory.h"
 #include "driver/MemUtils.h"
@@ -18,6 +21,12 @@ File* File_New(void) {
         return file;
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+#define DisposeHandle OS_FreeHandle // 3.0.1: File and VFile data are OS handles
+#endif
 
 void File_Free(File* file) {
     if (file) {
@@ -38,7 +47,11 @@ void File_Free(File* file) {
 }
 
 Boolean Files_Initialize(Files* this) {
+#if MWCCPSP
+    OS_ASSERT(52, this != NULL);
+#else
     OS_ASSERT(47, this != NULL);
+#endif
     return TRUE;
 }
 
@@ -46,7 +59,11 @@ Boolean Files_Terminate(Files* this) {
     File* file;
     File* next;
 
+#if MWCCPSP
+    OS_ASSERT(61, this != NULL);
+#else
     OS_ASSERT(56, this != NULL);
+#endif
 
     for (file = this->fileList; file; file = next) {
         next = file->next;
@@ -63,8 +80,13 @@ Boolean Files_AddFile(Files* this, File* file) {
 Boolean Files_InsertFile(Files* this, File* file, SInt32 position) {
     File** scan;
 
+#if MWCCPSP
+    OS_ASSERT(85, this != NULL);
+    OS_ASSERT(86, file != NULL);
+#else
     OS_ASSERT(80, this != NULL);
     OS_ASSERT(81, file != NULL);
+#endif
 
     if (position < 0) {
         position = 0;
@@ -86,8 +108,13 @@ Boolean Files_InsertFile(Files* this, File* file, SInt32 position) {
 File* Files_GetFile(Files* this, SInt32 filenum) {
     File* file;
 
+#if MWCCPSP
+    OS_ASSERT(109, this != NULL);
+    OS_ASSERT(110, filenum >= 0);
+#else
     OS_ASSERT(104, this != NULL);
     OS_ASSERT(105, filenum >= 0);
+#endif
 
     file = this->fileList;
     while (file && file->filenum != filenum) {
@@ -107,7 +134,11 @@ File* Files_FindFile(Files* this, OSSpec* spec) {
 }
 
 int Files_Count(Files* this) {
+#if MWCCPSP
+    OS_ASSERT(132, this != NULL);
+#else
     OS_ASSERT(127, this != NULL);
+#endif
 
     return this->fileCount;
 }
@@ -122,7 +153,11 @@ void VFiles_Terminate(VFile** list) {
 
     while (*list) {
         next = (*list)->next;
+#if MWCCPSP
+        DisposeHandle(&(*list)->data);
+#else
         DisposeHandle((*list)->data);
+#endif
         xfree(*list);
         list = &next;
     }
@@ -130,6 +165,39 @@ void VFiles_Terminate(VFile** list) {
     *list = NULL;
 }
 
+#if MWCCPSP
+VFile* VFile_New(const char* name, OSHandle* data) {
+    VFile* vf;
+    void* ptr;
+    UInt32 size;
+
+    vf = xmalloc(NULL, sizeof(VFile));
+    if (!vf) {
+        return NULL;
+    }
+
+    strncpy(vf->displayName, name, sizeof(vf->displayName));
+    vf->displayName[sizeof(vf->displayName) - 1] = 0;
+
+    if (OS_NewHandle(0, &vf->data)) {
+        xfree(vf);
+        return NULL;
+    }
+
+    ptr = OS_LockHandle(data);
+    OS_GetHandleSize(data, &size);
+    if (OS_AppendHandle(&vf->data, ptr, size)) {
+        OS_UnlockHandle(data);
+        xfree(vf);
+        return NULL;
+    }
+    OS_UnlockHandle(data);
+
+    FixTextHandle(&vf->data);
+    vf->next = NULL;
+    return vf;
+}
+#else
 VFile* VFile_New(const char* name, Handle data) {
     VFile* vf;
 
@@ -151,6 +219,7 @@ VFile* VFile_New(const char* name, Handle data) {
     vf->next = NULL;
     return vf;
 }
+#endif
 
 Boolean VFiles_Add(VFile** list, VFile* entry) {
     VFile** scan = list;

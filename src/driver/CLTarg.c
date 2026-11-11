@@ -17,13 +17,28 @@ Target* Target_New(const char* name, OSType cpu, OSType os, OSType lang) {
     targ = xcalloc("target", sizeof(Target));
 
     strncpy(targ->targetName, name, sizeof(targ->targetName));
+#if MWCCPSP
+    targ->targetinfo = xcalloc("target info", sizeof(TARGET_INFO));
+#else
     targ->targetinfo = xcalloc("target info", sizeof(CWTargetInfo));
+#endif
     targ->cpu = cpu;
     targ->os = os;
     targ->lang = lang;
 
     OS_GetCWD(&targ->outputDirectory);
 
+#if MWCCPSP
+    // 0x41E7D0: no assertions in 3.0.1
+    Segments_Initialize(&targ->linkage.segs);
+    Overlays_Initialize(&targ->linkage.overlays);
+    Files_Initialize(&targ->files);
+    Files_Initialize(&targ->pchs);
+    VFiles_Initialize(&targ->virtualFiles);
+    Paths_Initialize(&targ->sysPaths);
+    Paths_Initialize(&targ->userPaths);
+    Incls_Initialize(&targ->incls, targ);
+#else
     OS_ASSERT(25, Segments_Initialize(&targ->linkage.segs));
     OS_ASSERT(28, Overlays_Initialize(&targ->linkage.overlays));
     OS_ASSERT(
@@ -32,6 +47,7 @@ Target* Target_New(const char* name, OSType cpu, OSType os, OSType lang) {
             VFiles_Initialize(&targ->virtualFiles) && Paths_Initialize(&targ->sysPaths) &&
             Paths_Initialize(&targ->userPaths) && Incls_Initialize(&targ->incls, targ)
     );
+#endif
 
     return targ;
 }

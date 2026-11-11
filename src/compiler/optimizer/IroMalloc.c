@@ -59,6 +59,12 @@ static const size_t fix_pool_sizes[] = {0xC, 0x14, 0x24, 0x44};
 static Block* start_;
 static FixStart fix_start[4];
 static int initialized;
+#if MWCCPSP
+static Block* start_galloc;
+static Block* start_other;
+static int initialized_galloc;
+static int initialized_other;
+#endif
 
 static void Block_link(Block* block, SubBlock* subblock);
 static void Block_unlink(Block* block, SubBlock* subblock);
@@ -325,6 +331,37 @@ static Block* unlink_block(Block* block) {
     return newblock;
 }
 
+#if MWCCPSP
+// 3.0.1: the block comes from the given heap and joins that heap's pools
+static Block* link_new_block(size_t size, void* (*heap)(SInt32 size)) {
+    Block* block;
+    Block** start;
+
+    size = (size + 0x1000 + sizeof(Block) + sizeof(BlockTail) - 1) & ~0xFFF;
+    if (size < 0x10000) {
+        size = 0x10000;
+    }
+
+    if (!(block = heap(size))) {
+        return NULL;
+    }
+
+    Block_construct(block, size);
+    start = (heap == galloc) ? &start_galloc : &start_other;
+    if (*start) {
+        block->prev_ = (*start)->prev_;
+        block->prev_->next_ = block;
+        block->next_ = *start;
+        (*start)->prev_ = block;
+        *start = block;
+    } else {
+        *start = block;
+        block->prev_ = block;
+        block->next_ = block;
+    }
+    return block;
+}
+#else
 static Block* link_new_block(size_t size) {
     Block* block;
 
@@ -341,7 +378,43 @@ static Block* link_new_block(size_t size) {
     link_block(block);
     return block;
 }
+#endif
 
+#if MWCCPSP
+static void* allocate_from_var_pools(size_t size, void* (*heap)(SInt32 size)) {
+    Block* block;
+    SubBlock* subblock;
+    Block** start;
+
+    start = (heap == galloc) ? &start_galloc : &start_other;
+    size = (size + sizeof(Block) - 1) & ~FLAGMASK;
+    if (size < 0x50) {
+        size = 0x50;
+    }
+
+    block = *start ? *start : link_new_block(size, heap);
+    if (!block) {
+        return NULL;
+    }
+
+    do {
+        if (size <= block->max_size_) {
+            if ((subblock = Block_subBlock(block, size))) {
+                *start = block;
+                goto allocated;
+            }
+        }
+    } while ((block = block->next_) != *start);
+
+    block = link_new_block(size, heap);
+    if (!block) {
+        return NULL;
+    }
+    subblock = Block_subBlock(block, size);
+allocated:
+    return (SubBlockBase*)subblock + 1;
+}
+#else
 static void* allocate_from_var_pools(size_t size) {
     Block* block;
     SubBlock* subblock;
@@ -373,6 +446,7 @@ static void* allocate_from_var_pools(size_t size) {
 allocated:
     return (SubBlockBase*)subblock + 1;
 }
+#endif
 
 #define Block_empty(block) \
     (_sb = (SubBlock*)((char*)(block) + sizeof(Block))), \
@@ -437,7 +511,11 @@ static void* allocate_from_fixed_pools(size_t size) {
         char* buf;
         size_t bufsize;
 
+#if MWCCPSP
+        buf = allocate_from_var_pools(4000, oalloc);
+#else
         buf = allocate_from_var_pools(4000);
+#endif
         if (!buf) {
             return NULL;
         }
@@ -490,6 +568,23 @@ size_t IRO_msize(void* buf) {
     return BUF_SIZE(buf);
 }
 
+#if MWCCPSP
+void* IRO_Alloc(size_t size) {
+    return oalloc(size);
+}
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1: variable pools on oheap only (0x4F8B20)
+void* IRO_malloc(size_t size) {
+    if (!size) {
+        return NULL;
+    }
+    return allocate_from_var_pools(size, oalloc);
+}
+#else
 void* IRO_malloc(size_t size) {
     void* result;
 
@@ -504,7 +599,77 @@ void* IRO_malloc(size_t size) {
     }
     return result;
 }
+#endif
+#if MWCCPSP
 
+#endif
+#if MWCCPSP
+// 0x4F89D0: the same code as IRO_free, a second copy (PointerAnalysis_Cleanup
+// and the object sets call it). Name not known.
+void IRO_free2(void* buf) {
+    SubBlock* subblock;
+    SubBlock* _sb;
+    Block* block;
+    Block* next;
+
+    if (buf) {
+        subblock = VARBUF_SB(buf);
+        block = SBB_BLOCK(subblock);
+        Block_link(block, subblock);
+        if (Block_empty(block)) {
+            next = block->next_;
+            if (next == block) {
+                next = NULL;
+            }
+            if (start_galloc == block) {
+                start_galloc = next;
+            } else if (start_other == block) {
+                start_other = next;
+            }
+            if (next) {
+                next->prev_ = block->prev_;
+                next->prev_->next_ = next;
+            }
+            block->next_ = NULL;
+            block->prev_ = NULL;
+        }
+    }
+}
+#endif
+
+#if MWCCPSP
+// 3.0.1 (0x4F8A60): every buffer comes from a variable pool; an emptied
+// block leaves the pools of whichever heap it belongs to
+void IRO_free(void* buf) {
+    SubBlock* subblock;
+    SubBlock* _sb;
+    Block* block;
+    Block* next;
+
+    if (buf) {
+        subblock = VARBUF_SB(buf);
+        block = SBB_BLOCK(subblock);
+        Block_link(block, subblock);
+        if (Block_empty(block)) {
+            next = block->next_;
+            if (next == block) {
+                next = NULL;
+            }
+            if (start_galloc == block) {
+                start_galloc = next;
+            } else if (start_other == block) {
+                start_other = next;
+            }
+            if (next) {
+                next->prev_ = block->prev_;
+                next->prev_->next_ = next;
+            }
+            block->next_ = NULL;
+            block->prev_ = NULL;
+        }
+    }
+}
+#else
 void IRO_free(void* buf) {
     size_t size;
 
@@ -519,6 +684,7 @@ void IRO_free(void* buf) {
         deallocate_from_var_pools(buf);
     }
 }
+#endif
 
 void* IRO_realloc(void* buf, size_t newsize) {
     size_t oldsize;
@@ -600,6 +766,42 @@ void IRO_pool_free_all(void) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1 keeps one set of variable pools per heap: galloc (global) or any
+// other heap function (oalloc in practice); the fixed pools are shared.
+
+void IRO_InitializeAllocator(void* (*heap)(SInt32 size)) {
+    int i;
+
+    if (heap == galloc) {
+        if (!initialized_galloc) {
+            for (i = 0; i < 4; i++) {
+                fix_start[i].next_ = NULL;
+                fix_start[i].start_ = NULL;
+                fix_start[i].n_allocated_ = 0;
+            }
+            start_galloc = NULL;
+            initialized_galloc = TRUE;
+        }
+    } else if (!initialized_other) {
+        for (i = 0; i < 4; i++) {
+            fix_start[i].next_ = NULL;
+            fix_start[i].start_ = NULL;
+            fix_start[i].n_allocated_ = 0;
+        }
+        start_other = NULL;
+        initialized_other = TRUE;
+    }
+}
+
+void IRO_TerminateAllocator(void* (*heap)(SInt32 size)) {
+    if (heap == galloc) {
+        initialized_galloc = FALSE;
+    } else {
+        initialized_other = FALSE;
+    }
+}
+#else
 void IRO_InitializeAllocator(void) {
     if (!initialized) {
         int i;
@@ -616,3 +818,20 @@ void IRO_InitializeAllocator(void) {
 void IRO_TerminateAllocator(void) {
     initialized = FALSE;
 }
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 0x4F89B0 and 0x4F8980: the pools of both heaps (called by CPrep's setup
+// and cleanup)
+void IRO_InitializeAllocators(void) {
+    IRO_InitializeAllocator(oalloc);
+    IRO_InitializeAllocator(galloc);
+}
+
+void IRO_TerminateAllocators(void) {
+    IRO_TerminateAllocator(oalloc);
+    IRO_TerminateAllocator(galloc);
+}
+#endif

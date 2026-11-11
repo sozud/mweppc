@@ -17,8 +17,17 @@
 #include "driver/StringExtras.h"
 #include <stdio.h>
 #include <string.h>
+#if MWCCPSP
 
+// 3.0.1 widens a plugin entry's short result to CWResult before testing it
+#define CB_OK(call) ((CWResult)(call) == cwNoErr)
+#endif
+
+#if MWCCPSP_NATIVE
+#include <alloca.h>
+#else
 extern void* alloca(unsigned int size);
+#endif
 
 char* Plugin_GetVersionInfoASCII(Plugin* pl);
 
@@ -54,10 +63,17 @@ static void GetToolVersionInfo(void) {
         return;
     }
     useToolVersion = TRUE;
+#if MWCCPSP // 3.0.1 reports the file version
+    toolVersion.major = fixed->dwFileVersionMS >> 16;
+    toolVersion.minor = fixed->dwFileVersionMS;
+    toolVersion.patch = fixed->dwFileVersionLS >> 16;
+    toolVersion.build = fixed->dwFileVersionLS;
+#else
     toolVersion.major = fixed->dwProductVersionMS >> 16;
     toolVersion.minor = fixed->dwProductVersionMS;
     toolVersion.patch = fixed->dwProductVersionLS >> 16;
     toolVersion.build = fixed->dwProductVersionLS;
+#endif
     if (VerQueryValueA(info, "\\StringFileInfo\\040904B0\\CompanyName", (LPVOID*)&value, &length)) {
         toolVersionInfo.company = xstrdup(value);
     } else {
@@ -118,7 +134,11 @@ static const char* Plugin_GetDisplayName(Plugin* pl) {
     const char* name;
     OS_ASSERT(251, pl);
 
+#if MWCCPSP
+    if (pl->cb->GetDisplayName && CB_OK(pl->cb->GetDisplayName(&name))) {
+#else
     if (pl->cb->GetDisplayName && pl->cb->GetDisplayName(&name) == 0) {
+#endif
         return name;
     } else {
         return "(no name found)";
@@ -127,9 +147,17 @@ static const char* Plugin_GetDisplayName(Plugin* pl) {
 
 const char* Plugin_GetDropInName(Plugin* pl) {
     const char* name;
+#if MWCCPSP
+    OS_ASSERT(262, pl);
+#else
     OS_ASSERT(263, pl);
+#endif
 
+#if MWCCPSP
+    if (pl->cb->GetDropInName && CB_OK(pl->cb->GetDropInName(&name))) {
+#else
     if (pl->cb->GetDropInName && pl->cb->GetDropInName(&name) == 0) {
+#endif
         return name;
     } else {
         return "(no name found)";
@@ -139,9 +167,17 @@ const char* Plugin_GetDropInName(Plugin* pl) {
 const VersionInfo* Plugin_GetVersionInfo(Plugin* pl) {
     static const VersionInfo fakeversion = {0, 0, 0, 0};
     const VersionInfo* vi;
+#if MWCCPSP
+    OS_ASSERT(275, pl);
+#else
     OS_ASSERT(276, pl);
+#endif
 
+#if MWCCPSP
+    if (pl->cb->GetVersionInfo && CB_OK(pl->cb->GetVersionInfo(&vi))) {
+#else
     if (pl->cb->GetVersionInfo && pl->cb->GetVersionInfo(&vi) == 0) {
+#endif
         return vi;
     } else {
         return &fakeversion;
@@ -185,9 +221,17 @@ DropInFlags* Plugin_GetDropInFlags(Plugin* pl) {
     const DropInFlags* df;
     SInt32 dfsize;
 
+#if MWCCPSP
+    OS_ASSERT(328, pl);
+#else
     OS_ASSERT(329, pl);
+#endif
 
+#if MWCCPSP
+    if (pl->cb->GetDropInFlags && CB_OK(pl->cb->GetDropInFlags(&df, &dfsize))) {
+#else
     if (pl->cb->GetDropInFlags && pl->cb->GetDropInFlags(&df, &dfsize) == 0) {
+#endif
         memset(&retdf, 0, sizeof(retdf));
         memcpy(&retdf, df, dfsize);
         return &retdf;
@@ -199,7 +243,11 @@ DropInFlags* Plugin_GetDropInFlags(Plugin* pl) {
 OSType Plugin_GetPluginType(Plugin* pl) {
     DropInFlags* df;
 
+#if MWCCPSP
+    OS_ASSERT(344, pl);
+#else
     OS_ASSERT(345, pl);
+#endif
 
     df = Plugin_GetDropInFlags(pl);
     if (df) {
@@ -213,10 +261,19 @@ const CWTargetList* Plugin_CL_GetTargetList(Plugin* pl) {
     static const CWTargetList faketl = {kCurrentCWTargetListVersion, 0, NULL, 0, NULL};
     const CWTargetList* tl;
 
+#if MWCCPSP
+    OS_ASSERT(357, pl);
+    OS_ASSERT(358, pl->cl_cb != NULL);
+#else
     OS_ASSERT(358, pl);
     OS_ASSERT(359, pl->cl_cb != NULL);
+#endif
 
+#if MWCCPSP
+    if (pl->cl_cb->GetTargetList && CB_OK(pl->cl_cb->GetTargetList(&tl))) {
+#else
     if (pl->cl_cb->GetTargetList && pl->cl_cb->GetTargetList(&tl) == 0) {
+#endif
         return tl;
     } else {
         return &faketl;
@@ -227,9 +284,17 @@ const CWPanelList* Plugin_GetPanelList(Plugin* pl) {
     static CWPanelList fakepnl = {kCurrentCWPanelListVersion, 0, NULL};
     const CWPanelList* pnl;
 
+#if MWCCPSP
+    OS_ASSERT(380, pl);
+#else
     OS_ASSERT(381, pl);
+#endif
 
+#if MWCCPSP
+    if (pl->cb->GetPanelList && CB_OK(pl->cb->GetPanelList(&pnl))) {
+#else
     if (pl->cb->GetPanelList && pl->cb->GetPanelList(&pnl) == 0) {
+#endif
         return pnl;
     } else {
         return &fakepnl;
@@ -240,10 +305,19 @@ const CWExtMapList* Plugin_CL_GetExtMapList(Plugin* pl) {
     static CWExtMapList fakeel = {kCurrentCWExtMapListVersion, 0, NULL};
     const CWExtMapList* el;
 
+#if MWCCPSP
+    OS_ASSERT(400, pl);
+    OS_ASSERT(401, pl->cl_cb != NULL);
+#else
     OS_ASSERT(401, pl);
     OS_ASSERT(402, pl->cl_cb != NULL);
+#endif
 
+#if MWCCPSP
+    if (pl->cl_cb->GetDefaultMappingList && CB_OK(pl->cl_cb->GetDefaultMappingList(&el))) {
+#else
     if (pl->cl_cb->GetDefaultMappingList && pl->cl_cb->GetDefaultMappingList(&el) == 0) {
+#endif
         return el;
     } else {
         return &fakeel;
@@ -253,9 +327,17 @@ const CWExtMapList* Plugin_CL_GetExtMapList(Plugin* pl) {
 const OSFileTypeMappingList* Plugin_GetFileTypeMappingList(Plugin* pl) {
     const OSFileTypeMappingList* ftml;
 
+#if MWCCPSP
+    OS_ASSERT(421, pl);
+#else
     OS_ASSERT(422, pl);
+#endif
 
+#if MWCCPSP
+    if (pl->cb->GetFileTypeMappings && CB_OK(pl->cb->GetFileTypeMappings(&ftml))) {
+#else
     if (pl->cb->GetFileTypeMappings && pl->cb->GetFileTypeMappings(&ftml) == 0) {
+#endif
         return ftml;
     } else {
         return NULL;
@@ -266,10 +348,19 @@ const CWObjectFlags* Plugin_CL_GetObjectFlags(Plugin* pl) {
     static const CWObjectFlags fake = {2, 0, "", "", "", "", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     const CWObjectFlags* cof;
 
+#if MWCCPSP
+    OS_ASSERT(433, pl);
+    OS_ASSERT(434, pl->cl_cb != NULL);
+#else
     OS_ASSERT(434, pl);
     OS_ASSERT(435, pl->cl_cb != NULL);
+#endif
 
+#if MWCCPSP
+    if (pl->cl_cb->GetObjectFlags && CB_OK(pl->cl_cb->GetObjectFlags(&cof))) {
+#else
     if (pl->cl_cb->GetObjectFlags && pl->cl_cb->GetObjectFlags(&cof) == 0) {
+#endif
         return cof;
     } else if (Plugin_GetDropInFlags(pl)->dropintype == CWDROPINCOMPILERTYPE) {
         return NULL;
@@ -356,10 +447,18 @@ Boolean Plugin_MatchesType(Plugin* pl, OSType type, OSType lang, Boolean exact) 
 Boolean Plugin_Pr_MatchesPlugin(Plugin* pl, CLPluginInfo* pluginfo, OSType cpu, OSType os) {
     Boolean isSupported;
 
+#if MWCCPSP
+    OS_ASSERT(565, pl->pr_cb != NULL);
+#else
     OS_ASSERT(566, pl->pr_cb != NULL);
+#endif
 
     if (pl->pr_cb->SupportsPlugin &&
+#if MWCCPSP
+        CB_OK(pl->pr_cb->SupportsPlugin(pluginfo, cpu, os, &isSupported))) {
+#else
         pl->pr_cb->SupportsPlugin(pluginfo, cpu, os, &isSupported) == 0) {
+#endif
         return isSupported;
     } else {
         return FALSE;
@@ -369,16 +468,50 @@ Boolean Plugin_Pr_MatchesPlugin(Plugin* pl, CLPluginInfo* pluginfo, OSType cpu, 
 Boolean Plugin_Pr_MatchesPanels(Plugin* pl, int numPanels, const char** panelNames) {
     Boolean isSupported;
 
+#if MWCCPSP
+    OS_ASSERT(577, pl->pr_cb != NULL);
+#else
     OS_ASSERT(578, pl->pr_cb != NULL);
+#endif
 
     if (pl->pr_cb->SupportsPanels &&
+#if MWCCPSP
+        CB_OK(pl->pr_cb->SupportsPanels(numPanels, panelNames, &isSupported))) {
+#else
         pl->pr_cb->SupportsPanels(numPanels, panelNames, &isSupported) == 0) {
+#endif
         return isSupported;
     } else {
         return FALSE;
     }
 }
 
+#if MWCCPSP
+// 3.0.1: the plugin writes the object itself if it can (given copies of the
+// specs), else the driver writes the handle
+Boolean Plugin_CL_WriteObjectFile(
+    Plugin* pl,
+    const OSSpec* srcfss,
+    const OSSpec* outfss,
+    OSType creator,
+    OSType type,
+    DriverHandle data
+) {
+    OSSpec src;
+    OSSpec out;
+
+    OS_ASSERT(589, pl->cl_cb != NULL);
+    OS_ASSERT(590, data != NULL && srcfss != NULL && outfss != NULL);
+
+    if (pl->cl_cb->WriteObjectFile) {
+        src = *srcfss;
+        out = *outfss;
+        return CB_OK(pl->cl_cb->WriteObjectFile(&src, &out, creator, type, (Handle)data));
+    } else {
+        return WriteBinaryHandleToFile((OSSpec*)outfss, creator, type, data);
+    }
+}
+#else
 Boolean Plugin_CL_WriteObjectFile(
     Plugin* pl, FSSpec* srcfss, FSSpec* outfss, OSType creator, OSType type, Handle data
 ) {
@@ -394,6 +527,7 @@ Boolean Plugin_CL_WriteObjectFile(
     OS_FSSpec_To_OSSpec(outfss, &outoss);
     return WriteBinaryHandleToFile(&outoss, creator, type, OS_PeekMacHandle(data));
 }
+#endif
 
 Boolean Plugin_CL_GetCompilerMapping(Plugin* pl, OSType type, const char* ext, UInt32* flags) {
     const CWExtMapList* el;
@@ -420,8 +554,15 @@ Boolean Plugin_CL_GetCompilerMapping(Plugin* pl, OSType type, const char* ext, U
     }
 }
 
+#if MWCCPSP
+// file scope so its name does not depend on what the headers declare
+static const SInt32 DropInFlagsSize[3] = {0, sizeof(DropInFlagsV1), sizeof(DropInFlags)};
+
+#endif
 static Boolean SupportedPlugin(Plugin* pl, const char** reason) {
+#if !MWCCPSP
     static const SInt32 DropInFlagsSize[3] = {0, sizeof(DropInFlagsV1), sizeof(DropInFlags)};
+#endif
     const DropInFlags* df;
     const CWObjectFlags* cof;
     SInt32 dfsize;
@@ -442,11 +583,22 @@ static Boolean SupportedPlugin(Plugin* pl, const char** reason) {
         *reason = "The plugin type is not supported by this driver";
         return FALSE;
     }
+#if MWCCPSP
+#define CLPLUGINS_API_VERSION 13 // 3.0.1
+    if (df->earliestCompatibleAPIVersion > CLPLUGINS_API_VERSION) {
+#else
     if (df->earliestCompatibleAPIVersion > 11) {
+#endif
         *reason = "The plugin's earliest compatible API version is too new for this driver";
         return FALSE;
     }
+#if MWCCPSP
+    if (df->earliestCompatibleAPIVersion > 1 &&
+        df->newestAPIVersion < CLPLUGINS_API_VERSION &&
+        clState.pluginDebug) {
+#else
     if (df->earliestCompatibleAPIVersion > 1 && df->newestAPIVersion < 11 && clState.pluginDebug) {
+#endif
         CLPrintErr(
             "%s's newest compatible API version is probably too old for this driver\n",
             Plugin_GetDropInName(pl)
@@ -472,7 +624,14 @@ static Boolean SupportedPlugin(Plugin* pl, const char** reason) {
         }
 
         cof = Plugin_CL_GetObjectFlags(pl);
+#if MWCCPSP
+        // 3.0.1: the top two bits are flags, but not both at once
+        if (cof->version < 2 ||
+            (cof->flags & 0x3FFFFFFF) ||
+            (cof->flags & 0xC0000000) == 0xC0000000) {
+#else
         if (cof->version < 2 || cof->flags & 0x7FFFFFFF) {
+#endif
             *reason = "The object flags data is out-of-date or invalid";
             return FALSE;
         }
@@ -488,7 +647,11 @@ static Boolean VerifyPanels(Plugin* pl) {
 
     failed = FALSE;
 
+#if MWCCPSP
+    if (pl->cb->GetPanelList && CB_OK(pl->cb->GetPanelList(&pls))) {
+#else
     if (pl->cb->GetPanelList && pl->cb->GetPanelList(&pls) == 0) {
+#endif
         for (idx = 0; idx < pls->count; idx++) {
             if (Prefs_FindPanel(pls->names[idx]) == NULL) {
                 CLReportError(CLStr91, pls->names[idx]);
@@ -1037,8 +1200,13 @@ int Plugins_GetPluginList(Plugin* list, int* numPlugins, CLPluginInfo** pluginIn
     while (scan) {
         df = Plugin_GetDropInFlags(scan);
         vi = Plugin_GetVersionInfo(scan);
+#if MWCCPSP
+        OS_ASSERT(1295, df != NULL);
+        OS_ASSERT(1296, vi != NULL);
+#else
         OS_ASSERT(1270, df != NULL);
         OS_ASSERT(1271, vi != NULL);
+#endif
         (*pluginInfo)[idx].plugintype = df->dropintype;
         (*pluginInfo)[idx].language = df->edit_language;
         (*pluginInfo)[idx].dropinflags = df->dropinflags;
@@ -1109,7 +1277,11 @@ int Plugin_AddFileTypeMappings(Plugin* pl, OSFileTypeMappings** mlist) {
     if (!ftml) {
         return TRUE;
     } else {
+#if MWCCPSP
+        OS_AddFileTypeMappingList(NULL, ftml); // 0x40FC10
+#else
         AddFileTypeMappingList(NULL, ftml);
+#endif
         return TRUE;
     }
 }

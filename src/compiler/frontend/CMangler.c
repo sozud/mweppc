@@ -22,6 +22,9 @@ HashNameNode* destructor_name_node;
 HashNameNode* asop_name_node;
 
 static void CMangler_MangleClassName(TypeClass* tclass);
+#if MWCCPSP
+static void CMangler_MangleNameSpaceName(NameSpace* nspace, char* str);
+#endif
 static void CMangler_MangleTypeAppend(Type* type, UInt32 qual);
 static void CMangler_MangleArgs(FuncArg* args);
 
@@ -241,6 +244,12 @@ HashNameNode* CMangler_OperatorName(short token) {
             return GetHashNameNodeExport("__ls");
         case TK_SHR:
             return GetHashNameNodeExport("__rs");
+#if MWCCPSP
+        case TK_LESS_QUESTION: // GCC <? and >? (0x4A0C60)
+            return GetHashNameNodeExport("__min");
+        case TK_GREATER_QUESTION:
+            return GetHashNameNodeExport("__max");
+#endif
         case TK_SHL_ASSIGN:
             return GetHashNameNodeExport("__als");
         case TK_SHR_ASSIGN:
@@ -328,6 +337,39 @@ HashNameNode* CMangler_ThunkName(
     return name;
 }
 
+#if MWCCPSP
+// 0x4A08A0: template-dependent arguments are skipped; an object named
+// through an access record gets its link name too
+static void CMangler_CheckTemplateArguments(TemplArg* arg) {
+    ENode* expr;
+    ObjBase* obj;
+
+    while (arg) {
+        if (arg->pid.type == TPT_NONTYPE) {
+            expr = arg->data.paramdecl.expr;
+            CError_ASSERT(391, expr);
+            if (!CTemplTool_IsTemplDepExpr(expr)) {
+                switch (expr->type) {
+                    case EINTCONST:
+                        break;
+                    case EOBJREF:
+                        CMangler_GetLinkName(expr->data.objref);
+                        break;
+                    case EOBJACCESS:
+                        obj = expr->data.objaccess.list->object;
+                        if (obj->otype == OT_OBJECT) {
+                            CMangler_GetLinkName(OBJECT(obj));
+                        }
+                        break;
+                    default:
+                        CError_FATAL(412);
+                }
+            }
+        }
+        arg = arg->next;
+    }
+}
+#else
 static void CMangler_CheckTemplateArguments(TemplArg* arg) {
     ENode* expr;
 
@@ -350,7 +392,78 @@ static void CMangler_CheckTemplateArguments(TemplArg* arg) {
         arg = arg->next;
     }
 }
+#endif
 
+#if MWCCPSP
+// 0x4A0580: an argument named through an access record mangles as
+// &linkname (an object) or &member__class (a member)
+static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
+    ENode* expr;
+    ObjBase* obj;
+    TypeClass* tclass;
+    char buf[32];
+
+    AppendGListByte(&name_mangle_list, '<');
+
+    while (arg) {
+        if (arg->pid.type == TPT_NONTYPE) {
+            expr = arg->data.paramdecl.expr;
+            CError_ASSERT(434, expr);
+            if (!CTemplTool_IsTemplDepExpr(expr)) {
+                switch (expr->type) {
+                    case EINTCONST:
+                        CInt64_PrintDec(buf, expr->data.intval);
+                        AppendGListName(&name_mangle_list, buf);
+                        break;
+                    case EOBJREF:
+                        AppendGListByte(&name_mangle_list, '&');
+                        AppendGListName(
+                            &name_mangle_list, CMangler_GetLinkName(expr->data.objref)->name
+                        );
+                        break;
+                    case EOBJACCESS:
+                        AppendGListByte(&name_mangle_list, '&');
+                        obj = expr->data.objaccess.list->object;
+                        switch (obj->otype) {
+                            case OT_MEMBERVAR:
+                                AppendGListName(&name_mangle_list, OBJ_MEMBER_VAR(obj)->name->name);
+                                AppendGListName(&name_mangle_list, "__");
+                                CError_ASSERT(458, tclass = expr->data.objaccess.tclass);
+                                CMangler_MangleNameSpaceName(
+                                    tclass->nspace->parent, tclass->nspace->name->name
+                                );
+                                break;
+                            case OT_OBJECT:
+                                AppendGListName(
+                                    &name_mangle_list, CMangler_GetLinkName(OBJECT(obj))->name
+                                );
+                                break;
+                            default:
+                                CError_FATAL(480);
+                        }
+                        break;
+                    default:
+                        CError_FATAL(485);
+                }
+            } else {
+                AppendGListByte(&name_mangle_list, 'T');
+            }
+        } else if (arg->pid.type == TPT_TYPE) {
+            CMangler_MangleTypeAppend(arg->data.typeparam.type, arg->data.typeparam.qual);
+        } else {
+            CError_ASSERT(499, arg->pid.type == TPT_TEMPLATE);
+            CMangler_MangleTypeAppend(arg->data.ttargtype, 0);
+        }
+
+        if (arg->next) {
+            AppendGListByte(&name_mangle_list, ',');
+        }
+        arg = arg->next;
+    }
+
+    AppendGListByte(&name_mangle_list, '>');
+}
+#else
 static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
     ENode* expr;
     char buf[32];
@@ -394,6 +507,7 @@ static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
 
     AppendGListByte(&name_mangle_list, '>');
 }
+#endif
 
 HashNameNode* CMangler_TemplateInstanceName(HashNameNode* basename, TemplArg* args) {
     HashNameNode* name;
@@ -551,7 +665,11 @@ static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
                     AppendGListByte(&name_mangle_list, '7');
                     return;
                 default:
+#if MWCCPSP
+                    CError_FATAL(644);
+#else
                     CError_FATAL(619);
+#endif
             }
         case TYPEENUM:
             CMangler_MangleQualifier(qual);
@@ -652,7 +770,11 @@ static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
                         AppendGListName(&name_mangle_list, "class");
                         return;
                     default:
+#if MWCCPSP
+                        CError_FATAL(739);
+#else
                         CError_FATAL(701);
+#endif
                 }
             }
             return;
@@ -667,14 +789,28 @@ static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
             return;
 
         default:
+#if MWCCPSP
+            CError_FATAL(754);
+#else
             CError_FATAL(716);
+#endif
     }
 }
 
+#if MWCCPSP
+// 0x49FCC0: append keeps what is already in name_mangle_list
+void CMangler_MangleType(Type* type, UInt32 qual, Boolean append) {
+    if (!append) {
+        name_mangle_list.size = 0;
+    }
+    CMangler_MangleTypeAppend(type, qual);
+}
+#else
 void CMangler_MangleType(Type* type, UInt32 qual) {
     name_mangle_list.size = 0;
     CMangler_MangleTypeAppend(type, qual);
 }
+#endif
 
 static void CMangler_MangleArgs(FuncArg* args) {
     TypePointer ptr;
@@ -798,6 +934,17 @@ static HashNameNode* CMangler_FunctionLinkName(Object* obj) {
     }
 
     name_mangle_list.size = 0;
+#if MWCCPSP
+    // 0x49F940: no Pascal objects; the name gets two terminating zeros
+    if ((obj->qual & Q_MANGLE_NAME) &&
+        (strcmp("main", obj->name->name) || (obj->nspace != cscope_root))) {
+        CMangler_MangleFunction(obj, nspace);
+        AppendGListByte(&name_mangle_list, 0);
+        AppendGListByte(&name_mangle_list, 0);
+    } else {
+        return obj->name;
+    }
+#else
     if (is_pascal_object(obj) && (!nspace || !nspace->theclass)) {
         return obj->name;
     }
@@ -808,6 +955,7 @@ static HashNameNode* CMangler_FunctionLinkName(Object* obj) {
     } else {
         return obj->name;
     }
+#endif
 
     COS_LockHandle(name_mangle_list.data);
     name = GetHashNameNodeExport(*name_mangle_list.data);
@@ -886,7 +1034,11 @@ HashNameNode* CMangler_GetLinkName(Object* obj) {
         case DLABEL:
             return obj->name;
         default:
+#if MWCCPSP
+            CError_FATAL(1141);
+#else
             CError_FATAL(1110);
+#endif
             return NULL;
     }
 }

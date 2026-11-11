@@ -9,8 +9,20 @@
 extern "C" {
 #endif
 
+#if !MWCCPSP // 3.0.1: natural alignment (CI_Action is 0x2C)
 #pragma pack(push, 2)
+#endif
 
+#if MWCCPSP
+// 3.0.1 (0x1E4 bytes, CMach_GetBackEndOptions 0x464D50): the first 0x144
+// bytes of copts and volatileasm
+struct CInlineBackendOptions {
+    UInt8 copts[0x144];
+    UInt8 unk144[0x9C];
+    UInt8 volatileasm; // +0x1E0
+    UInt8 pad1E1[3];
+};
+#else
 struct CInlineBackendOptions {
     SInt16 processor;
     UInt8 scheduling;
@@ -89,7 +101,21 @@ struct CInlineBackendOptions {
     UInt8 unrollfactor;
     UInt8 unrollinstrfactor;
 };
+#endif
 
+#if MWCCPSP
+// 3.0.1 (0x14 bytes): the object's uid identifies it in packed expressions;
+// arguments have sflags 0x40
+struct CI_Var {
+    HashNameNode* name;
+    Type* type;
+    UInt32 qual;
+    SInt32 uid;
+    UInt8 sflags;
+    SInt8 used;
+    SInt8 unmodified;
+};
+#else
 struct CI_Var {
     HashNameNode* name;
     Type* type;
@@ -98,6 +124,7 @@ struct CI_Var {
     SInt8 used;
     SInt8 unmodified;
 };
+#endif
 
 struct CI_SwitchCase {
     short labelID;
@@ -134,6 +161,27 @@ struct CI_Statement {
     } u;
 };
 
+#if MWCCPSP
+// 3.0.1 (0x218 bytes, CInline_PackIFunctionData): one variable array,
+// arguments first
+struct CI_FuncData {
+    short numvars;
+    short numarguments;
+    CI_Var* vars;
+    short numstatements;
+    CI_Statement* statements;
+    struct CInlineBackendOptions options;
+    FileOffsetInfo fileoffset;
+    SInt32 symdecloffset;
+    SInt32 functionbodyoffset;
+    HashNameNode* functionbodypath;
+    SInt32 symdeclend;
+    UInt8 can_inline;
+};
+#define CI_FUNCDATA_ARGS(fd) ((fd)->vars)
+#define CI_FUNCDATA_LOCALS(fd) ((fd)->vars + (fd)->numarguments)
+#define CI_FUNCDATA_NUMLOCALS(fd) ((fd)->numvars - (fd)->numarguments)
+#else
 struct CI_FuncData {
     short numarguments;
     CI_Var* arguments;
@@ -149,6 +197,7 @@ struct CI_FuncData {
     SInt32 symdeclend;
     UInt8 can_inline;
 };
+#endif
 
 typedef enum CI_ActionType {
     CI_ActionInlineFunc = 0,
@@ -160,6 +209,9 @@ typedef enum CI_ActionType {
 struct CI_Action {
     struct CI_Action* next;
     Object* obj;
+#if MWCCPSP
+    void* unk8; // 3.0.1, not identified (the union is at +0xC)
+#endif
     union {
         struct {
             FileOffsetInfo fileoffset;
@@ -187,7 +239,9 @@ typedef enum CInlineCopyMode {
     CopyModeExpand
 } CInlineCopyMode;
 
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 
 extern CI_Action* cinline_tactionlist;
 

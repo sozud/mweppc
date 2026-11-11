@@ -38,6 +38,9 @@ void CTempl_Setup(void) {
     ctempl_templates = NULL;
     ctempl_templatefuncs = NULL;
     ctempl_instdepth = 0;
+#if MWCCPSP
+    ctempl_maxinstdepth = 64;
+#endif
     ctempl_scanfuncparams = FALSE;
 }
 
@@ -259,7 +262,11 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
 
     if (type &&
         !CTemplTool_IsTemplateArgumentDependentType(type) &&
+#if MWCCPSP
+        !ENODE_IS_TEMPLDEPEXPR(expr)) {
+#else
         !IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
+#endif
         expr = argumentpromotion(expr, type, qual, TRUE);
         if (IS_TYPE_POINTER_ONLY(type)) {
             if (ENODE_IS(expr, ETYPCON) && ENODE_IS(expr->data.monadic, EINTCONST)) {
@@ -271,7 +278,11 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
         }
     }
 
+#if MWCCPSP
+    if (!ENODE_IS_TEMPLDEPEXPR(expr)) {
+#else
     if (!IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
+#endif
         if (!copts.old_argmatch) {
             expr = pointer_generation(expr);
         }
@@ -304,7 +315,11 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
 static Type* CTempl_ParseTemplArgTempl(TemplParam* params) {
     NameResult pr;
 
+#if MWCCPSP
+    if ((tk != TK_IDENTIFIER && tk != TK_COLON_COLON) || !CSCOPE_PARSEDECLNAME(&pr) || !pr.type) {
+#else
     if ((tk != TK_IDENTIFIER && tk != TK_COLON_COLON) || !CScope_ParseDeclName(&pr) || !pr.type) {
+#endif
         CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
         tk = lex();
         return NULL;
@@ -593,7 +608,11 @@ TemplArg* CTempl_ParseUncheckTemplArgs(TemplParam* params, Boolean is_global) {
                     }
                     break;
                 default:
+#if MWCCPSP
+                    CError_FATAL(769);
+#else
                     CError_FATAL(674);
+#endif
             }
             params = params->next;
         }
@@ -719,7 +738,11 @@ static TemplArg* CTempl_ParseTemplArgs(TemplClass** resultTempl, TemplArg** resu
                         return NULL;
                     }
 
+#if MWCCPSP
+                    if (ENODE_IS_TEMPLDEPEXPR(param->data.paramdecl.defaultarg)) {
+#else
                     if (IS_TYPE_TEMPLDEPEXPR(param->data.paramdecl.defaultarg->rtype)) {
+#endif
                         TypeDeduce deduce;
                         memclrw(&deduce, sizeof(deduce));
                         deduce.tmclass = *resultTempl;
@@ -826,7 +849,11 @@ Boolean CTempl_IsQualifiedMember(DeclInfo* di, Type* type, NameSpace** resultnsp
         (templ =
              TEMPL_CLASS(CTemplTool_GetSelfRefTemplate(TYPE(TYPE_TEMPLATE(type)->u.qual.type))))) {
         *resultnspace = templ->theclass.nspace;
+#if MWCCPSP
+        CError_ASSERT(1048, di->templateScope && (*resultnspace)->theclass);
+#else
         CError_ASSERT(948, di->templateScope && (*resultnspace)->theclass);
+#endif
 
         CTempl_SetupClassParamNameSpace(di->templateScope, (*resultnspace)->theclass);
         di->templateScope = NULL;
@@ -1130,7 +1157,11 @@ static void CTempl_ParseFunctionOrMemberTemplate(
                 }
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(1540);
+#else
                 CError_FATAL(1317);
+#endif
         }
     }
 
@@ -1155,10 +1186,18 @@ static void CTempl_ParseFunctionOrMemberTemplate(
     if (di.resolvedObject || di.resolvedObjects) {
         if (di.resolvedObjects) {
             di.resolvedObject = OBJECT(di.resolvedObjects->object);
+#if MWCCPSP
+            CError_ASSERT(1485, di.resolvedObject->otype == OT_OBJECT);
+#else
             CError_ASSERT(1342, di.resolvedObject->otype == OT_OBJECT);
+#endif
         }
 
+#if MWCCPSP
+        CError_ASSERT(1911, IS_TYPE_FUNC(OBJECT(di.resolvedObject)->type));
+#else
         CError_ASSERT(1344, IS_TYPE_FUNC(OBJECT(di.resolvedObject)->type));
+#endif
 
         if (TYPE_FUNC(OBJECT(di.resolvedObject)->type)->flags & FUNC_CONVERSION) {
             di.thetype = TYPE_FUNC(OBJECT(di.resolvedObject)->type)->functype;
@@ -1216,7 +1255,11 @@ static void CTempl_ParseFunctionOrMemberTemplate(
 
     if (!di.hasTypename) {
         if (tclass && IS_TYPE_CLASS(di.thetype) && TYPE_CLASS(di.thetype) == tclass && tk == '(') {
+#if MWCCPSP
+            CError_ASSERT(1485, cscope_current == tclass->nspace);
+#else
             CError_ASSERT(1418, cscope_current == tclass->nspace);
+#endif
             CError_QualifierCheck(di.qual & ~(Q_INLINE | Q_EXPLICIT));
 
             di.thetype = TYPE(&void_ptr);
@@ -1386,7 +1429,11 @@ static void CTempl_ParseFunctionOrMemberTemplate(
 
 skipPastStuff:
     if (cscope_current->is_templ) {
+#if MWCCPSP
+        CError_ASSERT(1572, cscope_current == templateScope->scope);
+#else
         CError_ASSERT(1589, cscope_current == templateScope->scope);
+#endif
         templateScope->scope->tparams = NULL;
     }
 
@@ -1431,7 +1478,11 @@ skipPastStuff:
                 }
 
                 if (tk == '{' || tk == ':' || tk == TK_TRY) {
+#if MWCCPSP
+                    CError_ASSERT(1593, CTemplTool_EqualParams(templfunc->params, params, TRUE));
+#else
                     CError_ASSERT(1654, CTemplTool_EqualParams(templfunc->params, params, TRUE));
+#endif
                 }
 
                 if (di.qual & Q_INLINE) {
@@ -1724,7 +1775,11 @@ void CTempl_ParseInstanceScopeFunction(Object* funcobj, TemplClassInst* inst, Ty
     Object* parent;
     DeclInfo di;
     CScopeSave savedScope;
+#if MWCCPSP
+    TemplStack* stack;
+#else
     TemplStack stack;
+#endif
 
     params = inst->templ->templ__params;
     if (funcobj->qual & Q_IS_TEMPLATED) {
@@ -1741,7 +1796,11 @@ void CTempl_ParseInstanceScopeFunction(Object* funcobj, TemplClassInst* inst, Ty
         }
     }
 
+#if MWCCPSP
+    stack = CTemplTool_PushInstance(NULL, funcobj);
+#else
     CTemplTool_PushInstance(&stack, NULL, funcobj);
+#endif
     nspace = CTemplTool_InsertTemplateArgumentNameSpace(params, inst, &savedScope);
     if (tclass) {
         cscope_current = tclass->nspace;
@@ -1751,7 +1810,11 @@ void CTempl_ParseInstanceScopeFunction(Object* funcobj, TemplClassInst* inst, Ty
     CFunc_ParseFuncDef(funcobj, &di, NULL, FALSE, FALSE, tclass ? cscope_current : NULL);
 
     CTemplTool_RemoveTemplateArgumentNameSpace(nspace, inst, &savedScope);
+#if MWCCPSP
+    CTemplTool_PopInstance(stack);
+#else
     CTemplTool_PopInstance(&stack);
+#endif
 }
 
 Boolean CTempl_GenFuncInstance(
@@ -1761,7 +1824,11 @@ Boolean CTempl_GenFuncInstance(
     NameSpace* nspace;
     SInt32 streamState;
     DeclInfo di;
+#if MWCCPSP
+    TemplStack* stack;
+#else
     TemplStack stack;
+#endif
 
     if (inst->is_extern && !isExplicit) {
         return FALSE;
@@ -1807,7 +1874,11 @@ Boolean CTempl_GenFuncInstance(
         if (isExplicit) {
             inst->object->sclass = TK_EXTERN;
         } else {
+#if MWCCPSP
+            inst->object->qual |= Q_IMPLICIT_WEAK; // 3.0.1
+#else
             inst->object->qual |= Q_WEAK;
+#endif
         }
     }
 
@@ -1816,7 +1887,11 @@ Boolean CTempl_GenFuncInstance(
     di.file = CPrep_BrowserCurrentFile();
     di.sourceoffset = templ->startoffset;
 
+#if MWCCPSP
+    stack = CTemplTool_PushInstance(NULL, inst->object);
+#else
     CTemplTool_PushInstance(&stack, NULL, inst->object);
+#endif
     CTemplTool_MergeArgNames(TYPE_FUNC(templ->tfunc->type), TYPE_FUNC(inst->object->type));
 
     nspace = CTemplTool_SetupTemplateArgumentNameSpace(templ->params, inst->args, FALSE);
@@ -1829,7 +1904,11 @@ Boolean CTempl_GenFuncInstance(
 
     inst->object->nspace = nspace->parent;
 
+#if MWCCPSP
+    CTemplTool_PopInstance(stack);
+#else
     CTemplTool_PopInstance(&stack);
+#endif
 
     CPrep_StreamRemove(&templ->stream, &streamState);
     copts.filesyminfo = saveDebugInfo;
@@ -1855,9 +1934,17 @@ void CTempl_InstantiateMember(
     CScopeSave savedScope;
     SInt32 savedState;
     DeclInfo di;
+#if MWCCPSP
+    TemplStack* stack;
+#else
     TemplStack stack;
+#endif
 
+#if MWCCPSP
+    stack = CTemplTool_PushInstance(NULL, object);
+#else
     CTemplTool_PushInstance(&stack, NULL, object);
+#endif
     nspace = CTemplTool_InsertTemplateArgumentNameSpace(
         tmemb->params ? tmemb->params : templ->templ__params, inst, &savedScope
     );
@@ -1880,7 +1967,11 @@ void CTempl_InstantiateMember(
         if (isExplicit) {
             object->sclass = 0;
         } else {
+#if MWCCPSP
+            object->qual |= Q_IMPLICIT_WEAK; // 3.0.1
+#else
             object->qual |= Q_WEAK;
+#endif
         }
     }
 
@@ -1905,7 +1996,11 @@ void CTempl_InstantiateMember(
             CError_FATAL(2227);
     }
 
+#if MWCCPSP
+    CTemplTool_PopInstance(stack);
+#else
     CTemplTool_PopInstance(&stack);
+#endif
     CTemplTool_RemoveTemplateArgumentNameSpace(nspace, inst, &savedScope);
     CPrep_StreamRemove(&tmemb->stream, &savedState);
     copts.filesyminfo = saveDebugInfo;
@@ -1978,18 +2073,36 @@ Boolean CTempl_Instantiate(void) {
     for (templ = ctempl_templates; templ; templ = templ->next) {
         for (inst = templ->instances; inst; inst = inst->next) {
             if ((inst->theclass.flags & CLASS_IS_TEMPL_INST) &&
+#if MWCCPSP
+                !inst->is_specialized) {
+                if (CTempl_GenClassInstance(inst, FALSE)) {
+                    result = TRUE;
+                }
+                CParser_FreeLocalHeap();
+#else
                 !inst->is_specialized &&
                 CTempl_GenClassInstance(inst, FALSE)) {
                 result = TRUE;
+#endif
             }
         }
 
         for (pspec = templ->pspecs; pspec; pspec = pspec->next) {
             for (inst = pspec->templ->instances; inst; inst = inst->next) {
                 if ((inst->theclass.flags & CLASS_IS_TEMPL_INST) &&
+#if MWCCPSP
+                    !inst->is_specialized) {
+                    if (CTempl_GenClassInstance(inst, FALSE)) {
+                        result = TRUE;
+                    }
+#else
                     !inst->is_specialized &&
                     CTempl_GenClassInstance(inst, FALSE)) {
                     result = TRUE;
+#endif
+#if MWCCPSP
+                    CParser_FreeLocalHeap();
+#endif
                 }
             }
         }
@@ -2005,6 +2118,9 @@ Boolean CTempl_Instantiate(void) {
                 if (CTempl_GenFuncInstance(templf, instf, FALSE)) {
                     result = TRUE;
                 }
+#if MWCCPSP
+                CParser_FreeLocalHeap();
+#endif
             }
         }
     }

@@ -42,23 +42,40 @@ void CPrep_PreprocessDumpFileInfo(Boolean newLine) {
 
         if (copts.fullpath_prepdump) {
             if (prep_file->nameNode) {
+#if MWCCPSP
+                AppendGListData(&pplist, prep_file->nameNode, strlen(prep_file->nameNode));
+#else
                 AppendGListData(
                     &pplist, prep_file->nameNode->name, strlen(prep_file->nameNode->name)
                 );
+#endif
             } else {
+#if MWCCPSP
+                COS_FileGetPathName(linebuf, &prep_file->textfile, NULL);
+#else
                 COS_FileGetPathName(linebuf, &prep_file->textfile, &tmp32);
+#endif
                 AppendGListData(&pplist, linebuf, strlen(linebuf));
             }
         } else {
             if (prep_file->nameNode) {
+#if MWCCPSP
+                char* work = prep_file->nameNode + strlen(prep_file->nameNode);
+                while (work > prep_file->nameNode && !strchr("/\\:", work[-1])) {
+#else
                 char* work = prep_file->nameNode->name + strlen(prep_file->nameNode->name);
                 while (work > prep_file->nameNode->name && !strchr("/\\:", work[-1])) {
+#endif
                     work--;
                 }
 
                 AppendGListData(&pplist, work, strlen(work));
             } else {
+#if MWCCPSP
+                COS_FileGetPascalName(&prep_file->textfile, filename);
+#else
                 COS_FileGetFSSpecInfo(&prep_file->textfile, &tmp16, &tmp32, filename);
+#endif
                 AppendGListData(&pplist, &filename[1], filename[0]);
             }
         }

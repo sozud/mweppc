@@ -20,7 +20,9 @@
 #include "compiler/tokens.h"
 #include "compiler/types.h"
 
+#if !MWCCPSP // 3.0.1: natural alignment (StandardConv is 0x18)
 #pragma pack(push, 2)
+#endif
 typedef struct StandardConv {
     Type* type1;
     Type* type2;
@@ -71,7 +73,9 @@ typedef struct Match {
     UInt32 qual2;
     ImplicitConv conv[3];
 } Match;
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 
 static inline ENode* CExpr_DerivedToBase(
     ENode* expr,
@@ -81,6 +85,24 @@ static inline ENode* CExpr_DerivedToBase(
     Boolean nullcheckflag,
     Boolean pathcheckflag
 );
+#if MWCCPSP
+// 3.0.1 versions of this file's statics that are still the original code
+extern void func_00500ED0(
+    void* a, void* b, void* c, AccessType access, void* obj, void* unk
+); // CClass_CheckPathAccess
+extern ENode* func_00539280(
+    ENode* expr,
+    Type* type2,
+    UInt32 qual2,
+    struct ImplicitConv* result,
+    Boolean doConvert,
+    Boolean isExplicit,
+    Boolean bindReference
+); // CExpr_UserConversion
+extern Boolean func_0053A8F0(
+    NameSpaceObjectList* list, TemplArg* templargs, Type* type, ENode** outExpr
+); // CExpr_OverloadFuncMatch
+#endif
 
 static Type* CExpr_GetImplictObjectParamType(Object* object, UInt32* qual) {
     Type* type;
@@ -215,7 +237,13 @@ static Boolean CExpr_TypeCompare(
     return is_typesame(typeA, typeB);
 }
 
+#if MWCCPSP
+int CExpr_IsReferenceCompatible(
+    Type* typeA, UInt32 qualA, Type* typeB, UInt32 qualB
+) { // 3.0.1: CInit.c calls it too
+#else
 static int CExpr_IsReferenceCompatible(Type* typeA, UInt32 qualA, Type* typeB, UInt32 qualB) {
+#endif
     if (CParser_IsSameOrMoreCVQualified(
             CParser_GetCVTypeQualifiers(typeA, qualA), CParser_GetCVTypeQualifiers(typeB, qualB)
         )) {
@@ -478,7 +506,11 @@ static Boolean CExpr_SetupStandardConversionResult(
             result->conversion = TRUE;
             break;
         default:
+#if MWCCPSP
+            CError_FATAL(575);
+#else
             CError_FATAL(581);
+#endif
     }
 
     return TRUE;
@@ -534,7 +566,11 @@ static Boolean CExpr_SetQualConversionResult(
         }
 
         if (IS_TYPE_POINTER_ONLY(type1)) {
+#if MWCCPSP
+            CError_ASSERT(629, IS_TYPE_POINTER_ONLY(type2));
+#else
             CError_ASSERT(635, IS_TYPE_POINTER_ONLY(type2));
+#endif
             type1 = TPTR_TARGET(type1);
             type2 = TPTR_TARGET(type2);
         } else {
@@ -542,7 +578,11 @@ static Boolean CExpr_SetQualConversionResult(
                 return TRUE;
             }
 
+#if MWCCPSP
+            CError_ASSERT(636, IS_TYPE_MEMBERPOINTER(type2));
+#else
             CError_ASSERT(642, IS_TYPE_MEMBERPOINTER(type2));
+#endif
             type1 = TYPE_MEMBER_POINTER(type1)->ty1;
             type2 = TYPE_MEMBER_POINTER(type2)->ty1;
         }
@@ -662,6 +702,12 @@ static Boolean CExpr_OverloadFuncMatch(
     return FALSE;
 }
 
+#if MWCCPSP
+extern ENode* getpointertomemberfunc301(ENode* expr, Type* type, Boolean a, Boolean b, Boolean c);
+#endif
+#if MWCCPSP
+
+#endif
 static Boolean CExpr_StandardConversionMatch(
     ENode* expr, Type* type2, UInt32 qual2, Boolean implicit_object, StandardConv* result
 ) {
@@ -708,6 +754,17 @@ static Boolean CExpr_StandardConversionMatch(
             );
         }
 
+#if MWCCPSP
+        // 3.0.1: overload sets are object accesses
+        if (ENODE_IS(expr, EOBJACCESS)) {
+            return CExpr_OverloadFuncMatch(
+                       expr->data.objaccess.list, expr->data.objaccess.templargs, type2, NULL
+                   ) &&
+                CExpr_SetupStandardConversionResult(
+                       expr, type2, qual2, SSCR_EXACT, refFlag, implicit_object, result
+                );
+        }
+#else
         if (ENODE_IS(expr, EOBJLIST)) {
             return CExpr_OverloadFuncMatch(
                        expr->data.objlist.list, expr->data.objlist.templargs, type2, NULL
@@ -716,6 +773,7 @@ static Boolean CExpr_StandardConversionMatch(
                        expr, type2, qual2, SSCR_EXACT, refFlag, implicit_object, result
                 );
         }
+#endif
 
         if (ENODE_IS(expr, EOBJREF) && IS_TEMPL_FUNC(expr->data.objref->type)) {
             list.next = NULL;
@@ -746,7 +804,11 @@ static Boolean CExpr_StandardConversionMatch(
                 }
             }
 
+#if MWCCPSP
+            if (COPTS_GONE(objective_c) && CObjC_IsCompatibleType(expr->rtype, type2)) {
+#else
             if (copts.objective_c && CObjC_IsCompatibleType(expr->rtype, type2)) {
+#endif
                 return CExpr_SetupStandardConversionResult(
                     expr, type2, qual2, SSCR_CONVERSION, implicit_object, refFlag, result
                 );
@@ -754,6 +816,12 @@ static Boolean CExpr_StandardConversionMatch(
 
             if (IS_TYPE_VOID(TPTR_TARGET(type2)) ||
                 (!copts.cplusplus && IS_TYPE_VOID(TPTR_TARGET(type1)))) {
+#if MWCCPSP
+                // 3.0.1: strict C++ has no implicit function pointer to void*
+                if (copts.cplusplus && copts.ANSIstrict && IS_TYPE_FUNC(TPTR_TARGET(type1))) {
+                    return FALSE;
+                }
+#endif
                 if (CExpr_SetupStandardConversionResult(
                         expr,
                         type2,
@@ -897,10 +965,18 @@ static Boolean CExpr_StandardConversionMatch(
             }
         }
 
+#if MWCCPSP
+        if (ENODE_IS(expr, EOBJACCESS) && expr->data.objaccess.nonstatic) {
+            expr = getpointertomemberfunc301(expr, type2, qual2, FALSE, FALSE);
+            type1 = expr->rtype;
+            qual1 = ENODE_QUALS(expr);
+        }
+#else
         if (ENODE_IS(expr, EMEMBER)) {
             expr = getpointertomemberfunc(expr, type2, FALSE);
             type1 = expr->rtype;
         }
+#endif
 
         if (IS_TYPE_MEMBERPOINTER(type1)) {
             short depth;
@@ -1114,7 +1190,11 @@ static ENode* CExpr_UserConversion(
                 }
             }
 
+#if MWCCPSP
+            CError_ASSERT(1224, tfunc->args && IS_TYPE_POINTER_ONLY(tfunc->args->type));
+#else
             CError_ASSERT(1230, tfunc->args && IS_TYPE_POINTER_ONLY(tfunc->args->type));
+#endif
 
             q1 = expr->flags;
             q2 = tfunc->args->qual;
@@ -1283,7 +1363,11 @@ static ENode* CExpr_UserConversion(
             CError_OverloadedFunctionError(best_conv, ambig_convs);
         }
         tfunc = TYPE_FUNC(best_conv->type);
+#if MWCCPSP
+        CError_ASSERT(1417, IS_TYPEFUNC_METHOD(tfunc));
+#else
         CError_ASSERT(1416, IS_TYPEFUNC_METHOD(tfunc));
+#endif
 
         funcref = create_objectrefnode(best_conv);
         best_conv->flags |= OBJECT_USED;
@@ -1427,12 +1511,21 @@ static inline ENode* CExpr_DerivedToBase(
         (path = CClass_GetBasePath(
              TYPE_CLASS(expr->rtype), TYPE_CLASS(type2), &depth, &isambigbase
          ))) {
+#if MWCCPSP
+        if (isambigbase) {
+            CError_Error(ERR_AMBIGUOUS_ACCESS_FROM_TO, expr->rtype, 0, type2, 0);
+        }
+        if (checkAccess) {
+            func_00500ED0(NULL, expr->rtype, type2, ACCESSPUBLIC, NULL, NULL);
+        }
+#else
         if (isambigbase) {
             CError_Error(ERR_AMBIGUOUS_ACCESS_CLASS_STRUCT_UNION_MEMBER);
         }
         if (checkAccess) {
             CClass_CheckPathAccess(path, NULL, ACCESSPUBLIC);
         }
+#endif
 
         if (pathcheckflag) {
             expr = getnodeaddress(expr, FALSE);
@@ -1456,7 +1549,11 @@ static ENode* CExpr_ClassReferenceConversion(
     if (CExpr_IsLValue(expr) && IS_TYPE_CLASS(type2) && IS_TYPE_CLASS(expr->rtype)) {
         if ((refcompat = CExpr_IsReferenceCompatible(type2, 0, expr->rtype, 0)) > 0) {
             if (refcompat == 2) {
+#if MWCCPSP
+                CError_ASSERT(1662, IS_TYPE_CLASS(type2) && IS_TYPE_CLASS(expr->rtype));
+#else
                 CError_ASSERT(1668, IS_TYPE_CLASS(type2) && IS_TYPE_CLASS(expr->rtype));
+#endif
                 expr = CExpr_DerivedToBase(expr, type2, qual2, pathcheckflag, FALSE, TRUE);
             }
             expr->flags = qual2 & ENODE_FLAG_QUALS;
@@ -1473,7 +1570,11 @@ static ENode* CExpr_ClassReferenceConversion(
                 TRUE,
                 pathcheckflag
             );
+#if MWCCPSP
+            CError_ASSERT(1674, IS_TYPE_POINTER_ONLY(expr->rtype));
+#else
             CError_ASSERT(1680, IS_TYPE_POINTER_ONLY(expr->rtype));
+#endif
             expr = makemonadicnode(expr, EINDIRECT);
             expr->rtype = type2;
             expr->flags = qual2 & ENODE_FLAG_QUALS;
@@ -1482,7 +1583,11 @@ static ENode* CExpr_ClassReferenceConversion(
     }
 
     if (IS_TYPE_CLASS(expr->rtype)) {
+#if MWCCPSP
+        if ((expr = func_00539280(expr, type2, qual2, NULL, TRUE, FALSE, TRUE))) {
+#else
         if ((expr = CExpr_UserConversion(expr, type2, qual2, NULL, TRUE, FALSE, TRUE))) {
+#endif
             return expr;
         }
     }
@@ -1490,6 +1595,65 @@ static ENode* CExpr_ClassReferenceConversion(
     return NULL;
 }
 
+#if MWCCPSP
+// 3.0.1 (0x538A10): binds to a function overload or an lvalue (or, unless
+// noRvalue, a class rvalue); the binding to a temporary copy is
+// CExpr_Convert's, so this returns NULL for it after the diagnostics
+ENode* CExpr_BindToReference(
+    ENode* expr, Type* type2, UInt32 qual2, Boolean noRvalue
+) { // 3.0.1: CInit.c calls it too
+    UInt32 cv;
+    int refcompat;
+    ENode* converted;
+
+    cv = CParser_GetCVTypeQualifiers(type2, qual2);
+
+    if (IS_TYPE_FUNC(type2) && ENODE_IS(expr, EOBJACCESS)) {
+        type2 = CDecl_NewPointerType(type2);
+        if (func_0053A8F0(
+                expr->data.objaccess.list, expr->data.objaccess.templargs, type2, &expr
+            )) {
+            return expr;
+        }
+        return NULL;
+    }
+
+    if (CExpr_IsLValue(expr)) {
+        if ((refcompat =
+                 CExpr_IsReferenceCompatible(type2, qual2, expr->rtype, ENODE_QUALS(expr))) > 0) {
+            if (refcompat == 2) {
+                CError_ASSERT(1721, IS_TYPE_CLASS(type2) && IS_TYPE_CLASS(expr->rtype));
+                expr = CExpr_DerivedToBase(expr, type2, qual2, TRUE, FALSE, TRUE);
+            }
+            return getnodeaddress(expr, FALSE);
+        }
+    } else if (!noRvalue && IS_TYPE_CLASS(type2) && IS_TYPE_CLASS(expr->rtype)) {
+        if ((refcompat =
+                 CExpr_IsReferenceCompatible(type2, qual2, expr->rtype, ENODE_QUALS(expr))) > 0) {
+            if (refcompat == 2) {
+                expr = CExpr_DerivedToBase(expr, type2, qual2, TRUE, FALSE, TRUE);
+            }
+            return getnodeaddress(expr, FALSE);
+        }
+    }
+
+    if (IS_TYPE_CLASS(expr->rtype)) {
+        if ((converted = func_00539280(expr, type2, qual2, NULL, TRUE, FALSE, TRUE))) {
+            return getnodeaddress(converted, FALSE);
+        }
+    }
+
+    if (!(cv & Q_CONST)) {
+        CError_Error(ERR_NON_CONST_AMPERSAND_REFERENCE_INITIALIZED_TEMPORARY);
+        CError_ResetErrorSkip();
+    }
+    if (cv & Q_VOLATILE) {
+        CError_Error(ERR_ILLEGAL_CONST_VOLATILE_AMPERSAND_REFERENCE_INITIALIZATION);
+        CError_ResetErrorSkip();
+    }
+    return NULL;
+}
+#else
 static ENode* CExpr_BindToReference(ENode* expr, Type* type2, UInt32 qual2) {
     UInt32 cv;
     int refcompat;
@@ -1546,7 +1710,306 @@ static ENode* CExpr_BindToReference(ENode* expr, Type* type2, UInt32 qual2) {
 
     return expr;
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1 versions of this file's statics (still the original code)
+
+// binds a reference: to the object itself, or to a converted copy
+static inline ENode* CExpr_BindToReference301(ENode* expr, Type* type, UInt32 qual) {
+    ENode* bound;
+    ENode* newExpr;
+
+    if ((bound = CExpr_BindToReference(expr, type, qual, FALSE))) {
+        return bound;
+    }
+    newExpr = expr;
+    if (expr->rtype != type) {
+        newExpr = CExpr_Convert(expr, type, qual, FALSE, TRUE);
+    }
+    if (CExpr_IsLValue(newExpr)) {
+        return getnodeaddress(newExpr, FALSE);
+    }
+    newExpr = CExpr_LValue(newExpr, FALSE, FALSE);
+    if (ENODE_IS(newExpr, EINDIRECT)) {
+        return getnodeaddress(newExpr, FALSE);
+    }
+    return get_address_of_temp_copy(newExpr, TRUE);
+}
+
+// 3.0.1 (0x538240): a reference to a temporary binds without an explicit
+// cast, the base class conversion is inline, and an impossible explicit
+// conversion is an error rather than CodeGen_HandleTypeCast's business
+ENode* CExpr_Convert(
+    ENode* expr, Type* type, UInt32 qual, Boolean isExplicit, Boolean checkAccess
+) {
+    NameSpaceObjectList myList;
+    UInt32 cv;
+    ENode* refExpr;
+    Type* typeCopy;
+    ENode* newExpr;
+
+    cv = qual & Q_CV;
+
+    if (copts.cpp_extensions &&
+        !ENODE_IS(expr, EOBJACCESS) &&
+        !(ENODE_QUALS(expr) & ~cv) &&
+        is_typesame(expr->rtype, type)) {
+        expr = CExpr_RewriteConst(expr);
+        expr->rtype = type;
+        expr->flags &= ~ENODE_FLAG_QUALS;
+        expr->flags |= cv;
+        return expr;
+    }
+
+    if (type == TYPE(&stvoid)) {
+        expr = makemonadicnode(expr, ETYPCON);
+        expr->rtype = type;
+        expr->flags = cv;
+        return expr;
+    }
+
+    if (IS_TYPE_REFERENCE(type)) {
+        if (isExplicit) {
+            refExpr = CExpr_ClassReferenceConversion(expr, TPTR_TARGET(type), qual, checkAccess);
+            if (refExpr) {
+                return refExpr;
+            }
+            expr = getnodeaddress(expr, FALSE);
+            typeCopy = galloc(sizeof(TypePointer));
+            *TYPE_POINTER(typeCopy) = *TYPE_POINTER(type);
+            TPTR_QUAL(typeCopy) &= ~Q_REFERENCE;
+            expr = CExpr_Convert(expr, typeCopy, qual, FALSE, checkAccess);
+            expr = makemonadicnode(expr, EINDIRECT);
+            expr->rtype = TPTR_TARGET(type);
+            expr->flags = cv;
+            return expr;
+        }
+
+        return CExpr_BindToReference301(expr, TPTR_TARGET(type), qual);
+    }
+
+    if ((IS_TYPE_ARRAY(expr->rtype) && !IS_TYPE_ARRAY(type)) ||
+        (IS_TYPE_FUNC(expr->rtype) && !IS_TYPE_FUNC(type))) {
+        expr = pointer_generation(expr);
+    } else {
+        expr = CExpr_RewriteConst(expr);
+    }
+
+    if (ENODE_IS(expr, EOBJACCESS) && !IS_TYPE_MEMBERPOINTER(type)) {
+        if (func_0053A8F0(
+                expr->data.objaccess.list, expr->data.objaccess.templargs, type, &refExpr
+            )) {
+            return refExpr;
+        }
+        if (!IS_TYPE_CLASS(type)) {
+            goto error;
+        }
+    }
+
+    if (ENODE_IS(expr, EOBJREF) && IS_TEMPL_FUNC(expr->data.objref->type)) {
+        myList.next = NULL;
+        myList.object = OBJ_BASE(expr->data.objref);
+        if (func_0053A8F0(&myList, NULL, type, &refExpr)) {
+            return refExpr;
+        }
+        goto error;
+    }
+
+    if (IS_TYPE_CLASS(expr->rtype) || IS_TYPE_CLASS(type)) {
+        if (expr->rtype->size == 0) {
+            CDecl_CompleteType(expr->rtype);
+        }
+
+        if (IS_TYPE_CLASS(type)) {
+            CanAllocObject(type);
+            if (!CClass_CopyConstructor(TYPE_CLASS(type)) ||
+                CClass_IsTrivialCopyClass(TYPE_CLASS(type))) {
+                if (expr->rtype == type) {
+                    return expr;
+                }
+
+                refExpr = CExpr_DerivedToBase(expr, type, qual, checkAccess, FALSE, TRUE);
+                if (refExpr) {
+                    return refExpr;
+                }
+            }
+        }
+
+        refExpr = func_00539280(expr, type, qual, NULL, TRUE, isExplicit, FALSE);
+        if (!refExpr) {
+            goto error;
+        }
+        refExpr->flags = cv;
+        return refExpr;
+    }
+
+    if (!isExplicit && is_typesame(expr->rtype, type)) {
+        if (ENODE_IS(expr, EINDIRECT) && ENODE_QUALS(expr) != (cv & Q_CV)) {
+            expr = makemonadicnode(expr, ETYPCON);
+        }
+        expr->rtype = type;
+        expr->flags = cv;
+        return expr;
+    }
+
+    if (copts.warn_implicitconv &&
+        !isExplicit &&
+        IS_TYPE_INT_OR_FLOAT(type) &&
+        IS_TYPE_INT_OR_FLOAT(expr->rtype)) {
+        CExpr_CheckArithmConversion(expr, type);
+    }
+
+    switch (type->type) {
+        case TYPEINT:
+            if (type == TYPE(&stbool)) {
+                switch (expr->rtype->type) {
+                    case TYPEINT:
+                    case TYPEFLOAT:
+                    case TYPEENUM:
+                    case TYPEMEMBERPOINTER:
+                    case TYPEPOINTER:
+                        return CExpr_ConvertToBool(expr, isExplicit);
+                    default:
+                        break;
+                }
+            } else {
+                switch (expr->rtype->type) {
+                    case TYPEENUM:
+                        expr->rtype = TYPE_ENUM(expr->rtype)->enumtype;
+                    case TYPEINT:
+                    case TYPEFLOAT:
+do_int_float_conversion:
+                        if (ENODE_IS(expr, ETYPCON) &&
+                            expr->rtype->type == type->type &&
+                            expr->rtype->size == type->size &&
+                            is_unsigned(expr->rtype) == is_unsigned(type) &&
+                            ENODE_QUALS(expr) == qual) {
+                            expr->rtype = type;
+                            expr->flags |= ENODE_FLAG_SAME_TYPE_CAST;
+                            return expr;
+                        }
+                        refExpr = promote(expr, type);
+                        refExpr->flags = cv;
+                        if (ENODE_IS(refExpr, ETYPCON) && refExpr != expr) {
+                            refExpr->flags |= ENODE_FLAG_SAME_TYPE_CAST;
+                        }
+                        return CodeGen_CheckExpr(refExpr);
+                    case TYPEPOINTER:
+                        if (expr->rtype->size > type->size && copts.warn_ptr_int_conv) {
+                            CError_Warning(ERR_INTEGRAL_TYPE_TOO_SMALL_FOR_POINTER);
+                        }
+                        if (ENODE_IS(expr, ETYPCON) &&
+                            ENODE_IS(newExpr = expr->data.monadic, EINTCONST)) {
+                            newExpr->rtype = type;
+                            newExpr->flags = cv;
+                            newExpr->data.intval = CExpr_IntConstConvert(
+                                type, TYPE_UNSIGNED_OFFSET, newExpr->data.intval
+                            );
+                            return newExpr;
+                        }
+                        if (type->size != 4) {
+                            expr = makemonadicnode(expr, ETYPCON);
+                            expr->rtype = TYPE_UNSIGNED_OFFSET;
+                        }
+                        expr = makemonadicnode(expr, ETYPCON);
+                        expr->rtype = type;
+                        expr->flags = cv;
+                        return expr;
+                    default:
+                        break;
+                }
+            }
+            break;
+
+        case TYPEFLOAT:
+            switch (expr->rtype->type) {
+                case TYPEENUM:
+                    expr->rtype = TYPE_ENUM(expr->rtype)->enumtype;
+                case TYPEINT:
+                case TYPEFLOAT:
+                    goto do_int_float_conversion;
+                default:
+                    break;
+            }
+            break;
+
+        case TYPEENUM:
+            expr = CExpr_Convert(expr, TYPE_ENUM(type)->enumtype, qual, isExplicit, checkAccess);
+            if (!ENODE_IS(expr, EINTCONST)) {
+                expr = makemonadicnode(expr, ETYPCON);
+            }
+            expr->rtype = type;
+            expr->flags = cv;
+            return CodeGen_CheckExpr(expr);
+
+        case TYPEPOINTER:
+            switch (expr->rtype->type) {
+                case TYPEENUM:
+                    expr->rtype = TYPE_ENUM(expr->rtype)->enumtype;
+                case TYPEINT:
+                    if (expr->rtype->size != 4) {
+                        if (!ENODE_IS(expr, EINTCONST)) {
+                            expr = makemonadicnode(expr, ETYPCON);
+                        }
+                        expr->rtype = TYPE_UNSIGNED_OFFSET;
+                    }
+                    expr = makemonadicnode(expr, ETYPCON);
+                    expr->rtype = type;
+                    expr->flags = cv;
+                    return CodeGen_CheckExpr(expr);
+
+                case TYPEPOINTER:
+                    if (IS_TYPE_CLASS(TPTR_TARGET(expr->rtype)) &&
+                        IS_TYPE_CLASS(TPTR_TARGET(type))) {
+                        expr = CExpr_SafeClassPointerCast(
+                            expr,
+                            TYPE_CLASS(TPTR_TARGET(expr->rtype)),
+                            TYPE_CLASS(TPTR_TARGET(type)),
+                            TRUE,
+                            checkAccess
+                        );
+                    }
+                    if (!ENODE_IS(expr, ETYPCON)) {
+                        expr = makemonadicnode(expr, ETYPCON);
+                    }
+                    expr->rtype = type;
+                    expr->flags = cv;
+                    return CodeGen_CheckExpr(expr);
+                default:
+                    break;
+            }
+            break;
+
+        case TYPEMEMBERPOINTER:
+            if (!IS_TYPE_MEMBERPOINTER(expr->rtype)) {
+                expr = CExpr_MemberPointerConversion(
+                    expr, TYPE_MEMBER_POINTER(type), TRUE, isExplicit
+                );
+            }
+            if (IS_TYPE_MEMBERPOINTER(expr->rtype)) {
+                expr = PointerToMemberCast(
+                    expr, TYPE_MEMBER_POINTER(expr->rtype), TYPE_MEMBER_POINTER(type), checkAccess
+                );
+                expr->flags = cv;
+                return expr;
+            }
+            break;
+        default:
+            break;
+    }
+
+error:
+    CError_Error(
+        isExplicit ? ERR_ILLEGAL_EXPLICIT_CONVERSION_FROM : ERR_ILLEGAL_IMPLICIT_CONVERSION_FROM,
+        expr->rtype,
+        ENODE_QUALS(expr),
+        type,
+        qual
+    );
+    return nullnode();
+}
+#else
 ENode* CExpr_Convert(
     ENode* expr, Type* type, UInt32 qual, Boolean isExplicit, Boolean checkAccess
 ) {
@@ -1814,12 +2277,41 @@ do_int_float_conversion:
     return nullnode();
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 ENode* CExpr_AssignmentPromotion(ENode* expr, Type* type2, UInt32 qual2, Boolean checkAccess) {
     ImplicitConv result;
+#if MWCCPSP
+    ObjBase* obj;
+#endif
 
     if (copts.old_argmatch) {
         return oldassignmentpromotion(expr, type2, qual2, checkAccess);
     }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+    // 0x5380A0: object accesses are only resolved for the error message
+    if (!CExpr_ImplicitConversionMatch(expr, type2, qual2, &result)) {
+        if (ENODE_IS(expr, EOBJACCESS) && expr->data.objaccess.list) {
+            obj = expr->data.objaccess.list->object;
+            if (obj->otype == OT_MEMBERVAR) {
+                expr = getpointertomemberfunc301(expr, NULL, FALSE, FALSE, FALSE);
+            } else if (obj->otype == OT_OBJECT) {
+                expr = CExpr_MakeObjRefNode(OBJECT(obj), FALSE);
+            }
+        }
+        CError_Error(
+            ERR_ILLEGAL_IMPLICIT_CONVERSION_FROM, expr->rtype, ENODE_QUALS(expr), type2, qual2
+        );
+        return nullnode();
+    }
+
+    return CExpr_Convert(expr, type2, qual2, FALSE, checkAccess);
+#endif
 
     if (ENODE_IS(expr, EMEMBER)) {
         expr = getpointertomemberfunc(expr, type2, TRUE);
@@ -2644,7 +3136,12 @@ Boolean CExpr_OperatorMatch(short token, ENode* left, ENode* right, Conversion* 
 
     if (IS_TYPE_CLASS(left->rtype) &&
         CScope_FindClassMemberObject(TYPE_CLASS(left->rtype), &pr, name)) {
+#if MWCCPSP
+        if (token != '=' ||
+            (NAMERESULT_PATH(&pr)->type == left->rtype && !NAMERESULT_PATH(&pr)->next)) {
+#else
         if (token != '=' || (pr.basePath->type == left->rtype && !pr.basePath->next)) {
+#endif
             if (pr.object) {
                 myList.next = NULL;
                 myList.object = pr.object;
@@ -2693,7 +3190,11 @@ Boolean CExpr_OperatorMatch(short token, ENode* left, ENode* right, Conversion* 
                         myMatch.next = matches;
                         matches = lalloc(sizeof(Match));
                         *matches = myMatch;
+#if MWCCPSP
+                        path = NAMERESULT_PATH(&pr);
+#else
                         path = pr.basePath;
+#endif
                     }
                 }
             }
@@ -2927,3 +3428,25 @@ static ENode* CExpr_ClassCopyInit(TypeClass* tclass, ENode* expr1, ENode* expr2)
     expr1->rtype = TYPE(tclass);
     return expr1;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP_NATIVE
+// The native build runs 2.4.7's versions where 3.0.1's are not written yet
+// (the hybrid build calls the original's code at these addresses).
+ENode* func_00539280(
+    ENode* expr,
+    Type* type2,
+    UInt32 qual2,
+    ImplicitConv* result,
+    Boolean doConvert,
+    Boolean isExplicit,
+    Boolean bindReference
+) {
+    return CExpr_UserConversion(expr, type2, qual2, result, doConvert, isExplicit, bindReference);
+}
+
+Boolean func_0053A8F0(NameSpaceObjectList* list, TemplArg* templargs, Type* type, ENode** outExpr) {
+    return CExpr_OverloadFuncMatch(list, templargs, type, outExpr);
+}
+#endif

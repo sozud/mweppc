@@ -24,9 +24,17 @@ typedef enum TypeType {
     TYPEOBJCID,
     TYPETEMPLDEPEXPR,
     TYPEILLEGAL = -1
+#if MWCCPSP
+} TypeTypeEnum;
+typedef SInt8
+    TypeType; // a signed byte in 3.0.1 (CDecl_NewPointerType writes one byte; optimizecomm compares it signed)
+#else
 } TypeType;
+#endif
 
+#if !MWCCPSP // 3.0.1 uses natural alignment here (Type.size stays at +4)
 #pragma pack(push, 2)
+#endif
 
 struct Type {
     TypeType type;
@@ -157,16 +165,28 @@ struct TypeClass {
     ClassList* bases;
     VClassList* vbases;
     ObjMemberVar* ivars;
+#if !MWCCPSP
     ClassFriend* friends;
+#endif
     VTable* vtable;
     SOMInfo* sominfo;
+#if !MWCCPSP
     ObjCInfo* objcinfo;
+#endif
     UInt16 flags;
     SInt8 mode;
     SInt8 action;
     SInt16 align;
     UInt8 eflags;
+#if MWCCPSP
+    // 3.0.1 has no friends (kept in a list in CClass.c) or objcinfo (no
+    // Objective-C): vtable is at +0x1C, flags at +0x24, size 0x2C
+#endif
 };
+#if MWCCPSP
+
+#define CLASS_OBJCINFO(tclass) ((ObjCInfo*)NULL)
+#endif
 
 enum {
     CLASS_MODE_STRUCT = 0,
@@ -256,7 +276,11 @@ enum {
     FUNC_FLAGS_4000000 = 0x4000000,
     FUNC_FLAGS_10000000 = 0x10000000
 };
+#if MWCCPSP
+#define FUNC_CALL_CONV_MASK 0xF0018001 // 3.0.1: every comparison in the exe uses this
+#else
 #define FUNC_CALL_CONV_MASK (0xF0000000 | FUNC_PASCAL)
+#endif
 
 struct TypeMemberFunc {
     TypeType type;
@@ -297,7 +321,11 @@ typedef enum TypeTemplDepType {
 struct TypeTemplDep {
     TypeType type;
     SInt32 size;
+#if MWCCPSP
+    UInt8 dtype; // a byte in 3.0.1 (CParser_ParseTypeID)
+#else
     TypeTemplDepType dtype;
+#endif
     union {
         TemplParamID pid;
         struct {
@@ -320,9 +348,28 @@ struct TypeTemplDep {
             Type* type;
             ENode* size;
         } bitfield;
+#if MWCCPSP
+        ENode* typeofexpr; // TEMPLDEP_TYPEOF
+#endif
     } u;
 };
+#if MWCCPSP
+#define TEMPLDEP_TYPEOF 8 // 3.0.1: __typeof__ of a template-dependent expression
+#endif
 
+#if MWCCPSP
+// 3.0.1 array types (CDecl_NewArrayType, 0x4C3110) carry the element count
+typedef struct TypeArray301 {
+    TypeType type;
+    SInt32 size;
+    Type* target;
+    UInt32 qual;
+    SInt32 count; // size / target->size, 0 if the element size is unknown
+} TypeArray301;
+#endif
+#if MWCCPSP
+
+#endif
 struct TypeMemberPointer {
     TypeType type;
     SInt32 size;
@@ -349,7 +396,9 @@ struct TypeList {
     Type* type;
 };
 
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 
 #define TYPE(ty) ((Type*)(ty))
 #define TYPE_INTEGRAL(ty) ((TypeIntegral*)(ty))
@@ -384,13 +433,22 @@ struct TypeList {
 #define IS_TYPE_STATIC_METHOD(ty) (IS_TYPE_METHOD(ty) && TYPE_METHOD(ty)->is_static)
 #define IS_TYPEFUNC_NONSTATIC_METHOD(ty) (IS_TYPEFUNC_METHOD(ty) && !TYPE_METHOD(ty)->is_static)
 #define IS_TYPE_TEMPLATE(ty) ((ty)->type == TYPETEMPLATE)
+#if MWCCPSP
+#define IS_TYPE_POINTER(ty) ((ty)->type == TYPEPOINTER)
+#else
 #define IS_TYPE_POINTER(ty) ((ty)->type == TYPEPOINTER || (ty)->type == TYPEARRAY)
+#endif
 #define IS_TYPE_POINTER_ONLY(ty) ((ty)->type == TYPEPOINTER)
 #define IS_TYPE_REFERENCE(ty) ((ty)->type == TYPEPOINTER && (TYPE_POINTER(ty)->qual & Q_REFERENCE))
 #define IS_TYPEPOINTER_REFERENCE(ty) ((ty)->qual & Q_REFERENCE)
 #define IS_TYPE_ARRAY(ty) ((ty)->type == TYPEARRAY)
 #define IS_TYPE_BITFIELD(ty) ((ty)->type == TYPEBITFIELD)
 #define IS_TYPE_TEMPLDEPEXPR(ty) ((ty)->type == TYPETEMPLDEPEXPR)
+#if MWCCPSP
+extern unsigned char CTemplTool_IsTemplDepExpr(struct ENode* expr); // 3.0.1
+#define ENODE_IS_TEMPLDEPEXPR(expr) CTemplTool_IsTemplDepExpr(expr)
+#else
+#endif
 #define IS_TYPESTRUCT_VECTOR(ty) \
     ((ty)->stype >= STRUCT_VECTOR_UCHAR && (ty)->stype <= STRUCT_VECTOR_PIXEL)
 #define IS_TYPE_VECTOR(ty) ((ty)->type == TYPESTRUCT && IS_TYPESTRUCT_VECTOR(TYPE_STRUCT(ty)))
@@ -414,7 +472,11 @@ struct TypeList {
 #define IS_TYPE_VEC2X32FLOAT(ty) \
     (IS_TYPE_FLOAT(ty) && TYPE_INTEGRAL(ty)->integral == IT_VEC2X32FLOAT)
 #define IS_TYPE_FLOAT_NOT_VEC2X32FLOAT(ty) ((ty)->type == TYPEFLOAT && !IS_TYPE_VEC2X32FLOAT(ty))
+#if MWCCPSP
+#define TYPE_IS_SOFT_FLOAT(ty) (COPTS_GONE(soft_float) && IS_TYPE_FLOAT_NOT_VEC2X32FLOAT(ty))
+#else
 #define TYPE_IS_SOFT_FLOAT(ty) (copts.soft_float && IS_TYPE_FLOAT_NOT_VEC2X32FLOAT(ty))
+#endif
 #define TYPE_IS_GPR_PAIR(ty) (TYPE_IS_8BYTES(ty) || (TYPE_IS_SOFT_FLOAT(ty) && (ty)->size != 4))
 
 #define OBJ_GET_TARGET_VOLATILE(obj) \

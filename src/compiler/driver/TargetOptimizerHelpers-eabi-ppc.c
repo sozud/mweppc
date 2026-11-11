@@ -3,6 +3,32 @@
 #include "driver/pref_structs.h"
 #include "driver/StringUtils.h"
 
+#if MWCCPSP
+// 3.0.1 PSP: the only target optimization flag is -opt [no]intrinsics,
+// kept in the MIPS code generator prefs (CodeGen.c: data_005B0A78, +0x0D)
+extern struct {
+    UInt8 unk00[0xD];
+    UInt8 inline_intrinsics;
+} data_005B0A78;
+
+int TargetSetOptFlags(short val, Boolean set) {
+    switch (val) {
+        case 'In':
+            data_005B0A78.inline_intrinsics = set;
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+void TargetDisplayOptimizationOptions(Handle txt) {
+    UInt8 intrinsics;
+
+    if ((intrinsics = data_005B0A78.inline_intrinsics)) {
+        HPrintF(txt, "\t- inline intrinsics %s\n", (intrinsics == 1) ? "on" : "off");
+    }
+}
+#else
 int TargetSetOptFlags(short val, Boolean set) {
     switch (val) {
         case 'Pe':
@@ -61,4 +87,8 @@ void TargetDisplayOptimizationOptions(Handle txt) {
     }
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 void TargetSetPragmaOptimizationsToUnspecified(void) {}

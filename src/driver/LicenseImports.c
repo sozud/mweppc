@@ -30,4 +30,26 @@ __declspec(naked) char* lp_errstring(LP_HANDLE* handle) {
         jmp [_imp__lp_errstring]
     }
 }
+#elif MWCCPSP_NATIVE
+// the native build has no license manager: every checkout succeeds
+static int native_license;
+
+int lp_checkout(
+    LPCODE_HANDLE* code,
+    int policy,
+    const char* feature,
+    const char* version,
+    int nlic,
+    const char* licensePath,
+    LP_HANDLE** handle
+) {
+    *handle = (LP_HANDLE*)&native_license;
+    return 0;
+}
+
+void lp_checkin(LP_HANDLE* handle) {}
+
+char* lp_errstring(LP_HANDLE* handle) {
+    return "";
+}
 #endif

@@ -31,6 +31,16 @@ typedef struct MessageRef {
 extern void SetupDebuggingTraps(void);
 extern Boolean IO_Initialize(void);
 extern Boolean IO_Terminate(void);
+#if MWCCPSP
+extern Boolean WriteBinaryHandleToFile(
+    OSSpec* spec, OSType maccreator, OSType mactype, OSHandle* text
+);
+#endif
+#if MWCCPSP // 3.0.1: text is an OS handle that knows its size
+extern Boolean ShowHandle(OSHandle* text, Boolean decorate);
+extern Boolean WriteHandleToFile(OSSpec* spec, OSHandle* text, OSType creator, OSType type);
+extern Boolean AppendHandleToFile(OSSpec* spec, OSHandle* text, OSType maccreator, OSType mactype);
+#else
 extern Boolean ShowHandle(Handle text, UInt32 size, Boolean decorate);
 extern Boolean WriteHandleToFile(
     OSSpec* spec, Handle text, UInt32 size, OSType creator, OSType type
@@ -41,6 +51,7 @@ extern Boolean WriteBinaryHandleToFile(
 extern Boolean AppendHandleToFile(
     OSSpec* spec, Handle text, UInt32 size, OSType maccreator, OSType mactype
 );
+#endif
 extern void ShowWorking(int x);
 extern Boolean CheckForUserBreak(void);
 extern void CLPrint(const char* format, ...);

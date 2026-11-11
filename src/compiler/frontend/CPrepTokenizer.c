@@ -16,6 +16,251 @@ static Boolean prepnextstringchar_foundnl;
 
 StringPtr CPrep_SkipNewComment(StringPtr str);
 
+#if MWCCPSP
+extern Boolean data_00625EC1; // 3.0.1: with in_assembler, \n \r \t \v are white space
+
+// 3.0.1: '#' comments in assembler run to a quote, a newline or a literal
+// "\n"; '%:' is '#' in C99 too; backslash escapes in assembler are spaces
+short prepskipnextchar(void) {
+    short c;
+    StringPtr start;
+    StringPtr p;
+
+    start = (StringPtr)pos;
+    p = (StringPtr)pos;
+
+loop:
+    switch ((c = *p)) {
+        case 0:
+            if (tokenstacklevel > 0 || p >= (StringPtr)prep_file_end) {
+                nextcharpos = pos = (char*)p;
+                return c;
+            }
+            pos = (char*)p;
+            nextcharpos = (char*)p + 1;
+            return c;
+        case TK_MACRO_NOEXPAND:
+        case TK_MACRO_BOUNDARY:
+            p++;
+            goto loop;
+        case ' ':
+        case '\t':
+        case LF:
+        case '\v':
+        case '\f':
+            p++;
+            spaceskip = TRUE;
+            goto loop;
+        case ';':
+            pos = (char*)p;
+            if (tokenstacklevel <= 0 && in_assembler && copts.asmsemicolcomment) {
+                spaceskip = TRUE;
+                nextcharpos = (char*)CPrep_SkipNewComment(p + 1);
+                return CPrep_SkipNewCommentChar;
+            }
+            nextcharpos = (char*)p + 1;
+            return c;
+        case '#':
+            pos = (char*)p++;
+            if (tokenstacklevel <= 0 && in_assembler && copts.asmpoundcomment) {
+                spaceskip = TRUE;
+                if (*p != CR && *p != LF) {
+                    p++;
+                }
+                for (;;) {
+                    if (!(c = *(p++))) {
+                        if (tokenstacklevel > 0 || p >= (StringPtr)prep_file_end) {
+                            CPrep_Error(ERR_UNTERMINATED_COMMENT);
+                            nextcharpos = (char*)p - 1;
+                            return c;
+                        }
+                        p[-1] = ' ';
+                    }
+                    if (c == '\\') {
+                        if (copts.multibyteaware) {
+                            while (p[0] == '\\' && !COS_IsMultiByte(start, p) && p[1] == CR) {
+                                foundnl();
+                                if (p[2] == LF) {
+                                    p += 3;
+                                } else {
+                                    p += 2;
+                                }
+                            }
+                        } else {
+                            while (p[0] == '\\' && p[1] == CR) {
+                                foundnl();
+                                if (p[2] == LF) {
+                                    p += 3;
+                                } else {
+                                    p += 2;
+                                }
+                            }
+                        }
+                        if (*p == 'n') {
+                            p--;
+                            goto loop;
+                        }
+                    }
+                    if (c == '"' || c == CR || c == LF) {
+                        p--;
+                        goto loop;
+                    }
+                }
+            }
+            nextcharpos = (char*)p;
+            return c;
+        case '/':
+            pos = (char*)p++;
+            if (copts.multibyteaware) {
+                while (p[0] == '\\' && !COS_IsMultiByte(start, p) && p[1] == CR) {
+                    foundnl();
+                    if (p[2] == LF) {
+                        p += 3;
+                    } else {
+                        p += 2;
+                    }
+                }
+            } else {
+                while (p[0] == '\\' && p[1] == CR) {
+                    foundnl();
+                    if (p[2] == LF) {
+                        p += 3;
+                    } else {
+                        p += 2;
+                    }
+                }
+            }
+            if (tokenstacklevel <= 0) {
+                if (p[0] == '/' && (!copts.ANSIstrict || copts.cplusplus || copts.c9x)) {
+                    spaceskip = TRUE;
+                    nextcharpos = (char*)CPrep_SkipNewComment(p + 1);
+                    return CPrep_SkipNewCommentChar;
+                } else if (p[0] == '*') {
+                    spaceskip = TRUE;
+                    p++;
+                    for (;;) {
+                        if (!(c = *(p++))) {
+                            if (tokenstacklevel > 0 || p >= (StringPtr)prep_file_end) {
+                                CPrep_Error(ERR_UNTERMINATED_COMMENT);
+                                nextcharpos = (char*)p - 1;
+                                return c;
+                            }
+                            p[-1] = ' ';
+                        }
+                        if (c == '*') {
+                            if (copts.multibyteaware) {
+                                while (p[0] == '\\' && !COS_IsMultiByte(start, p) && p[1] == CR) {
+                                    foundnl();
+                                    if (p[2] == LF) {
+                                        p += 3;
+                                    } else {
+                                        p += 2;
+                                    }
+                                }
+                            } else {
+                                while (p[0] == '\\' && p[1] == CR) {
+                                    foundnl();
+                                    if (p[2] == LF) {
+                                        p += 3;
+                                    } else {
+                                        p += 2;
+                                    }
+                                }
+                            }
+                            if (*p == '/') {
+                                p++;
+                                goto loop;
+                            }
+                        }
+                        if (c == CR) {
+                            foundnl();
+                        }
+                    }
+                }
+            }
+            nextcharpos = (char*)p;
+            return c;
+        case '%':
+            pos = (char*)p;
+            if (p[1] == ':' && (copts.cplusplus || copts.c9x)) {
+                nextcharpos = (char*)p + 2;
+                return '#';
+            }
+            nextcharpos = (char*)p + 1;
+            return c;
+        case '\\':
+            pos = (char*)p++;
+mid_backslash:
+            if (*p == CR) {
+                if (!copts.multibyteaware || !COS_IsMultiByte(start, p - 1)) {
+                    foundnl();
+                    if (p[1] == LF) {
+                        p += 2;
+                    } else {
+                        p += 1;
+                    }
+                    goto loop;
+                }
+            }
+            if (data_00625EC1 && in_assembler) {
+                switch (*p) {
+                    case 'n':
+                    case 'r':
+                    case 't':
+                    case 'v':
+                        p++;
+                        spaceskip = TRUE;
+                        goto loop;
+                    default:
+                        nextcharpos = (char*)p;
+                        return c;
+                }
+            }
+            nextcharpos = (char*)p;
+            return c;
+        case '?':
+            pos = (char*)p;
+            if (copts.trigraphs && p[1] == '?') {
+                switch (p[2]) {
+                    case '=':
+                        nextcharpos = (char*)p + 3;
+                        return '#';
+                    case '/':
+                        p += 3;
+                        c = '\\';
+                        goto mid_backslash;
+                    case '\'':
+                        nextcharpos = (char*)p + 3;
+                        return '^';
+                    case '(':
+                        nextcharpos = (char*)p + 3;
+                        return '[';
+                    case ')':
+                        nextcharpos = (char*)p + 3;
+                        return ']';
+                    case '!':
+                        nextcharpos = (char*)p + 3;
+                        return '|';
+                    case '<':
+                        nextcharpos = (char*)p + 3;
+                        return '{';
+                    case '>':
+                        nextcharpos = (char*)p + 3;
+                        return '}';
+                    case '-':
+                        nextcharpos = (char*)p + 3;
+                        return '~';
+                }
+            }
+            nextcharpos = (char*)p + 1;
+            return c;
+        default:
+            pos = (char*)p;
+            nextcharpos = (char*)p + 1;
+            return c;
+    }
+}
+#else
 short prepskipnextchar(void) {
     short c;
     StringPtr start;
@@ -202,6 +447,75 @@ mid_backslash:
             return c;
     }
 }
+#endif
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// New in 3.0.1 (0x460F20; the original name is not known): the next
+// significant character, without consuming it. Comments read as ' ',
+// backslash-newline is skipped and trigraphs are decoded. The token
+// scanners peek with this and then consume with prepnextchar.
+short prepcurchar(void) {
+    StringPtr start;
+    StringPtr p;
+    short c;
+
+    start = (StringPtr)pos;
+    p = (StringPtr)pos;
+
+loop:
+    switch ((c = *(p++))) {
+        case '/':
+            if (p[0] == '/' && (!copts.ANSIstrict || copts.cplusplus)) {
+                return ' ';
+            }
+            if (p[0] == '*') {
+                return ' ';
+            }
+            return '/';
+        case '\\':
+backslash:
+            if (*p == CR && (!copts.multibyteaware || !COS_IsMultiByte(start, p - 1))) {
+                if (p[1] == LF) {
+                    p += 2;
+                } else {
+                    p += 1;
+                }
+                goto loop;
+            }
+            return c;
+        case '?':
+            if (*p == '?' && copts.trigraphs) {
+                switch (p[1]) {
+                    case '=':
+                        return '#';
+                    case '/':
+                        p += 2;
+                        c = '\\';
+                        goto backslash;
+                    case '\'':
+                        return '^';
+                    case '(':
+                        return '[';
+                    case ')':
+                        return ']';
+                    case '!':
+                        return '|';
+                    case '<':
+                        return '{';
+                    case '>':
+                        return '}';
+                    case '-':
+                        return '~';
+                }
+            }
+            return c;
+        default:
+            return c;
+    }
+}
+#endif
 
 short prepnextchar(void) {
     short c;
@@ -579,6 +893,7 @@ backslash:
     }
 }
 
+#if !MWCCPSP
 short prepcurchar(void) {
     char* save_pos;
     short t;
@@ -590,6 +905,7 @@ short prepcurchar(void) {
 
     return t;
 }
+#endif
 
 static short prepcurstringchar(StringPtr str) {
     char* save_pos;
@@ -611,6 +927,51 @@ static void prepcurstringchar_skip(void) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1: no length limit; the buffer grows 1 KB at a time.
+char* ReadIdentifier(const char* p) {
+    char buf[0x400];
+    unsigned int c;
+    const char* start;
+    int cap;
+    char* dst;
+    char* grown;
+    int len;
+
+    start = p;
+    cap = sizeof(buf) - 1;
+    dst = buf;
+    len = 0;
+    for (;;) {
+        c = (unsigned char)*p;
+        if (cprep_idarray[(unsigned char)c]) {
+            if (len >= cap) {
+                grown = lalloc(cap + 0x400);
+                memcpy(grown, dst, cap);
+                cap += 0x400;
+                dst = grown;
+            }
+            dst[len++] = c;
+            p++;
+        } else if ((unsigned char)c == '\\' &&
+                   p[1] == CR &&
+                   (!copts.multibyteaware || !COS_IsMultiByte(start, p))) {
+            if (p[2] == LF) {
+                p += 3;
+            } else {
+                p += 2;
+            }
+            foundnl();
+        } else {
+            break;
+        }
+    }
+
+    dst[len] = 0;
+    tkidentifier = GetHashNameNodeExport(dst);
+    return (char*)p;
+}
+#else
 char* ReadIdentifier(const char* p) {
     unsigned char buf[256];
     const char* start;
@@ -655,7 +1016,134 @@ char* ReadIdentifier(const char* p) {
     tkidentifier = GetHashNameNodeExport((char*)buf);
     return (char*)p;
 }
+#endif
 
+#if MWCCPSP
+// 3.0.1: consume the character prepcurchar() just returned (it was line 623
+// of the original file; the name is not known). Inlined at every use in
+// this file; CPrep_Define calls it.
+void skipcurchar(short c) {
+    if (prepnextchar() != c) {
+        CError_FATAL(623);
+    }
+}
+#define SKIP_PEEKED(c) skipcurchar(c)
+
+#endif
+#if MWCCPSP
+// 3.0.1 reads the suffix itself, returns the literal kind (ATOM_*) and
+// falls back to the 128-bit type before giving up
+static short intsuffix(Boolean allowUnsigned) {
+    Boolean is_unsigned;
+    Boolean is_long;
+    Boolean is_longlong;
+    int t;
+
+    is_unsigned = is_long = is_longlong = FALSE;
+    t = prepcurchar();
+    switch (t) {
+        case 'u':
+        case 'U':
+            SKIP_PEEKED(t);
+            is_unsigned = TRUE;
+            t = prepcurchar();
+            if (t == 'l' || t == 'L') {
+                SKIP_PEEKED(t);
+                is_long = TRUE;
+                t = prepcurchar();
+                if (copts.longlong && (t == 'l' || t == 'L')) {
+                    SKIP_PEEKED(t);
+                    is_longlong = TRUE;
+                    t = prepcurchar();
+                }
+            }
+            break;
+        case 'l':
+        case 'L':
+            SKIP_PEEKED(t);
+            is_long = TRUE;
+            t = prepcurchar();
+            if (t == 'u' || t == 'U') {
+                SKIP_PEEKED(t);
+                is_unsigned = TRUE;
+                t = prepcurchar();
+            } else if (copts.longlong && (t == 'l' || t == 'L')) {
+                SKIP_PEEKED(t);
+                is_longlong = TRUE;
+                t = prepcurchar();
+                if (t == 'u' || t == 'U') {
+                    SKIP_PEEKED(t);
+                    is_unsigned = TRUE;
+                    t = prepcurchar();
+                }
+            }
+            break;
+        case 'i':
+        case 'I':
+            if (copts.cpp_extensions && !copts.ANSIstrict && copts.longlong) {
+                SKIP_PEEKED(t);
+                t = prepcurchar();
+                if (t != '6') {
+                    CPrep_Error(ERR_ILLEGAL_TOKEN);
+                } else {
+                    SKIP_PEEKED(t);
+                    t = prepcurchar();
+                    if (t != '4') {
+                        CPrep_Error(ERR_ILLEGAL_TOKEN);
+                    } else {
+                        SKIP_PEEKED(t);
+                        t = prepcurchar();
+                        is_long = is_longlong = TRUE;
+                    }
+                }
+            }
+            break;
+        case 'b':
+        case 'B':
+        case 'f':
+        case 'F':
+            if (preprocessing_only || InlineAsm_gccmode) {
+                return ATOM_INT;
+            }
+            break;
+    }
+
+    if ((t >= 'a' && t <= 'z') || (t >= 'A' && t <= 'Z') || (t == '_') || (t >= '0' && t <= '9')) {
+        CPrep_Error(ERR_ILLEGAL_TOKEN);
+    }
+
+    if (!is_longlong && !is_long) {
+        if (!is_unsigned && CInt64_IsInRange(tkintconst, stsignedint.size)) {
+            return ATOM_INT;
+        }
+        if ((allowUnsigned || is_unsigned) && CInt64_IsInURange(tkintconst, stunsignedint.size)) {
+            return ATOM_UINT;
+        }
+    }
+    if (!is_longlong) {
+        if (!is_unsigned && CInt64_IsInRange(tkintconst, stsignedlong.size)) {
+            return ATOM_LONG;
+        }
+        if (CInt64_IsInURange(tkintconst, stunsignedlong.size)) {
+            return ATOM_ULONG;
+        }
+    }
+    if (copts.longlong) {
+        if (!is_unsigned && CInt64_IsInRange(tkintconst, stsignedlonglong.size)) {
+            return ATOM_LONGLONG;
+        }
+        if (CInt64_IsInURange(tkintconst, stsignedlonglong.size)) {
+            return ATOM_ULONGLONG;
+        }
+    }
+    if (CInt64_IsInRange(tkintconst, stint128.size)) {
+        return ATOM_INT128;
+    }
+    CError_Error(ERR_NUMBER_OUT_RANGE);
+    tkintconst = cint64_zero;
+    return ATOM_INT;
+}
+#else
 static short intsuffix(short t, Boolean allowUnsigned) {
     Boolean is_unsigned;
     Boolean is_long;
@@ -761,7 +1249,71 @@ static short intsuffix(short t, Boolean allowUnsigned) {
     tkintconst = cint64_zero;
     return IT_INT;
 }
+#endif
+#if MWCCPSP
 
+#define FLOATSUFFIX() floatsuffix()
+#endif
+
+#if MWCCPSP
+// 3.0.1 reads the suffix itself and returns the literal kind (ATOM_*)
+static short floatsuffix(void) {
+    short token;
+    short whichtype;
+
+    token = prepcurchar();
+    switch (token) {
+        case 'f':
+        case 'F':
+            SKIP_PEEKED(token);
+            token = prepcurchar();
+            whichtype = ATOM_FLOAT;
+            if (stfloat.size != stlongdouble.size) {
+                tkfloatconst = CMach_CalcFloatConvert(TYPE(&stfloat), tkfloatconst);
+            }
+            break;
+        case 'l':
+        case 'L':
+            SKIP_PEEKED(token);
+            token = prepcurchar();
+            whichtype = ATOM_LONGDOUBLE;
+            break;
+        case 'd':
+        case 'D':
+            if (!copts.ANSIstrict) {
+                SKIP_PEEKED(token);
+                token = prepcurchar();
+                whichtype = ATOM_DOUBLE;
+                if (stdouble.size != stlongdouble.size) {
+                    tkfloatconst = CMach_CalcFloatConvert(TYPE(&stdouble), tkfloatconst);
+                }
+            }
+            break;
+        default:
+            if (copts.float_constants) {
+                whichtype = ATOM_FLOAT;
+                if (stfloat.size != stlongdouble.size) {
+                    tkfloatconst = CMach_CalcFloatConvert(TYPE(&stfloat), tkfloatconst);
+                }
+            } else {
+                whichtype = ATOM_DOUBLE;
+                if (stdouble.size != stlongdouble.size) {
+                    tkfloatconst = CMach_CalcFloatConvert(TYPE(&stdouble), tkfloatconst);
+                }
+            }
+    }
+
+    if ((token >= 'a' && token <= 'z') ||
+        (token >= 'A' && token <= 'Z') ||
+        (token == '_') ||
+        (token >= '0' && token <= '9')) {
+        CPrep_Error(ERR_ILLEGAL_TOKEN);
+        whichtype = ATOM_DOUBLE;
+    }
+
+    return whichtype;
+}
+#else
 static short floatsuffix(short token) {
     short whichtype;
 
@@ -816,6 +1368,7 @@ static short floatsuffix(short token) {
 
     return whichtype;
 }
+#endif
 
 static short tohex(short token) {
     if (token >= '0' && token <= '9') {
@@ -830,6 +1383,142 @@ static short tohex(short token) {
     return -1;
 }
 
+#if MWCCPSP
+// 3.0.1 (0x4600C0): \u and \U universal character names; C99 mode rejects
+// unknown escapes
+static SInt32 nextchar(StringPtr str) {
+    short tmpchr;
+    SInt32 chr_max;
+    Boolean out_of_bounds;
+    SInt32 chr;
+    short i;
+    short t;
+
+    chr_max = 0xFF;
+    if (widestring) {
+        chr_max = 0xFFFF;
+    }
+
+    was_escchar = FALSE;
+    t = prepnextstringchar(str, TRUE);
+
+    if (t != '\\' || (copts.multibyteaware && COS_IsMultiByte(str, pos - 1))) {
+        chr = t;
+    } else {
+        was_escchar = TRUE;
+        switch ((t = prepnextstringchar(str, TRUE))) {
+            case 'a':
+                return 7;
+            case 'b':
+                return 8;
+            case 't':
+                return 9;
+            case 'v':
+                return 11;
+            case 'f':
+                return 12;
+            case 'n':
+                if (copts.mpwc_newline) {
+                    return CR;
+                } else {
+                    return LF;
+                }
+            case 'r':
+                if (copts.mpwc_newline) {
+                    return LF;
+                } else {
+                    return CR;
+                }
+            case 'e':
+                return 27;
+            case 'x':
+                chr = tohex(prepnextstringchar(str, TRUE));
+                if (chr == -1) {
+                    CPrep_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                    return ' ';
+                }
+                out_of_bounds = FALSE;
+                while (tohex((tmpchr = prepcurstringchar(str))) != -1) {
+                    chr = (chr << 4) + tohex(tmpchr);
+                    prepcurstringchar_skip();
+                    if (chr & ~chr_max) {
+                        out_of_bounds = TRUE;
+                    }
+                }
+                if (out_of_bounds) {
+                    CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                }
+                break;
+            case 'u':
+                chr_max = 0xFFFF;
+                chr = tohex(prepnextstringchar(str, TRUE));
+                if (chr == -1) {
+                    CPrep_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                    return ' ';
+                }
+                out_of_bounds = FALSE;
+                while (tohex((tmpchr = prepcurstringchar(str))) != -1) {
+                    chr = (chr << 4) + tohex(tmpchr);
+                    prepcurstringchar_skip();
+                    if (chr & ~chr_max) {
+                        out_of_bounds = TRUE;
+                    }
+                }
+                if (out_of_bounds) {
+                    CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                }
+                break;
+            case 'U':
+                chr_max = 0xFFFFFFFF;
+                chr = tohex(prepnextstringchar(str, TRUE));
+                if (chr == -1) {
+                    CPrep_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                    return ' ';
+                }
+                out_of_bounds = FALSE;
+                while (tohex((tmpchr = prepcurstringchar(str))) != -1) {
+                    chr = (chr << 4) + tohex(tmpchr);
+                    prepcurstringchar_skip();
+                    if (chr & ~chr_max) {
+                        out_of_bounds = TRUE;
+                    }
+                }
+                if (out_of_bounds) {
+                    CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                }
+                break;
+            default:
+                if (t >= '0' && t <= '7') {
+                    out_of_bounds = FALSE;
+                    i = 1;
+                    chr = t - '0';
+                    while (i < 3 && (tmpchr = prepcurstringchar(str)) >= '0' && tmpchr <= '7') {
+                        chr = (chr << 3) + tmpchr - '0';
+                        prepcurstringchar_skip();
+                        if (chr & ~chr_max) {
+                            out_of_bounds = TRUE;
+                        }
+                        i++;
+                    }
+                    if (out_of_bounds) {
+                        CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                    }
+                } else {
+                    if (copts.c9x && t != '\\' && t != '\'' && t != '?' && t != '"') {
+                        CPrep_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
+                    }
+                    chr = t;
+                }
+        }
+    }
+
+    if (chr_max == 0xFF) {
+        return (char)(chr & chr_max);
+    } else {
+        return (chr & chr_max);
+    }
+}
+#else
 static SInt32 nextchar(StringPtr str) {
     short tmpchr;
     SInt32 chr_max;
@@ -921,6 +1610,7 @@ static SInt32 nextchar(StringPtr str) {
         return (chr & chr_max);
     }
 }
+#endif
 
 StringPtr CPrep_SkipNewComment(StringPtr str) {
     StringPtr p;
@@ -955,12 +1645,14 @@ StringPtr CPrep_SkipNewComment(StringPtr str) {
                 }
                 continue;
 
+#if !MWCCPSP // no GCC asm string check in 3.0.1
             case '"':
                 if (InlineAsm_gccmode) {
                     CPrep_SkipNewCommentChar = CR;
                     return p - 1;
                 }
                 continue;
+#endif
         }
     }
 }
@@ -1071,7 +1763,11 @@ void skipendofline(void) {
                     }
                 }
 
+#if MWCCPSP // 3.0.1: // comments in strict C99 too
+                if (*p == '/' && (!copts.ANSIstrict || copts.cplusplus || copts.c9x)) {
+#else
                 if (*p == '/' && (!copts.ANSIstrict || copts.cplusplus)) {
+#endif
                     pos = (char*)CPrep_SkipNewComment(p + 1);
                     if (CPrep_SkipNewCommentChar == CR) {
                         pos--;
@@ -1207,7 +1903,11 @@ static short tapos(short _t) {
                     tksize = IT_UINT;
                     break;
                 default:
+#if MWCCPSP
+                    CError_FATAL(1516);
+#else
                     CError_FATAL(1393);
+#endif
             }
         } else {
             if (copts.unsigned_char) {
@@ -1235,7 +1935,11 @@ static short tapos(short _t) {
                     bytecount = 4;
                     break;
                 default:
+#if MWCCPSP
+                    CError_FATAL(1554);
+#else
                     CError_FATAL(1431);
+#endif
             }
         } else {
             CInt64_SetULong(&val, 8);
@@ -1279,10 +1983,17 @@ static short tapos(short _t) {
     return TK_INTCONST;
 }
 
+#if MWCCPSP
+
+#endif
 static short tquot(short t) {
     Type* type;
     char* string_ptr;
+#if MWCCPSP
+    SInt32 c;
+#else
     short c;
+#endif
     StringPtr save_pos;
     SInt32 size;
     StringPtr start_pos;
@@ -1385,12 +2096,36 @@ static short thash(void) {
 static short tmult(void) {
     at_linestart = FALSE;
     if (prepcurchar() == '=') {
+#if MWCCPSP
+        SKIP_PEEKED('=');
+#else
         pos = nextcharpos;
+#endif
         return TK_MULT_ASSIGN;
     }
     return '*';
 }
 
+#if MWCCPSP
+static short tcolo(void) {
+    char t2;
+    at_linestart = FALSE;
+    if (!copts.cplusplus && !copts.c9x) {
+        return ':';
+    }
+    t2 = prepcurchar();
+    if (t2 == ':') {
+        if (copts.cplusplus) {
+            SKIP_PEEKED(t2);
+            return TK_COLON_COLON;
+        }
+    } else if (t2 == '>' && !preprocessing_only) {
+        SKIP_PEEKED(t2);
+        return ']';
+    }
+    return ':';
+}
+#else
 static short tcolo(void) {
     char t2;
     at_linestart = FALSE;
@@ -1407,7 +2142,39 @@ static short tcolo(void) {
     }
     return ':';
 }
+#endif
 
+#if MWCCPSP
+static short tless(short t) {
+    at_linestart = FALSE;
+    if ((t = prepcurchar()) == '=') {
+        SKIP_PEEKED(t);
+        return TK_LESS_EQUAL;
+    }
+    if (t == '<') {
+        SKIP_PEEKED(t);
+        if (prepcurchar() == '=') {
+            SKIP_PEEKED('=');
+            return TK_SHL_ASSIGN;
+        } else {
+            return TK_SHL;
+        }
+    }
+    if (t == '%' && (copts.cplusplus || copts.c9x) && !preprocessing_only) {
+        SKIP_PEEKED(t);
+        return '{';
+    }
+    if (t == ':' && (copts.cplusplus || copts.c9x) && !preprocessing_only) {
+        SKIP_PEEKED(t);
+        return '[';
+    }
+    if (t == '?' && copts.gcc_extensions) {
+        SKIP_PEEKED(t);
+        return TK_LESS_QUESTION;
+    }
+    return '<';
+}
+#else
 static short tless(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
@@ -1433,16 +2200,44 @@ static short tless(short t) {
     }
     return '<';
 }
+#endif
 
 static short tequa(short t) {
     at_linestart = FALSE;
     if (prepcurchar() == '=') {
+#if MWCCPSP
+        SKIP_PEEKED('=');
+#else
         pos = nextcharpos;
+#endif
         return TK_LOGICAL_EQ;
     }
     return '=';
 }
 
+#if MWCCPSP
+static short tgrea(short t) {
+    at_linestart = FALSE;
+    if ((t = prepcurchar()) == '=') {
+        SKIP_PEEKED(t);
+        return TK_GREATER_EQUAL;
+    }
+    if (t == '>') {
+        SKIP_PEEKED(t);
+        if (prepcurchar() == '=') {
+            SKIP_PEEKED('=');
+            return TK_SHR_ASSIGN;
+        } else {
+            return TK_SHR;
+        }
+    }
+    if (t == '?' && copts.gcc_extensions) {
+        SKIP_PEEKED(t);
+        return TK_GREATER_QUESTION;
+    }
+    return '>';
+}
+#else
 static short tgrea(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
@@ -1460,6 +2255,7 @@ static short tgrea(short t) {
     }
     return '>';
 }
+#endif
 
 static short tatsg(short t) {
     char save_idarray;
@@ -1467,12 +2263,17 @@ static short tatsg(short t) {
 
     at_linestart = FALSE;
 
+#if MWCCPSP
+    if (in_assembler) {
+#else
     if (copts.objective_c || in_assembler) {
+#endif
         save_idarray = cprep_idarray['@'];
         cprep_idarray['@'] = 1;
         pos = ReadIdentifier(pos - 1);
         cprep_idarray['@'] = save_idarray;
 
+#if !MWCCPSP
         if (copts.objective_c) {
             if (!strcmp("@interface", tkidentifier->name)) {
                 return TK_AT_INTERFACE;
@@ -1508,6 +2309,7 @@ static short tatsg(short t) {
                 return TK_AT_DEFS;
             }
         }
+#endif
 
         if (in_assembler) {
             return TK_IDENTIFIER;
@@ -1524,11 +2326,23 @@ static short tperc(short t) {
     at_linestart = FALSE;
     t2 = prepcurchar();
     if (t2 == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t2);
+#else
         pos = nextcharpos;
+#endif
         return TK_MOD_ASSIGN;
     }
+#if MWCCPSP
+    if (t2 == '>' && (copts.cplusplus || copts.c9x) && !preprocessing_only) {
+#else
     if (t2 == '>' && copts.cplusplus && !preprocessing_only) {
+#endif
+#if MWCCPSP
+        SKIP_PEEKED(t2);
+#else
         pos = nextcharpos;
+#endif
         return '}';
     }
     return '%';
@@ -1537,7 +2351,11 @@ static short tperc(short t) {
 static short texcl(void) {
     at_linestart = FALSE;
     if (prepcurchar() == '=') {
+#if MWCCPSP
+        SKIP_PEEKED('=');
+#else
         pos = nextcharpos;
+#endif
         return TK_LOGICAL_NE;
     }
     return '!';
@@ -1546,11 +2364,19 @@ static short texcl(void) {
 static short tplus(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_ADD_ASSIGN;
     }
     if (t == '+') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_INCREMENT;
     }
     return '+';
@@ -1559,17 +2385,33 @@ static short tplus(short t) {
 static short tminu(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_SUB_ASSIGN;
     }
     if (t == '-') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_DECREMENT;
     }
     if (t == '>') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         if (copts.cplusplus && prepcurchar() == '*') {
+#if MWCCPSP
+            SKIP_PEEKED('*');
+#else
             pos = nextcharpos;
+#endif
             return TK_ARROW_STAR;
         }
         return TK_ARROW;
@@ -1580,11 +2422,19 @@ static short tminu(short t) {
 static short torrr(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_OR_ASSIGN;
     }
     if (t == '|') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_LOGICAL_OR;
     }
     return '|';
@@ -1593,11 +2443,19 @@ static short torrr(short t) {
 static short tampe(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_AND_ASSIGN;
     }
     if (t == '&') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_LOGICAL_AND;
     }
     return '&';
@@ -1606,7 +2464,11 @@ static short tampe(short t) {
 static short tpowe(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_XOR_ASSIGN;
     }
     return '^';
@@ -1615,7 +2477,11 @@ static short tpowe(short t) {
 static short tdivi(short t) {
     at_linestart = FALSE;
     if ((t = prepcurchar()) == '=') {
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         return TK_DIV_ASSIGN;
     }
     return '/';
@@ -1623,6 +2489,98 @@ static short tdivi(short t) {
 
 static short tnumb(short t);
 
+#if MWCCPSP
+// 3.0.1: peek, then consume what was peeked
+static short tzero(short t) {
+    char* p;
+    Boolean failed;
+    Boolean floatFailed;
+
+    if (InlineAsm_gccmode && InlineAsm_labelref) {
+        return tnumb(t);
+    }
+
+    at_linestart = FALSE;
+
+    p = pos - 1;
+    t = prepcurchar();
+    if (t == 'x' || t == 'X') {
+        SKIP_PEEKED(t);
+        p = CInt64_ScanHexString(&tkintconst, pos, &failed);
+        if (pos == p) {
+            CError_Error(ERR_ILLEGAL_TOKEN);
+        }
+    } else if (!copts.ANSIstrict && (t == 'b' || t == 'B') && (unsigned int)(pos[1] - '0') < 2) {
+        SKIP_PEEKED(t);
+        p = CInt64_ScanBinString(&tkintconst, pos, &failed);
+        if (pos == p && !in_assembler) {
+            CError_Error(ERR_ILLEGAL_TOKEN);
+        }
+    } else {
+        while (t >= '0' && t <= '9') {
+            SKIP_PEEKED(t);
+            t = prepcurchar();
+        }
+
+        if (t == '.' || t == 'E' || t == 'e') {
+            pos = CMach_FloatScan(p, &tkfloatconst, &floatFailed);
+            if (floatFailed) {
+                CPrep_Error(ERR_NUMBER_OUT_RANGE);
+            }
+            tksize = FLOATSUFFIX();
+            return TK_FLOATCONST;
+        }
+
+        p = CInt64_ScanOctString(&tkintconst, p, &failed);
+    }
+    pos = p;
+
+    if (failed) {
+        CPrep_Error(ERR_NUMBER_OUT_RANGE);
+        tkintconst = cint64_zero;
+    }
+
+    tksize = intsuffix(TRUE);
+    return TK_INTCONST;
+}
+
+static short tpoin(short t) {
+    char* save;
+    char* p;
+    Boolean failed;
+
+    save = pos;
+    at_linestart = FALSE;
+
+    p = pos - 1;
+    t = prepcurchar();
+
+    if (t >= '0' && t <= '9') {
+        pos = CMach_FloatScan(p, &tkfloatconst, &failed);
+        if (failed) {
+            CPrep_Error(ERR_NUMBER_OUT_RANGE);
+        }
+        tksize = FLOATSUFFIX();
+        return TK_FLOATCONST;
+    }
+
+    if (t == '*' && copts.cplusplus) {
+        SKIP_PEEKED(t);
+        return TK_DOT_STAR;
+    }
+
+    if (t == '.') {
+        SKIP_PEEKED(t);
+        if (prepcurchar() == '.') {
+            SKIP_PEEKED('.');
+            return TK_ELLIPSIS;
+        }
+    }
+
+    pos = save;
+    return '.';
+}
+#else
 static short tzero(short t) {
     char* p;
     Boolean failed;
@@ -1706,6 +2664,7 @@ static short tpoin(short t) {
     pos = p + 1;
     return '.';
 }
+#endif
 
 static short tnumb(short t) {
     char* p;
@@ -1724,7 +2683,11 @@ static short tnumb(short t) {
         if (floatFailed) {
             CPrep_Error(ERR_NUMBER_OUT_RANGE);
         }
+#if MWCCPSP
+        tksize = FLOATSUFFIX();
+#else
         tksize = floatsuffix(prepcurchar());
+#endif
         return TK_FLOATCONST;
     }
 
@@ -1733,7 +2696,11 @@ static short tnumb(short t) {
         tkintconst = cint64_zero;
     }
 
+#if MWCCPSP
+    tksize = intsuffix(FALSE);
+#else
     tksize = intsuffix(prepcurchar(), FALSE);
+#endif
     return TK_INTCONST;
 }
 
@@ -1752,7 +2719,11 @@ static short tchrL(short t) {
 
     if ((t = prepcurchar()) == '\'') {
         widestring = TRUE;
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         t = tapos(t);
         widestring = FALSE;
 
@@ -1762,7 +2733,11 @@ static short tchrL(short t) {
 
     if (t == '"') {
         widestring = TRUE;
+#if MWCCPSP
+        SKIP_PEEKED(t);
+#else
         pos = nextcharpos;
+#endif
         t = tquot(t);
         widestring = FALSE;
         return t;
@@ -1821,6 +2796,7 @@ static short tchrb(void) {
             }
         }
     }
+#if !MWCCPSP
     if (copts.objective_c) {
         if (!strcmp("bycopy", tkidentifier->name)) {
             return TK_BYCOPY;
@@ -1829,6 +2805,7 @@ static short tchrb(void) {
             return TK_BYREF;
         }
     }
+#endif
     return TK_IDENTIFIER;
 }
 
@@ -1986,6 +2963,7 @@ static short tchri(void) {
             return TK_INLINE;
         }
     }
+#if !MWCCPSP
     if (copts.objective_c) {
         if (!strcmp("in", tkidentifier->name)) {
             return TK_IN;
@@ -1994,6 +2972,7 @@ static short tchri(void) {
             return TK_INOUT;
         }
     }
+#endif
     return TK_IDENTIFIER;
 }
 
@@ -2071,6 +3050,7 @@ static short tchro(void) {
             }
         }
     }
+#if !MWCCPSP
     if (copts.objective_c) {
         if (!strcmp("out", tkidentifier->name)) {
             return TK_OUT;
@@ -2079,6 +3059,7 @@ static short tchro(void) {
             return TK_ONEWAY;
         }
     }
+#endif
     return TK_IDENTIFIER;
 }
 
@@ -2288,6 +3269,105 @@ static short tchrx(short t) {
     return TK_IDENTIFIER;
 }
 
+#if MWCCPSP
+// 3.0.1's keyword set (more calling conventions, __const/__volatile, the
+// TX_VEC_S, __int128 and __fixed__8x8 types; no vector keywords)
+static short tchr_(void) {
+    at_linestart = FALSE;
+    pos = ReadIdentifier(pos - 1);
+    if (macrocheck && macrotest()) {
+        return 0;
+    }
+
+    if (!strcmp("__stdcall", tkidentifier->name)) {
+        return TK_UU_STDCALL;
+    }
+    if (!strcmp("__cdecl", tkidentifier->name)) {
+        return TK_UU_CDECL;
+    }
+    if (!strcmp("__fastcall", tkidentifier->name)) {
+        return TK_UU_FASTCALL;
+    }
+    if (!strcmp("__3dcall", tkidentifier->name)) {
+        return TK_UU_3DCALL;
+    }
+    if (!strcmp("__ssecall", tkidentifier->name)) {
+        return TK_UU_SSECALL;
+    }
+    if (!strcmp("__sse2call", tkidentifier->name)) {
+        return TK_UU_SSE2CALL;
+    }
+    if (!strcmp("__declspec", tkidentifier->name)) {
+        return TK_UU_DECLSPEC;
+    }
+    if (!strcmp("__asm", tkidentifier->name)) {
+        return TK_ASM;
+    }
+    if (!strcmp("__asm__", tkidentifier->name)) {
+        return TK_ASM;
+    }
+    if (!strcmp("__const", tkidentifier->name)) {
+        return TK_CONST;
+    }
+    if (!strcmp("__const__", tkidentifier->name)) {
+        return TK_CONST;
+    }
+    if (!strcmp("__volatile", tkidentifier->name)) {
+        return TK_VOLATILE;
+    }
+    if (!strcmp("__volatile__", tkidentifier->name)) {
+        return TK_VOLATILE;
+    }
+    if (!strcmp("__inline", tkidentifier->name)) {
+        return TK_INLINE;
+    }
+    if (!strcmp("__inline__", tkidentifier->name)) {
+        return TK_INLINE;
+    }
+    if (!strcmp("__restrict", tkidentifier->name)) {
+        return TK_RESTRICT;
+    }
+    if (!strcmp("__restrict__", tkidentifier->name)) {
+        return TK_RESTRICT;
+    }
+    if (!strcmp("__attribute__", tkidentifier->name)) {
+        return TK_UU_ATTRIBUTE_UU;
+    }
+    if (!strcmp("__attribute", tkidentifier->name)) {
+        return TK_UU_ATTRIBUTE_UU;
+    }
+    if (!strcmp("__far", tkidentifier->name)) {
+        return TK_UU_FAR;
+    }
+    if (!strcmp("__alignof__", tkidentifier->name)) {
+        return TK_UU_ALIGNOF_UU;
+    }
+    if (!strcmp("__typeof__", tkidentifier->name)) {
+        return TK_UU_TYPEOF_UU;
+    }
+    if (copts.c9x) {
+        if (!strcmp("_Bool", tkidentifier->name)) {
+            return TK_BOOL;
+        }
+        if (!strcmp("_Complex", tkidentifier->name)) {
+            return TK_U_COMPLEX;
+        }
+        if (!strcmp("_Imaginary", tkidentifier->name)) {
+            return TK_U_IMAGINARY;
+        }
+    }
+    if (!strcmp("TX_VEC_S", tkidentifier->name)) {
+        return TK_CUSTOM_TYPE_113;
+    }
+    if (!strcmp("__int128", tkidentifier->name)) {
+        return TK_CUSTOM_TYPE_114;
+    }
+    if (!strcmp("__fixed__8x8", tkidentifier->name)) {
+        return TK_UU_FIXED_8X8_UU;
+    }
+    return TK_IDENTIFIER;
+}
+#else
 static short tchr_(void) {
     at_linestart = FALSE;
     pos = ReadIdentifier(pos - 1);
@@ -2356,6 +3436,7 @@ static short tchr_(void) {
     }
     return TK_IDENTIFIER;
 }
+#endif
 
 static short token(short t) {
     at_linestart = FALSE;
@@ -2589,7 +3670,11 @@ short lex(void) {
                     }
                     break;
                 default:
+#if MWCCPSP
+                    CError_FATAL(3339);
+#else
                     CError_FATAL(3022);
+#endif
             }
         }
 

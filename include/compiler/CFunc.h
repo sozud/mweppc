@@ -35,13 +35,30 @@ enum {
     StmtFlag_AfterNoReturn = 8,
     StmtFlag_Unrolled = 0x10
 };
+#if !MWCCPSP // 3.0.1: natural alignment (current_statement->sourceoffset is at +0x18)
 #pragma pack(push, 2)
+#endif
+#if MWCCPSP
+// 3.0.1: blocks form a stack (CFunc.c's current block); each block ends
+// with an ESCOPEEND statement per entry of its scope list
+typedef struct DeclBlockScope {
+    struct DeclBlockScope* next;
+    void* scope;
+} DeclBlockScope;
+typedef struct DeclBlock {
+    struct DeclBlock* prev;
+    struct ExceptionAction* dobjstack;
+    NameSpace* parent_nspace;
+    DeclBlockScope* scopes;
+} DeclBlock;
+#else
 typedef struct DeclBlock {
     struct DeclBlock* next;
     struct ExceptionAction* dobjstack;
     NameSpace* parent_nspace;
     UInt16 index;
 } DeclBlock;
+#endif
 typedef struct LoopInfo {
     int unused0;
     int unused4;
@@ -50,7 +67,11 @@ typedef struct LoopInfo {
 } LoopInfo;
 struct Statement {
     Statement* next;
+#if MWCCPSP
+    UInt8 type; // 3.0.1: one byte at +4; value at +8, sourceoffset at +0x18
+#else
     StatementType type;
+#endif
     UInt8 marked;
     UInt8 flags;
     UInt16 value;
@@ -60,7 +81,9 @@ struct Statement {
     SInt32 sourceoffset;
     HashNameNode* sourcefilepath;
 };
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 struct InitExpr {
     struct InitExpr* next;
     ENode* expr;
@@ -161,6 +184,9 @@ extern void InitExpr_Register(ENode* expr, Object* object);
 extern void CFunc_GenerateDummyFunction(Object* func);
 extern void CFunc_GenerateSingleExprFunc(Object* func, ENode* expr);
 extern void CFunc_GenerateDummyCtorFunc(Object* func, Object* real_ctor);
+#if MWCCPSP
+extern void CFunc_AppendLocal(Object* object);
+#endif
 
 #ifdef __cplusplus
 }

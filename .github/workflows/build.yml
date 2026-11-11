@@ -49,3 +49,20 @@ jobs:
         run: |
           .venv/bin/python configure.py
           ninja
+
+  build-psp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the native PSP compiler in Docker
+        run: |
+          docker build -f tools/mwccpsp/Dockerfile -t mwccpsp .
+          mkdir -p build
+          docker run --rm -v "$PWD/build:/out" mwccpsp
+          file build/mwccpsp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccpsp-linux-x86_64
+          path: build/mwccpsp

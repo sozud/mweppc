@@ -172,7 +172,11 @@ static void optimizeswitch(Statement* stmt) {
     SwitchCase* swcase;
 
     info = (SwitchInfo*)stmt->label;
+#if MWCCPSP
+    CError_ASSERT(1770, info && info->cases && info->defaultlabel);
+#else
     CError_ASSERT(1746, info && info->cases && info->defaultlabel);
+#endif
 
     info->defaultlabel = finallabel(info->defaultlabel, stmt);
     for (swcase = info->cases; swcase; swcase = swcase->next) {
@@ -181,9 +185,16 @@ static void optimizeswitch(Statement* stmt) {
 
     if (ENODE_IS(stmt->expr, EINTCONST)) {
         for (swcase = info->cases; swcase; swcase = swcase->next) {
+#if MWCCPSP
+            if (CInt64_LessEqual(swcase->min, stmt->expr->data.intval) &&
+                CInt64_GreaterEqual(swcase->max, stmt->expr->data.intval)) {
+                break;
+            }
+#else
             if (CInt64_Equal(swcase->min, stmt->expr->data.intval)) {
                 break;
             }
+#endif
         }
 
         stmt->type = ST_GOTO;
@@ -191,6 +202,76 @@ static void optimizeswitch(Statement* stmt) {
     }
 }
 
+#if MWCCPSP
+static void removeunusedlabels(Statement* stmt) {
+    Statement* scan;
+    CLabel* label;
+    SwitchCase* swcase;
+    ExceptionAction* action;
+    Statement* target;
+
+    for (scan = stmt; scan; scan = scan->next) {
+        scan->marked = FALSE;
+    }
+
+    for (scan = stmt; scan; scan = scan->next) {
+        switch (scan->type) {
+            case ST_GOTO:
+            case ST_IFGOTO:
+            case ST_IFNGOTO:
+            case ST_OVF:
+                if (scan->label->stmt) {
+                    scan->label->stmt->marked = TRUE;
+                }
+                break;
+            case ST_SWITCH:
+                ((SwitchInfo*)scan->label)->defaultlabel->stmt->marked = TRUE;
+                for (swcase = ((SwitchInfo*)scan->label)->cases; swcase; swcase = swcase->next) {
+                    swcase->label->stmt->marked = TRUE;
+                }
+                break;
+            case ST_ASM:
+                if ((label = InlineAsm_GetReferencedLabel(scan))) {
+                    label->stmt->marked = TRUE;
+                }
+                break;
+            case ST_BEGINLOOP:
+                ((LoopInfo*)scan->expr)->stmt->marked = TRUE;
+                if (((LoopInfo*)scan->expr)->stmt &&
+                    (label = ((LoopInfo*)scan->expr)->stmt->label) &&
+                    label->stmt) {
+                    label->stmt->marked = TRUE;
+                }
+                break;
+            case ST_ENDLOOP:
+                // 3.0.1 checks the statement after the goto for NULL
+                if (scan->next->type == ST_GOTO &&
+                    (target = scan->next->next) &&
+                    target->type == ST_LABEL) {
+                    target->marked = TRUE;
+                }
+                break;
+            default:
+                for (action = scan->dobjstack; action; action = action->prev) {
+                    if (action->type == EAT_CATCHBLOCK) {
+                        action->data.catch_block.catch_label->stmt->marked = TRUE;
+                        action->data.catch_block.catch_label->stmt->flags |= StmtFlag_KeepLabel;
+                    } else if (action->type == EAT_SPECIFICATION) {
+                        action->data.specification.unexp_label->stmt->marked = TRUE;
+                        action->data.specification.unexp_label->stmt->flags |= StmtFlag_KeepLabel;
+                    }
+                }
+        }
+    }
+
+    for (scan = stmt; scan; scan = scan->next) {
+        if (scan->type == ST_LABEL && !scan->marked && !(scan->flags & StmtFlag_KeepLabel)) {
+            scan->type = ST_NOP;
+            stmtchanged = TRUE;
+        }
+    }
+}
+#else
 static void removeunusedlabels(Statement* stmt) {
     Statement* scan;
     CLabel* label;
@@ -253,6 +334,7 @@ static void removeunusedlabels(Statement* stmt) {
         }
     }
 }
+#endif
 
 static void optimizebranches(Statement* stmt) {
     Statement* scan;
@@ -279,7 +361,11 @@ static void optimizebranches(Statement* stmt) {
 void SetVarUsage(Object* obj, Boolean noregister) {
     VarInfo* vi;
 
+#if MWCCPSP
+    CError_ASSERT(1910, obj->datatype != DALIAS);
+#else
     CError_ASSERT(1875, obj->datatype != DALIAS);
+#endif
 
     if (obj->datatype != DLOCAL) {
         return;
@@ -362,12 +448,20 @@ static void checkexpression(ENode* expr) {
             case EXORASS:
             case EORASS:
             case ECOMMA:
+#if MWCCPSP
+            case EMIN:
+            case EMAX:
+#endif
             case EPMODULO:
             case EROTL:
             case EROTR:
             case EBCLR:
             case EBTST:
             case EBSET:
+#if MWCCPSP
+            case EPOINTERSTAR:
+            case EDOTSTAR:
+#endif
                 checkexpression(expr->data.diadic.left);
                 expr = expr->data.diadic.right;
                 break;
@@ -391,12 +485,21 @@ static void checkexpression(ENode* expr) {
             case EFLOATCONST:
             case EPRECOMP:
             case ELABEL:
+#if MWCCPSP
+            case ESCOPEBEGIN:
+            case ESCOPEEND:
+#else
             case EVECTOR128CONST:
+#endif
                 return;
             case ESTRINGCONST:
                 return;
             default:
+#if MWCCPSP
+                CError_FATAL(2067);
+#else
                 CError_FATAL(1998);
+#endif
         }
     }
 }
@@ -415,6 +518,66 @@ static void checklocalusage(Statement* stmt) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1: one referenced label per asm statement; a loop's start also
+// colours the statement its label points at; ST_GOTOEXPR is not expected.
+static void colorcode(Statement* stmt) {
+    CLabel* label;
+    SwitchCase* swcase;
+    LoopInfo* info;
+
+    while (stmt && !stmt->marked) {
+        stmt->marked = TRUE;
+        switch (stmt->type) {
+            case ST_IFGOTO:
+            case ST_IFNGOTO:
+            case ST_OVF:
+                colorcode(stmt->label->stmt);
+                break;
+            case ST_GOTO:
+            case ST_EXIT:
+                stmt = stmt->label->stmt;
+                continue;
+            case ST_RETURN:
+                return;
+            case ST_SWITCH:
+                for (swcase = ((SwitchInfo*)stmt->label)->cases; swcase; swcase = swcase->next) {
+                    colorcode(swcase->label->stmt);
+                }
+                stmt = ((SwitchInfo*)stmt->label)->defaultlabel->stmt;
+                continue;
+            case ST_ASM:
+                if ((label = InlineAsm_GetReferencedLabel(stmt))) {
+                    colorcode(label->stmt);
+                }
+                break;
+            case ST_BEGINLOOP:
+                info = (LoopInfo*)stmt->expr;
+                if (info->stmt && info->stmt->label && info->stmt->label->stmt) {
+                    colorcode(info->stmt->label->stmt);
+                }
+                break;
+            case ST_ENDLOOP:
+                if (stmt->next && stmt->next->type == ST_GOTO) {
+                    stmt = stmt->next;
+                    stmt->marked = TRUE;
+                }
+                break;
+            case ST_NOP:
+            case ST_LABEL:
+            case ST_EXPRESSION:
+            case ST_ENTRY:
+            case ST_BEGINCATCH:
+            case ST_ENDCATCH:
+            case ST_ENDCATCHDTOR:
+                break;
+            default:
+                CError_FATAL(2274);
+        }
+        stmt = stmt->next;
+    }
+}
+#else
 static void colorcode(Statement* stmt) {
     CLabel* label;
     SwitchCase* swcase;
@@ -470,6 +633,7 @@ static void colorcode(Statement* stmt) {
         stmt = stmt->next;
     }
 }
+#endif
 
 static void removeunusedcode(Statement* stmt) {
     Statement* scan;
@@ -525,7 +689,12 @@ static void COpt_Optimize(Object* obj, Statement* stmt) {
     } while (stmtchanged);
 
     ptr = &stmt->next;
+#if MWCCPSP
+    while (*ptr) {
+        scan = *ptr;
+#else
     while ((scan = *ptr)) {
+#endif
         if (scan->type == ST_NOP) {
             *ptr = scan->next;
         } else {
@@ -535,6 +704,11 @@ static void COpt_Optimize(Object* obj, Statement* stmt) {
 }
 
 static void COpt_ELABELCallBack(ENode* expr) {
+#if MWCCPSP
+    if (!(ENODE_IS(expr, ELABEL))) {
+        return; // 3.0.1 hands every node to the callback
+    }
+#endif
     CError_ASSERT(2195, expr->data.label->stmt && expr->data.label->stmt->type == ST_LABEL);
     expr->data.label->stmt->flags |= StmtFlag_KeepLabel;
 }
@@ -544,7 +718,11 @@ void COpt_SimpleOptimizer(Object* obj, Statement* stmt) {
 
     for (scan = stmt; scan; scan = scan->next) {
         if ((scan->type >= ST_EXPRESSION && scan->type <= ST_GOTOEXPR) && scan->expr) {
+#if MWCCPSP
+            CExpr_SearchExprTree(scan->expr, COpt_ELABELCallBack);
+#else
             CExpr_SearchExprTree(scan->expr, COpt_ELABELCallBack, 1, ELABEL);
+#endif
         }
     }
 
@@ -554,6 +732,116 @@ void COpt_SimpleOptimizer(Object* obj, Statement* stmt) {
     COpt_ReturnCheck(obj, stmt);
 }
 
+#if MWCCPSP
+// 3.0.1 (0x4A1A40): the objects a statement's exception actions use are
+// marked used (destroyed locals also not in a register). The second object
+// of EAT_DESTROYLOCALCOND is the local again, as in the original.
+static inline void MarkActionObject(Object* obj, Boolean noregister) {
+    VarInfo* vi;
+
+    if (obj) {
+        CError_ASSERT(1946, obj->datatype != DALIAS);
+        if (obj->datatype == DLOCAL) {
+            vi = obj->u.var.info;
+            vi->used = TRUE;
+            if (noregister) {
+                vi->noregister = TRUE;
+            }
+        }
+    }
+}
+
+void func_004A1A40(ExceptionAction* actions) {
+    ExceptionAction* ea;
+
+    for (ea = actions; ea; ea = ea->prev) {
+        switch (ea->type) {
+            case EAT_DESTROYLOCAL:
+                MarkActionObject(ea->data.destroy_local.local, TRUE);
+                break;
+            case EAT_DESTROYLOCALCOND:
+                MarkActionObject(ea->data.destroy_local_cond.local, TRUE);
+                MarkActionObject(ea->data.destroy_local_cond.local, FALSE);
+                break;
+            case EAT_DESTROYLOCALOFFSET:
+                MarkActionObject(ea->data.destroy_local_offset.local, FALSE);
+                break;
+            case EAT_DESTROYLOCALPOINTER:
+                MarkActionObject(ea->data.destroy_local_pointer.pointer, FALSE);
+                break;
+            case EAT_DESTROYLOCALARRAY:
+                MarkActionObject(ea->data.destroy_local_array.localarray, FALSE);
+                break;
+            case EAT_DESTROYPARTIALARRAY:
+                MarkActionObject(ea->data.destroy_partial_array.arraypointer, FALSE);
+                MarkActionObject(ea->data.destroy_partial_array.arraycounter, FALSE);
+                MarkActionObject(ea->data.destroy_partial_array.element_size, FALSE);
+                break;
+            case EAT_DESTROYMEMBER:
+                MarkActionObject(ea->data.destroy_member.objectptr, FALSE);
+                break;
+            case EAT_DESTROYMEMBERCOND:
+                MarkActionObject(ea->data.destroy_member_cond.objectptr, FALSE);
+                MarkActionObject(ea->data.destroy_member_cond.cond, FALSE);
+                break;
+            case EAT_DESTROYMEMBERARRAY:
+                MarkActionObject(ea->data.destroy_member_array.objectptr, FALSE);
+                break;
+            case EAT_DELETEPOINTER:
+            case EAT_DELETELOCALPOINTER:
+                MarkActionObject(ea->data.delete_pointer.pointerobject, FALSE);
+                break;
+            case EAT_DELETEPOINTERCOND:
+                MarkActionObject(ea->data.delete_pointer_cond.pointerobject, FALSE);
+                MarkActionObject(ea->data.delete_pointer_cond.cond, FALSE);
+                break;
+            case EAT_CATCHBLOCK:
+                MarkActionObject(ea->data.catch_block.catch_object, FALSE);
+                MarkActionObject(ea->data.catch_block.catch_info_object, FALSE);
+                break;
+            case EAT_ACTIVECATCHBLOCK:
+                MarkActionObject(ea->data.active_catch_block.catch_info_object, FALSE);
+                break;
+            case EAT_DESTROYBASE:
+                MarkActionObject(ea->data.destroy_base.objectptr, FALSE);
+                break;
+        }
+    }
+}
+
+// 3.0.1: the IR optimizer always runs (at level 0 without the global
+// optimizer); no return check here; every statement's exception actions are
+// checked too.
+Statement* COpt_Optimizer(Object* obj, Statement* stmt) {
+    Statement* scan;
+    int level;
+
+    copt_isleaffunction = TRUE;
+    if (copts.globaloptimizer) {
+        stmt = IRO_Optimizer(obj, stmt);
+    } else {
+        level = (SInt8)copts.optimizationlevel;
+        copts.optimizationlevel = 0;
+        stmt = IRO_Optimizer(obj, stmt);
+        copts.optimizationlevel = level;
+    }
+
+    static_for_inlines = FALSE;
+    COpt_Optimize(obj, stmt);
+
+    for (scan = stmt->next; scan; scan = scan->next) {
+        if (scan->type >= ST_EXPRESSION && scan->type <= ST_ENDCATCHDTOR && scan->expr) {
+            curstmtvalue = scan->value;
+            checkexpression(scan->expr);
+        } else if (scan->type == ST_ASM) {
+            curstmtvalue = scan->value;
+            InlineAsm_CheckLocalUsage(scan);
+        }
+        func_004A1A40(scan->dobjstack);
+    }
+    return stmt;
+}
+#else
 Statement* COpt_Optimizer(Object* obj, Statement* stmt) {
     copt_isleaffunction = TRUE;
     if (copts.globaloptimizer) {
@@ -570,3 +858,7 @@ Statement* COpt_Optimizer(Object* obj, Statement* stmt) {
     checklocalusage(stmt->next);
     return stmt;
 }
+#endif
+#if MWCCPSP
+
+#endif

@@ -1,0 +1,6 @@
+*
+!config
+!include
+!src
+!tools/mwccpsp
+**/__pycache__

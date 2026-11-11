@@ -43,7 +43,13 @@ void CLPOSAlert_V(const char* format, SInt32 err, va_list ap) {
 }
 
 char* CLPGetErrorString(SInt16 errid, char* buffer) {
+#if MWCCPSP
+    // 0x423203
+    GetIndString((StringPtr)buffer, 12010, errid);
+    p2cstr((StringPtr)buffer);
+#else
     getindstring(buffer, 12010, errid);
+#endif
     return buffer;
 }
 

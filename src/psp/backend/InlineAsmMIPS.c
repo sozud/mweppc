@@ -1,0 +1,3308 @@
+// mwccpsp 3.0.1 InlineAsmMIPS.c (0x482000..0x48B000): the MIPS inline
+// assembler.
+#include "compiler/common.h"
+#if MWCCPSP_NATIVE
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+#include "compiler/CParser.h"
+#include "compiler/CompilerTools.h"
+#include "compiler/InlineAsmMIPS.h"
+#include "compiler/objects.h"
+
+extern char volatileasm; // 0x625E8E
+extern UInt8 data_00625E7F; // the assembler's nomacro
+extern UInt8 data_00625E98;
+extern char data_00625EAC;
+extern SInt32 data_005D161C;
+extern struct MPCode* data_00624C3C; // the last branch, whose delay slot noreorder code fills
+extern void func_0053EB40(void); // clear the mnemonics
+extern void* func_0053E9C0(char* name, SInt32 opcode); // add a mnemonic
+extern void func_0053EC50(void); // clear the registers
+extern void func_0053EC00(char* name, SInt16 rclass, SInt16 num, void* extra); // add a register
+
+// the register names: class 0 integer, 1 FP, 5 VFPU (S/C/R/M/E matrix
+// forms, numbered column, row and size digits)
+typedef struct AsmRegName {
+    char* name;
+    SInt16 rclass;
+    SInt16 num;
+    SInt32 extra;
+} AsmRegName;
+
+static AsmRegName asm_regnames[] = {
+    {"r0", 0, 0, 0},      {"r1", 0, 1, 0},      {"r2", 0, 2, 0},      {"r3", 0, 3, 0},
+    {"r4", 0, 4, 0},      {"r5", 0, 5, 0},      {"r6", 0, 6, 0},      {"r7", 0, 7, 0},
+    {"r8", 0, 8, 0},      {"r9", 0, 9, 0},      {"r10", 0, 10, 0},    {"r11", 0, 11, 0},
+    {"r12", 0, 12, 0},    {"r13", 0, 13, 0},    {"r14", 0, 14, 0},    {"r15", 0, 15, 0},
+    {"r16", 0, 16, 0},    {"r17", 0, 17, 0},    {"r18", 0, 18, 0},    {"r19", 0, 19, 0},
+    {"r20", 0, 20, 0},    {"r21", 0, 21, 0},    {"r22", 0, 22, 0},    {"r23", 0, 23, 0},
+    {"r24", 0, 24, 0},    {"r25", 0, 25, 0},    {"r26", 0, 26, 0},    {"r27", 0, 27, 0},
+    {"r28", 0, 28, 0},    {"r29", 0, 29, 0},    {"r30", 0, 30, 0},    {"r31", 0, 31, 0},
+    {"zero", 0, 0, 0},    {"at", 0, 1, 0},      {"AT", 0, 1, 0},      {"v0", 0, 2, 0},
+    {"v1", 0, 3, 0},      {"a0", 0, 4, 0},      {"a1", 0, 5, 0},      {"a2", 0, 6, 0},
+    {"a3", 0, 7, 0},      {"a4", 0, 8, 0},      {"a5", 0, 9, 0},      {"a6", 0, 10, 0},
+    {"a7", 0, 11, 0},     {"t0", 0, 8, 0},      {"t1", 0, 9, 0},      {"t2", 0, 10, 0},
+    {"t3", 0, 11, 0},     {"t4", 0, 12, 0},     {"t5", 0, 13, 0},     {"t6", 0, 14, 0},
+    {"t7", 0, 15, 0},     {"s0", 0, 16, 0},     {"s1", 0, 17, 0},     {"s2", 0, 18, 0},
+    {"s3", 0, 19, 0},     {"s4", 0, 20, 0},     {"s5", 0, 21, 0},     {"s6", 0, 22, 0},
+    {"s7", 0, 23, 0},     {"t8", 0, 24, 0},     {"t9", 0, 25, 0},     {"kt0", 0, 26, 0},
+    {"k0", 0, 26, 0},     {"kt1", 0, 27, 0},    {"k1", 0, 27, 0},     {"gp", 0, 28, 0},
+    {"sp", 0, 29, 0},     {"s8", 0, 30, 0},     {"fp", 0, 30, 0},     {"ra", 0, 31, 0},
+    {"f0", 1, 0, 0},      {"f1", 1, 1, 0},      {"f2", 1, 2, 0},      {"f3", 1, 3, 0},
+    {"f4", 1, 4, 0},      {"f5", 1, 5, 0},      {"f6", 1, 6, 0},      {"f7", 1, 7, 0},
+    {"f8", 1, 8, 0},      {"f9", 1, 9, 0},      {"f10", 1, 10, 0},    {"f11", 1, 11, 0},
+    {"f12", 1, 12, 0},    {"f13", 1, 13, 0},    {"f14", 1, 14, 0},    {"f15", 1, 15, 0},
+    {"f16", 1, 16, 0},    {"f17", 1, 17, 0},    {"f18", 1, 18, 0},    {"f19", 1, 19, 0},
+    {"f20", 1, 20, 0},    {"f21", 1, 21, 0},    {"f22", 1, 22, 0},    {"f23", 1, 23, 0},
+    {"f24", 1, 24, 0},    {"f25", 1, 25, 0},    {"f26", 1, 26, 0},    {"f27", 1, 27, 0},
+    {"f28", 1, 28, 0},    {"f29", 1, 29, 0},    {"f30", 1, 30, 0},    {"f31", 1, 31, 0},
+    {"d0", 1, 0, 0},      {"d1", 1, 1, 0},      {"d2", 1, 2, 0},      {"d3", 1, 3, 0},
+    {"d4", 1, 4, 0},      {"d5", 1, 5, 0},      {"d6", 1, 6, 0},      {"d7", 1, 7, 0},
+    {"d8", 1, 8, 0},      {"d9", 1, 9, 0},      {"d10", 1, 10, 0},    {"d11", 1, 11, 0},
+    {"d12", 1, 12, 0},    {"d13", 1, 13, 0},    {"d14", 1, 14, 0},    {"d15", 1, 15, 0},
+    {"d16", 1, 16, 0},    {"d17", 1, 17, 0},    {"d18", 1, 18, 0},    {"d19", 1, 19, 0},
+    {"d20", 1, 20, 0},    {"d21", 1, 21, 0},    {"d22", 1, 22, 0},    {"d23", 1, 23, 0},
+    {"d24", 1, 24, 0},    {"d25", 1, 25, 0},    {"d26", 1, 26, 0},    {"d27", 1, 27, 0},
+    {"d28", 1, 28, 0},    {"d29", 1, 29, 0},    {"d30", 1, 30, 0},    {"d31", 1, 31, 0},
+    {"s000", 5, 0, 0},    {"s001", 5, 32, 0},   {"s002", 5, 64, 0},   {"s003", 5, 96, 0},
+    {"s010", 5, 1, 0},    {"s011", 5, 33, 0},   {"s012", 5, 65, 0},   {"s013", 5, 97, 0},
+    {"s020", 5, 2, 0},    {"s021", 5, 34, 0},   {"s022", 5, 66, 0},   {"s023", 5, 98, 0},
+    {"s030", 5, 3, 0},    {"s031", 5, 35, 0},   {"s032", 5, 67, 0},   {"s033", 5, 99, 0},
+    {"s100", 5, 4, 0},    {"s101", 5, 36, 0},   {"s102", 5, 68, 0},   {"s103", 5, 100, 0},
+    {"s110", 5, 5, 0},    {"s111", 5, 37, 0},   {"s112", 5, 69, 0},   {"s113", 5, 101, 0},
+    {"s120", 5, 6, 0},    {"s121", 5, 38, 0},   {"s122", 5, 70, 0},   {"s123", 5, 102, 0},
+    {"s130", 5, 7, 0},    {"s131", 5, 39, 0},   {"s132", 5, 71, 0},   {"s133", 5, 103, 0},
+    {"s200", 5, 8, 0},    {"s201", 5, 40, 0},   {"s202", 5, 72, 0},   {"s203", 5, 104, 0},
+    {"s210", 5, 9, 0},    {"s211", 5, 41, 0},   {"s212", 5, 73, 0},   {"s213", 5, 105, 0},
+    {"s220", 5, 10, 0},   {"s221", 5, 42, 0},   {"s222", 5, 74, 0},   {"s223", 5, 106, 0},
+    {"s230", 5, 11, 0},   {"s231", 5, 43, 0},   {"s232", 5, 75, 0},   {"s233", 5, 107, 0},
+    {"s300", 5, 12, 0},   {"s301", 5, 44, 0},   {"s302", 5, 76, 0},   {"s303", 5, 108, 0},
+    {"s310", 5, 13, 0},   {"s311", 5, 45, 0},   {"s312", 5, 77, 0},   {"s313", 5, 109, 0},
+    {"s320", 5, 14, 0},   {"s321", 5, 46, 0},   {"s322", 5, 78, 0},   {"s323", 5, 110, 0},
+    {"s330", 5, 15, 0},   {"s331", 5, 47, 0},   {"s332", 5, 79, 0},   {"s333", 5, 111, 0},
+    {"s400", 5, 16, 0},   {"s401", 5, 48, 0},   {"s402", 5, 80, 0},   {"s403", 5, 112, 0},
+    {"s410", 5, 17, 0},   {"s411", 5, 49, 0},   {"s412", 5, 81, 0},   {"s413", 5, 113, 0},
+    {"s420", 5, 18, 0},   {"s421", 5, 50, 0},   {"s422", 5, 82, 0},   {"s423", 5, 114, 0},
+    {"s430", 5, 19, 0},   {"s431", 5, 51, 0},   {"s432", 5, 83, 0},   {"s433", 5, 115, 0},
+    {"s500", 5, 20, 0},   {"s501", 5, 52, 0},   {"s502", 5, 84, 0},   {"s503", 5, 116, 0},
+    {"s510", 5, 21, 0},   {"s511", 5, 53, 0},   {"s512", 5, 85, 0},   {"s513", 5, 117, 0},
+    {"s520", 5, 22, 0},   {"s521", 5, 54, 0},   {"s522", 5, 86, 0},   {"s523", 5, 118, 0},
+    {"s530", 5, 23, 0},   {"s531", 5, 55, 0},   {"s532", 5, 87, 0},   {"s533", 5, 119, 0},
+    {"s600", 5, 24, 0},   {"s601", 5, 56, 0},   {"s602", 5, 88, 0},   {"s603", 5, 120, 0},
+    {"s610", 5, 25, 0},   {"s611", 5, 57, 0},   {"s612", 5, 89, 0},   {"s613", 5, 121, 0},
+    {"s620", 5, 26, 0},   {"s621", 5, 58, 0},   {"s622", 5, 90, 0},   {"s623", 5, 122, 0},
+    {"s630", 5, 27, 0},   {"s631", 5, 59, 0},   {"s632", 5, 91, 0},   {"s633", 5, 123, 0},
+    {"s700", 5, 28, 0},   {"s701", 5, 60, 0},   {"s702", 5, 92, 0},   {"s703", 5, 124, 0},
+    {"s710", 5, 29, 0},   {"s711", 5, 61, 0},   {"s712", 5, 93, 0},   {"s713", 5, 125, 0},
+    {"s720", 5, 30, 0},   {"s721", 5, 62, 0},   {"s722", 5, 94, 0},   {"s723", 5, 126, 0},
+    {"s730", 5, 31, 0},   {"s731", 5, 63, 0},   {"s732", 5, 95, 0},   {"s733", 5, 127, 0},
+    {"c000", 5, 1000, 0}, {"c001", 5, 1001, 0}, {"c002", 5, 1002, 0}, {"c003", 5, 1003, 0},
+    {"c010", 5, 1010, 0}, {"c011", 5, 1011, 0}, {"c012", 5, 1012, 0}, {"c013", 5, 1013, 0},
+    {"c020", 5, 1020, 0}, {"c021", 5, 1021, 0}, {"c022", 5, 1022, 0}, {"c023", 5, 1023, 0},
+    {"c030", 5, 1030, 0}, {"c031", 5, 1031, 0}, {"c032", 5, 1032, 0}, {"c033", 5, 1033, 0},
+    {"c100", 5, 1100, 0}, {"c101", 5, 1101, 0}, {"c102", 5, 1102, 0}, {"c103", 5, 1103, 0},
+    {"c110", 5, 1110, 0}, {"c111", 5, 1111, 0}, {"c112", 5, 1112, 0}, {"c113", 5, 1113, 0},
+    {"c120", 5, 1120, 0}, {"c121", 5, 1121, 0}, {"c122", 5, 1122, 0}, {"c123", 5, 1123, 0},
+    {"c130", 5, 1130, 0}, {"c131", 5, 1131, 0}, {"c132", 5, 1132, 0}, {"c133", 5, 1133, 0},
+    {"c200", 5, 1200, 0}, {"c201", 5, 1201, 0}, {"c202", 5, 1202, 0}, {"c203", 5, 1203, 0},
+    {"c210", 5, 1210, 0}, {"c211", 5, 1211, 0}, {"c212", 5, 1212, 0}, {"c213", 5, 1213, 0},
+    {"c220", 5, 1220, 0}, {"c221", 5, 1221, 0}, {"c222", 5, 1222, 0}, {"c223", 5, 1223, 0},
+    {"c230", 5, 1230, 0}, {"c231", 5, 1231, 0}, {"c232", 5, 1232, 0}, {"c233", 5, 1233, 0},
+    {"c300", 5, 1300, 0}, {"c301", 5, 1301, 0}, {"c302", 5, 1302, 0}, {"c303", 5, 1303, 0},
+    {"c310", 5, 1310, 0}, {"c311", 5, 1311, 0}, {"c312", 5, 1312, 0}, {"c313", 5, 1313, 0},
+    {"c320", 5, 1320, 0}, {"c321", 5, 1321, 0}, {"c322", 5, 1322, 0}, {"c323", 5, 1323, 0},
+    {"c330", 5, 1330, 0}, {"c331", 5, 1331, 0}, {"c332", 5, 1332, 0}, {"c333", 5, 1333, 0},
+    {"c400", 5, 1400, 0}, {"c401", 5, 1401, 0}, {"c402", 5, 1402, 0}, {"c403", 5, 1403, 0},
+    {"c410", 5, 1410, 0}, {"c411", 5, 1411, 0}, {"c412", 5, 1412, 0}, {"c413", 5, 1413, 0},
+    {"c420", 5, 1420, 0}, {"c421", 5, 1421, 0}, {"c422", 5, 1422, 0}, {"c423", 5, 1423, 0},
+    {"c430", 5, 1430, 0}, {"c431", 5, 1431, 0}, {"c432", 5, 1432, 0}, {"c433", 5, 1433, 0},
+    {"c500", 5, 1500, 0}, {"c501", 5, 1501, 0}, {"c502", 5, 1502, 0}, {"c503", 5, 1503, 0},
+    {"c510", 5, 1510, 0}, {"c511", 5, 1511, 0}, {"c512", 5, 1512, 0}, {"c513", 5, 1513, 0},
+    {"c520", 5, 1520, 0}, {"c521", 5, 1521, 0}, {"c522", 5, 1522, 0}, {"c523", 5, 1523, 0},
+    {"c530", 5, 1530, 0}, {"c531", 5, 1531, 0}, {"c532", 5, 1532, 0}, {"c533", 5, 1533, 0},
+    {"c600", 5, 1600, 0}, {"c601", 5, 1601, 0}, {"c602", 5, 1602, 0}, {"c603", 5, 1603, 0},
+    {"c610", 5, 1610, 0}, {"c611", 5, 1611, 0}, {"c612", 5, 1612, 0}, {"c613", 5, 1613, 0},
+    {"c620", 5, 1620, 0}, {"c621", 5, 1621, 0}, {"c622", 5, 1622, 0}, {"c623", 5, 1623, 0},
+    {"c630", 5, 1630, 0}, {"c631", 5, 1631, 0}, {"c632", 5, 1632, 0}, {"c633", 5, 1633, 0},
+    {"c700", 5, 1700, 0}, {"c701", 5, 1701, 0}, {"c702", 5, 1702, 0}, {"c703", 5, 1703, 0},
+    {"c710", 5, 1710, 0}, {"c711", 5, 1711, 0}, {"c712", 5, 1712, 0}, {"c713", 5, 1713, 0},
+    {"c720", 5, 1720, 0}, {"c721", 5, 1721, 0}, {"c722", 5, 1722, 0}, {"c723", 5, 1723, 0},
+    {"c730", 5, 1730, 0}, {"c731", 5, 1731, 0}, {"c732", 5, 1732, 0}, {"c733", 5, 1733, 0},
+    {"r000", 5, 2000, 0}, {"r001", 5, 2001, 0}, {"r002", 5, 2002, 0}, {"r003", 5, 2003, 0},
+    {"r010", 5, 2010, 0}, {"r011", 5, 2011, 0}, {"r012", 5, 2012, 0}, {"r013", 5, 2013, 0},
+    {"r020", 5, 2020, 0}, {"r021", 5, 2021, 0}, {"r022", 5, 2022, 0}, {"r023", 5, 2023, 0},
+    {"r030", 5, 2030, 0}, {"r031", 5, 2031, 0}, {"r032", 5, 2032, 0}, {"r033", 5, 2033, 0},
+    {"r100", 5, 2100, 0}, {"r101", 5, 2101, 0}, {"r102", 5, 2102, 0}, {"r103", 5, 2103, 0},
+    {"r110", 5, 2110, 0}, {"r111", 5, 2111, 0}, {"r112", 5, 2112, 0}, {"r113", 5, 2113, 0},
+    {"r120", 5, 2120, 0}, {"r121", 5, 2121, 0}, {"r122", 5, 2122, 0}, {"r123", 5, 2123, 0},
+    {"r130", 5, 2130, 0}, {"r131", 5, 2131, 0}, {"r132", 5, 2132, 0}, {"r133", 5, 2133, 0},
+    {"r200", 5, 2200, 0}, {"r201", 5, 2201, 0}, {"r202", 5, 2202, 0}, {"r203", 5, 2203, 0},
+    {"r210", 5, 2210, 0}, {"r211", 5, 2211, 0}, {"r212", 5, 2212, 0}, {"r213", 5, 2213, 0},
+    {"r220", 5, 2220, 0}, {"r221", 5, 2221, 0}, {"r222", 5, 2222, 0}, {"r223", 5, 2223, 0},
+    {"r230", 5, 2230, 0}, {"r231", 5, 2231, 0}, {"r232", 5, 2232, 0}, {"r233", 5, 2233, 0},
+    {"r300", 5, 2300, 0}, {"r301", 5, 2301, 0}, {"r302", 5, 2302, 0}, {"r303", 5, 2303, 0},
+    {"r310", 5, 2310, 0}, {"r311", 5, 2311, 0}, {"r312", 5, 2312, 0}, {"r313", 5, 2313, 0},
+    {"r320", 5, 2320, 0}, {"r321", 5, 2321, 0}, {"r322", 5, 2322, 0}, {"r323", 5, 2323, 0},
+    {"r330", 5, 2330, 0}, {"r331", 5, 2331, 0}, {"r332", 5, 2332, 0}, {"r333", 5, 2333, 0},
+    {"r400", 5, 2400, 0}, {"r401", 5, 2401, 0}, {"r402", 5, 2402, 0}, {"r403", 5, 2403, 0},
+    {"r410", 5, 2410, 0}, {"r411", 5, 2411, 0}, {"r412", 5, 2412, 0}, {"r413", 5, 2413, 0},
+    {"r420", 5, 2420, 0}, {"r421", 5, 2421, 0}, {"r422", 5, 2422, 0}, {"r423", 5, 2423, 0},
+    {"r430", 5, 2430, 0}, {"r431", 5, 2431, 0}, {"r432", 5, 2432, 0}, {"r433", 5, 2433, 0},
+    {"r500", 5, 2500, 0}, {"r501", 5, 2501, 0}, {"r502", 5, 2502, 0}, {"r503", 5, 2503, 0},
+    {"r510", 5, 2510, 0}, {"r511", 5, 2511, 0}, {"r512", 5, 2512, 0}, {"r513", 5, 2513, 0},
+    {"r520", 5, 2520, 0}, {"r521", 5, 2521, 0}, {"r522", 5, 2522, 0}, {"r523", 5, 2523, 0},
+    {"r530", 5, 2530, 0}, {"r531", 5, 2531, 0}, {"r532", 5, 2532, 0}, {"r533", 5, 2533, 0},
+    {"r600", 5, 2600, 0}, {"r601", 5, 2601, 0}, {"r602", 5, 2602, 0}, {"r603", 5, 2603, 0},
+    {"r610", 5, 2610, 0}, {"r611", 5, 2611, 0}, {"r612", 5, 2612, 0}, {"r613", 5, 2613, 0},
+    {"r620", 5, 2620, 0}, {"r621", 5, 2621, 0}, {"r622", 5, 2622, 0}, {"r623", 5, 2623, 0},
+    {"r630", 5, 2630, 0}, {"r631", 5, 2631, 0}, {"r632", 5, 2632, 0}, {"r633", 5, 2633, 0},
+    {"r700", 5, 2700, 0}, {"r701", 5, 2701, 0}, {"r702", 5, 2702, 0}, {"r703", 5, 2703, 0},
+    {"r710", 5, 2710, 0}, {"r711", 5, 2711, 0}, {"r712", 5, 2712, 0}, {"r713", 5, 2713, 0},
+    {"r720", 5, 2720, 0}, {"r721", 5, 2721, 0}, {"r722", 5, 2722, 0}, {"r723", 5, 2723, 0},
+    {"r730", 5, 2730, 0}, {"r731", 5, 2731, 0}, {"r732", 5, 2732, 0}, {"r733", 5, 2733, 0},
+    {"m000", 5, 3000, 0}, {"m001", 5, 3001, 0}, {"m002", 5, 3002, 0}, {"m003", 5, 3003, 0},
+    {"m010", 5, 3010, 0}, {"m011", 5, 3011, 0}, {"m012", 5, 3012, 0}, {"m013", 5, 3013, 0},
+    {"m020", 5, 3020, 0}, {"m021", 5, 3021, 0}, {"m022", 5, 3022, 0}, {"m023", 5, 3023, 0},
+    {"m030", 5, 3030, 0}, {"m031", 5, 3031, 0}, {"m032", 5, 3032, 0}, {"m033", 5, 3033, 0},
+    {"m100", 5, 3100, 0}, {"m101", 5, 3101, 0}, {"m102", 5, 3102, 0}, {"m103", 5, 3103, 0},
+    {"m110", 5, 3110, 0}, {"m111", 5, 3111, 0}, {"m112", 5, 3112, 0}, {"m113", 5, 3113, 0},
+    {"m120", 5, 3120, 0}, {"m121", 5, 3121, 0}, {"m122", 5, 3122, 0}, {"m123", 5, 3123, 0},
+    {"m130", 5, 3130, 0}, {"m131", 5, 3131, 0}, {"m132", 5, 3132, 0}, {"m133", 5, 3133, 0},
+    {"m200", 5, 3200, 0}, {"m201", 5, 3201, 0}, {"m202", 5, 3202, 0}, {"m203", 5, 3203, 0},
+    {"m210", 5, 3210, 0}, {"m211", 5, 3211, 0}, {"m212", 5, 3212, 0}, {"m213", 5, 3213, 0},
+    {"m220", 5, 3220, 0}, {"m221", 5, 3221, 0}, {"m222", 5, 3222, 0}, {"m223", 5, 3223, 0},
+    {"m230", 5, 3230, 0}, {"m231", 5, 3231, 0}, {"m232", 5, 3232, 0}, {"m233", 5, 3233, 0},
+    {"m300", 5, 3300, 0}, {"m301", 5, 3301, 0}, {"m302", 5, 3302, 0}, {"m303", 5, 3303, 0},
+    {"m310", 5, 3310, 0}, {"m311", 5, 3311, 0}, {"m312", 5, 3312, 0}, {"m313", 5, 3313, 0},
+    {"m320", 5, 3320, 0}, {"m321", 5, 3321, 0}, {"m322", 5, 3322, 0}, {"m323", 5, 3323, 0},
+    {"m330", 5, 3330, 0}, {"m331", 5, 3331, 0}, {"m332", 5, 3332, 0}, {"m333", 5, 3333, 0},
+    {"m400", 5, 3400, 0}, {"m401", 5, 3401, 0}, {"m402", 5, 3402, 0}, {"m403", 5, 3403, 0},
+    {"m410", 5, 3410, 0}, {"m411", 5, 3411, 0}, {"m412", 5, 3412, 0}, {"m413", 5, 3413, 0},
+    {"m420", 5, 3420, 0}, {"m421", 5, 3421, 0}, {"m422", 5, 3422, 0}, {"m423", 5, 3423, 0},
+    {"m430", 5, 3430, 0}, {"m431", 5, 3431, 0}, {"m432", 5, 3432, 0}, {"m433", 5, 3433, 0},
+    {"m500", 5, 3500, 0}, {"m501", 5, 3501, 0}, {"m502", 5, 3502, 0}, {"m503", 5, 3503, 0},
+    {"m510", 5, 3510, 0}, {"m511", 5, 3511, 0}, {"m512", 5, 3512, 0}, {"m513", 5, 3513, 0},
+    {"m520", 5, 3520, 0}, {"m521", 5, 3521, 0}, {"m522", 5, 3522, 0}, {"m523", 5, 3523, 0},
+    {"m530", 5, 3530, 0}, {"m531", 5, 3531, 0}, {"m532", 5, 3532, 0}, {"m533", 5, 3533, 0},
+    {"m600", 5, 3600, 0}, {"m601", 5, 3601, 0}, {"m602", 5, 3602, 0}, {"m603", 5, 3603, 0},
+    {"m610", 5, 3610, 0}, {"m611", 5, 3611, 0}, {"m612", 5, 3612, 0}, {"m613", 5, 3613, 0},
+    {"m620", 5, 3620, 0}, {"m621", 5, 3621, 0}, {"m622", 5, 3622, 0}, {"m623", 5, 3623, 0},
+    {"m630", 5, 3630, 0}, {"m631", 5, 3631, 0}, {"m632", 5, 3632, 0}, {"m633", 5, 3633, 0},
+    {"m700", 5, 3700, 0}, {"m701", 5, 3701, 0}, {"m702", 5, 3702, 0}, {"m703", 5, 3703, 0},
+    {"m710", 5, 3710, 0}, {"m711", 5, 3711, 0}, {"m712", 5, 3712, 0}, {"m713", 5, 3713, 0},
+    {"m720", 5, 3720, 0}, {"m721", 5, 3721, 0}, {"m722", 5, 3722, 0}, {"m723", 5, 3723, 0},
+    {"m730", 5, 3730, 0}, {"m731", 5, 3731, 0}, {"m732", 5, 3732, 0}, {"m733", 5, 3733, 0},
+    {"e000", 5, 4000, 0}, {"e001", 5, 4001, 0}, {"e002", 5, 4002, 0}, {"e003", 5, 4003, 0},
+    {"e010", 5, 4010, 0}, {"e011", 5, 4011, 0}, {"e012", 5, 4012, 0}, {"e013", 5, 4013, 0},
+    {"e020", 5, 4020, 0}, {"e021", 5, 4021, 0}, {"e022", 5, 4022, 0}, {"e023", 5, 4023, 0},
+    {"e030", 5, 4030, 0}, {"e031", 5, 4031, 0}, {"e032", 5, 4032, 0}, {"e033", 5, 4033, 0},
+    {"e100", 5, 4100, 0}, {"e101", 5, 4101, 0}, {"e102", 5, 4102, 0}, {"e103", 5, 4103, 0},
+    {"e110", 5, 4110, 0}, {"e111", 5, 4111, 0}, {"e112", 5, 4112, 0}, {"e113", 5, 4113, 0},
+    {"e120", 5, 4120, 0}, {"e121", 5, 4121, 0}, {"e122", 5, 4122, 0}, {"e123", 5, 4123, 0},
+    {"e130", 5, 4130, 0}, {"e131", 5, 4131, 0}, {"e132", 5, 4132, 0}, {"e133", 5, 4133, 0},
+    {"e200", 5, 4200, 0}, {"e201", 5, 4201, 0}, {"e202", 5, 4202, 0}, {"e203", 5, 4203, 0},
+    {"e210", 5, 4210, 0}, {"e211", 5, 4211, 0}, {"e212", 5, 4212, 0}, {"e213", 5, 4213, 0},
+    {"e220", 5, 4220, 0}, {"e221", 5, 4221, 0}, {"e222", 5, 4222, 0}, {"e223", 5, 4223, 0},
+    {"e230", 5, 4230, 0}, {"e231", 5, 4231, 0}, {"e232", 5, 4232, 0}, {"e233", 5, 4233, 0},
+    {"e300", 5, 4300, 0}, {"e301", 5, 4301, 0}, {"e302", 5, 4302, 0}, {"e303", 5, 4303, 0},
+    {"e310", 5, 4310, 0}, {"e311", 5, 4311, 0}, {"e312", 5, 4312, 0}, {"e313", 5, 4313, 0},
+    {"e320", 5, 4320, 0}, {"e321", 5, 4321, 0}, {"e322", 5, 4322, 0}, {"e323", 5, 4323, 0},
+    {"e330", 5, 4330, 0}, {"e331", 5, 4331, 0}, {"e332", 5, 4332, 0}, {"e333", 5, 4333, 0},
+    {"e400", 5, 4400, 0}, {"e401", 5, 4401, 0}, {"e402", 5, 4402, 0}, {"e403", 5, 4403, 0},
+    {"e410", 5, 4410, 0}, {"e411", 5, 4411, 0}, {"e412", 5, 4412, 0}, {"e413", 5, 4413, 0},
+    {"e420", 5, 4420, 0}, {"e421", 5, 4421, 0}, {"e422", 5, 4422, 0}, {"e423", 5, 4423, 0},
+    {"e430", 5, 4430, 0}, {"e431", 5, 4431, 0}, {"e432", 5, 4432, 0}, {"e433", 5, 4433, 0},
+    {"e500", 5, 4500, 0}, {"e501", 5, 4501, 0}, {"e502", 5, 4502, 0}, {"e503", 5, 4503, 0},
+    {"e510", 5, 4510, 0}, {"e511", 5, 4511, 0}, {"e512", 5, 4512, 0}, {"e513", 5, 4513, 0},
+    {"e520", 5, 4520, 0}, {"e521", 5, 4521, 0}, {"e522", 5, 4522, 0}, {"e523", 5, 4523, 0},
+    {"e530", 5, 4530, 0}, {"e531", 5, 4531, 0}, {"e532", 5, 4532, 0}, {"e533", 5, 4533, 0},
+    {"e600", 5, 4600, 0}, {"e601", 5, 4601, 0}, {"e602", 5, 4602, 0}, {"e603", 5, 4603, 0},
+    {"e610", 5, 4610, 0}, {"e611", 5, 4611, 0}, {"e612", 5, 4612, 0}, {"e613", 5, 4613, 0},
+    {"e620", 5, 4620, 0}, {"e621", 5, 4621, 0}, {"e622", 5, 4622, 0}, {"e623", 5, 4623, 0},
+    {"e630", 5, 4630, 0}, {"e631", 5, 4631, 0}, {"e632", 5, 4632, 0}, {"e633", 5, 4633, 0},
+    {"e700", 5, 4700, 0}, {"e701", 5, 4701, 0}, {"e702", 5, 4702, 0}, {"e703", 5, 4703, 0},
+    {"e710", 5, 4710, 0}, {"e711", 5, 4711, 0}, {"e712", 5, 4712, 0}, {"e713", 5, 4713, 0},
+    {"e720", 5, 4720, 0}, {"e721", 5, 4721, 0}, {"e722", 5, 4722, 0}, {"e723", 5, 4723, 0},
+    {"e730", 5, 4730, 0}, {"e731", 5, 4731, 0}, {"e732", 5, 4732, 0}, {"e733", 5, 4733, 0},
+};
+
+// before any inline assembly in a function
+void func_00483F30(void) {
+    UInt16 op;
+    int i;
+
+    volatileasm |= copts.volatileasm;
+    data_00625E7F = copts.nomacro;
+    data_00625E98 = 0;
+    data_00625EAC = 0;
+    data_005D161C = 1;
+    data_00624C3C = 0;
+
+    func_0053EB40();
+    for (op = 0; op < 0x5C5; op++) {
+        if (data_006115F8[op].name && data_006115F8[op].name[0] != '_') {
+            func_0053E9C0(data_006115F8[op].name, op);
+            if (data_006115F8[op].alias) {
+                func_0053E9C0(data_006115F8[op].alias, op);
+            }
+        }
+    }
+
+    func_0053EC50();
+    for (i = 0; i < sizeof(asm_regnames) / sizeof(asm_regnames[0]); i++) {
+        func_0053EC00(
+            asm_regnames[i].name,
+            asm_regnames[i].rclass,
+            asm_regnames[i].num,
+            (void*)asm_regnames[i].extra
+        );
+    }
+}
+
+#include "compiler/CError.h"
+#include "compiler/CFunc.h"
+#include "compiler/CPrep.h"
+#include "compiler/CPrepTokenizer.h"
+#include "compiler/tokens.h"
+#include <setjmp.h>
+
+// a mnemonic's record (InlineAsmTables.c)
+typedef struct AsmMnemonicRec {
+    char* name;
+    SInt32 capacity;
+    SInt32 count;
+    SInt32* opcodes;
+} AsmMnemonicRec;
+
+extern Boolean InlineAsm_gccmode;
+extern int backtracking;
+extern jmp_buf backtrack; // retry with the mnemonic's next opcode
+extern void* func_0053E980(char* name); // mnemonic lookup
+extern void InlineAsm_gcc_parse(void); // GCC-style operands
+extern void InlineAsm_SkipComment(void);
+extern void func_00487F60(char* buf); // the mnemonic's text
+extern void* func_00488180(UInt16 opcode); // an instruction's operands
+extern void func_00488D60(Statement* stmt); // other-class register variables
+
+// 0x483B20: an instruction. A mnemonic can name several opcodes (operand
+// forms); each is tried in turn, an operand mismatch backtracking to the next.
+void func_00483B20(void) {
+    char mnemonic[0x12C];
+    Statement* stmt;
+    AsmMnemonicRec* m;
+    volatile SInt32 tries;
+    SInt32 state;
+
+    if (tk == '}' || tk == ')') {
+        return;
+    }
+    if (InlineAsm_gccmode && tk == '"') {
+        tk = lex();
+        InlineAsm_gcc_parse();
+        return;
+    }
+
+    InlineAsm_SkipComment();
+    func_00487F60(mnemonic);
+    if (!(m = func_0053E980(mnemonic))) {
+        CError_Error(0xA2);
+    }
+
+    stmt = CFunc_AppendStatement((StatementType)16); // ST_ASM
+    stmt->expr = NULL;
+    tries = 0;
+    CPrep_TokenStreamGetState(&state);
+    setjmp(backtrack);
+    CPrep_TokenStreamSetState(&state);
+    backtracking = tries + 1 < m->count;
+    tk = lex();
+    stmt->expr = func_00488180(m->opcodes[tries++]);
+    func_00488D60(stmt);
+}
+
+#include <ctype.h>
+#include <string.h>
+
+extern UInt8 data_00625EA1; // VFPU write mask (x 8, y 4, z 2, w 1)
+extern UInt8 data_00625ECD;
+
+// 0x487F60: the mnemonic, lower case, with its ".suffix"es; a VFPU
+// instruction whose format starts with '&' takes a ".xyzw" write mask
+void func_00487F60(char* buf) {
+    int i;
+    AsmMnemonicRec* m;
+    char* p;
+
+    for (i = 0; tkidentifier->name[i]; i++) {
+        buf[i] = tolower(tkidentifier->name[i]);
+    }
+    buf[i] = 0;
+
+    data_00625EA1 = 0;
+    data_00625ECD = 0;
+    if ((m = func_0053E980(buf)) && data_006115F8[m->opcodes[0]].format[0] == '&') {
+        if (lookahead() != '.') {
+            data_00625EA1 = 0xF;
+            return;
+        }
+        tk = lex();
+        tk = lex();
+        if (tk != TK_IDENTIFIER) {
+            CError_Error(8);
+        }
+        for (p = tkidentifier->name; *p; p++) {
+            if (*p == 'x') {
+                data_00625EA1 |= 8;
+            } else if (*p == 'y') {
+                data_00625EA1 |= 4;
+            } else if (*p == 'z') {
+                data_00625EA1 |= 2;
+            } else if (*p == 'w') {
+                data_00625EA1 |= 1;
+            } else {
+                CError_Error(8);
+            }
+        }
+        return;
+    }
+
+    while (lookahead() == '.') {
+        tk = lex();
+        strcat(buf, ".");
+        tk = lex();
+        if (tk != TK_IDENTIFIER) {
+            CError_Error(8);
+        }
+        for (i = 0; tkidentifier->name[i]; i++) {
+            tkidentifier->name[i] = tolower(tkidentifier->name[i]);
+        }
+        strcat(buf, tkidentifier->name);
+    }
+}
+
+// the assembler state .set push saves (0xC bytes)
+typedef struct AsmSetState {
+    struct AsmSetState* next;
+    UInt8 volatileasm;
+    UInt8 unk5; // data_00625EAC
+    UInt8 nomacro; // data_00625E7F
+    UInt8 noat; // data_00625E98
+    SInt16 unk8; // data_00625E5A
+} AsmSetState;
+
+// a .set directive's statement (8 bytes)
+typedef struct AsmSetRecord {
+    SInt32 opcode; // 0x5C4
+    UInt16 mode; // 1 reorder, 2 noreorder, 4 asm_volatile, 0x10 asm_nonvolatile
+} AsmSetRecord;
+
+extern AsmSetState* data_005F0BC8; // .set push stack
+extern SInt16 data_00625E5A; // %hi 1, %lo 2
+extern void InlineAsm_SyntaxError(short code);
+
+// 0x483C40: a directive (after '.'): .set's options; any other directive is
+// an instruction
+void func_00483C40(void) {
+    Statement* stmt;
+    AsmSetRecord* rec;
+    AsmSetState* st;
+    char* name;
+
+    InlineAsm_SkipComment();
+    tk = lex();
+    if (tk != TK_IDENTIFIER) {
+        InlineAsm_SyntaxError(8);
+    }
+    if (strcmp(tkidentifier->name, "set")) {
+        func_00483B20();
+        return;
+    }
+
+    stmt = CFunc_AppendStatement((StatementType)16);
+    rec = lalloc(sizeof(AsmSetRecord));
+    memclrw(rec, sizeof(AsmSetRecord));
+    stmt->expr = (ENode*)rec;
+    rec->opcode = 0x5C4;
+
+    InlineAsm_SkipComment();
+    tk = lex();
+    if (tk != TK_IDENTIFIER) {
+        InlineAsm_SyntaxError(8);
+    }
+    name = tkidentifier->name;
+    if (!strcmp(name, "asm_volatile")) {
+        rec->mode = 4;
+    } else if (!strcmp(name, "asm_nonvolatile")) {
+        rec->mode = 0x10;
+    } else if (!strcmp(name, "reorder")) {
+        rec->mode = 1;
+    } else if (!strcmp(name, "noreorder")) {
+        rec->mode = 2;
+    } else if (!strcmp(name, "at")) {
+        data_00625E98 = 0;
+    } else if (!strcmp(name, "noat")) {
+        data_00625E98 = 1;
+    } else if (!strcmp(name, "nomacro")) {
+        data_00625E7F = 1;
+    } else if (!strcmp(name, "macro")) {
+        data_00625E7F = 0;
+    } else if (!strcmp(name, "push")) {
+        if ((st = lalloc(sizeof(AsmSetState)))) {
+            st->next = data_005F0BC8;
+            st->volatileasm = volatileasm;
+            st->unk5 = data_00625EAC;
+            st->nomacro = data_00625E7F;
+            st->noat = data_00625E98;
+            st->unk8 = data_00625E5A;
+            data_005F0BC8 = st;
+        } else {
+            CError_FATAL(3586);
+        }
+    } else if (!strcmp(name, "pop") && data_005F0BC8) {
+        st = data_005F0BC8;
+        data_005F0BC8 = st->next;
+        volatileasm = st->volatileasm;
+        data_00625EAC = st->unk5;
+        data_00625E7F = st->nomacro;
+        data_00625E98 = st->noat;
+        data_00625E5A = st->unk8;
+    } else {
+        CError_Error(0x2D);
+    }
+    tk = lex();
+}
+
+#include "compiler/CInt64.h"
+#include "compiler/InlineAsmPPC.h"
+
+typedef struct AsmNamedValue {
+    char* name;
+    SInt32 value;
+} AsmNamedValue;
+
+extern AsmNamedValue data_005CEE74[38]; // the VFPU constants (vfpu_pi, ...)
+extern AsmNamedValue data_005CED74[32]; // the VFPU condition codes (eq, lt, ...)
+extern SInt32 data_00624810;
+extern void func_004C5890(SInt32 code, ...);
+extern void func_004C5940(SInt32 code, ...);
+extern void func_00488EB0(MAsmOperand* op, Boolean allowfunc); // a label
+extern void func_0048AA50(MAsmOperand* op, SInt32 min, SInt32 max); // an immediate in range
+extern void func_004890B0(MAsmOperand* op, char rclass, SInt32 sub, SInt16 mode); // a register
+extern void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode);
+extern void func_00489920(MAsmOperand* op);
+extern void func_004896F0(MAsmOperand* op);
+extern void func_0048A340(MAsmOperand* op, SInt32 n);
+extern void func_004897C0(MAsmOperand* op);
+extern void func_00489DE0(MAsmOperand* op);
+
+// 0x488180: the operands, as the opcode's format string spells them
+void* func_00488180(UInt16 opcode) {
+    OpcodeDef* def;
+    MAsmInstruction* rec;
+    MAsmOperand* operand;
+    char* fmt;
+    char* name;
+    SInt16 mode;
+    char vfpupair;
+    char flag7;
+    UInt32 i;
+
+    def = &data_006115F8[opcode];
+    if (opcode >= 0x37E && opcode <= 0x3E5) {
+        InlineAsm_SyntaxError(0xA2);
+    }
+    if (data_00625E7F && opcode >= 0x518) {
+        func_004C5890(1);
+    }
+    if (data_00625E98 == 0) {
+        if ((def->flags & 0x400000) && copts.warn_inlineasm) {
+            func_004C5890(3);
+        }
+    } else if (data_00625E98 == 1 && (def->flags & 0x400000) && copts.warn_inlineasm) {
+        func_004C5940(2);
+    }
+
+    rec = lalloc(def->nargs * sizeof(MAsmOperand) + 8);
+    rec->opcode = opcode;
+    rec->flags = (volatileasm | data_00625EAC) ? 4 : 0;
+    rec->nops = 0;
+    data_00624810 = 0;
+    fmt = def->format;
+    operand = rec->ops;
+
+    if (*fmt) {
+        do {
+            InlineAsm_SkipComment();
+            vfpupair = 0;
+            flag7 = 0;
+            if (*fmt == ',') {
+                if (tk != ',') {
+                    InlineAsm_SyntaxError(0x11);
+                }
+                if (InlineAsm_gccmode && fmt[1] == 'p') {
+                    InlineAsm_labelref = 1;
+                    tk = lex();
+                    InlineAsm_labelref = 0;
+                } else {
+                    tk = lex();
+                }
+                fmt++;
+            }
+
+            mode = 1;
+            if (*fmt == '=') {
+                fmt++;
+                mode = 2;
+            } else if (*fmt == '+') {
+                mode = 3;
+                fmt++;
+            }
+            if (*fmt == '!') {
+                mode |= 0x8000;
+                fmt++;
+                if (copts.mips_option1A) {
+                    mode |= 0x20;
+                }
+            }
+            if (*fmt == '$') {
+                mode |= 0x2000;
+                fmt++;
+            }
+            if (*fmt == '2') {
+                fmt++;
+                vfpupair = 1;
+                if (*fmt == '+') {
+                    fmt++;
+                }
+            }
+            if (*fmt == '\'') {
+                fmt++;
+                flag7 = 1;
+            } else if (*fmt == ';') {
+                break;
+            }
+
+            switch (*fmt) {
+                case '-':
+                    if (tk != TK_DECREMENT) {
+                        InlineAsm_SyntaxError(0x2D);
+                    }
+                    tk = lex();
+                    break;
+                case '|':
+                    if (tk != TK_INCREMENT) {
+                        InlineAsm_SyntaxError(0x2D);
+                    }
+                    tk = lex();
+                    break;
+                case '&':
+                    operand->type = 0;
+                    CInt64_SetLong(&operand->u.imm, (signed char)data_00625EA1);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '(':
+                    if (tk != '(') {
+                        InlineAsm_SyntaxError(0xF);
+                    }
+                    tk = lex();
+                    break;
+                case ')':
+                    if (tk != ')') {
+                        InlineAsm_SyntaxError(0x10);
+                    }
+                    tk = lex();
+                    break;
+                case '}':
+                    if (tk != ')') {
+                        InlineAsm_SyntaxError(0x10);
+                    }
+                    tk = lex();
+                    if (tk == ',') {
+                        tk = lex();
+                        if (tk == TK_IDENTIFIER) {
+                            name = tkidentifier->name;
+                            if (!strcmp(name, "w") || !strcmp(name, "wb")) {
+                                tk = lex();
+                                rec->opcode = (rec->opcode == 0x5B6) ? 0x5B9 : 0x4CE;
+                            }
+                        } else {
+                            InlineAsm_SyntaxError(0xA2);
+                        }
+                    }
+                    break;
+                case '>':
+                    if (!vfpupair) {
+                        if (opcode == 0x3EE || opcode == 0x3EF) {
+                            func_0048AA50(operand, 0, 0x1F);
+                        } else {
+                            func_0048AA50(operand, -0x10, 0xF);
+                        }
+                    } else {
+                        func_0048AA50(operand, 0, 7);
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '<':
+                case 'k':
+                    if (!vfpupair) {
+                        if (opcode == 0x489) {
+                            func_0048A340(operand, 2);
+                        } else if (opcode == 0x4C3) {
+                            func_0048A340(operand, 3);
+                        } else if (opcode == 0x50E) {
+                            func_0048A340(operand, 4);
+                        } else if (opcode == 0x442 ||
+                                   opcode == 0x483 ||
+                                   opcode == 0x4BD ||
+                                   opcode == 0x508) {
+                            if (tk == TK_IDENTIFIER) {
+                                name = tkidentifier->name;
+                                for (i = 0; i < 38; i++) {
+                                    if (!strcmp(name, data_005CEE74[i].name)) {
+                                        operand->type = 0;
+                                        CInt64_SetLong(&operand->u.imm, data_005CEE74[i].value);
+                                        tk = lex();
+                                        goto vfpu_const_done;
+                                    }
+                                }
+                            }
+                            func_0048AA50(operand, 0, 0x1F);
+                        } else {
+                            func_0048AA50(operand, 0, 0x1F);
+                        }
+                    } else {
+                        func_0048AA50(operand, 0, 0xFF);
+                    }
+vfpu_const_done:
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '@':
+                    func_0048AA50(operand, 1, 0x20);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'l':
+                    func_00488EB0(operand, 0);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'c':
+                    func_0048AA50(operand, 0, 0x3FF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'i':
+                    if (opcode == 0x448) {
+                        func_004897C0(operand);
+                    } else {
+                        func_0048AA50(operand, (opcode == 0x449) ? -0x8000 : 0, 0xFFFF);
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'e':
+                    func_0048AA50(operand, 0, vfpupair ? 0xFF : 0xFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'M':
+                    func_0048AA50(operand, 0, 0xFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'X':
+                    func_0048AA50(operand, 0, 0x1F);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'B':
+                    func_0048AA50(operand, 0, 0xFFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'C':
+                    if (opcode == 0x416 || opcode == 0x417) {
+                        func_00489DE0(operand);
+                    } else if (opcode == 0x415) {
+                        func_00489920(operand);
+                    } else {
+                        func_0048AA50(operand, 0, 0x1FFFFFF);
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'f':
+                    func_004896F0(operand);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'I':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 0, mode);
+                    } else {
+                        operand->type = 0;
+                        operand->u.imm = InlineAsm_Int64Expression();
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'Q':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 1, mode);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'R':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 3, mode);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'j':
+                    func_0048AA50(operand, -0x8000, 0x7FFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'p':
+                    func_00488EB0(operand, 0);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'x':
+                    CError_ASSERT(2103, vfpupair);
+                case 'd':
+                case 's':
+                case 't':
+                    func_004890B0(operand, 0, -1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'P':
+                    func_004890B0(operand, 0, -2, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '9':
+                    func_004890B0(operand, 4, 0x1B, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'D':
+                case 'E':
+                case 'S':
+                case 'T':
+                case 'V':
+                case 'W':
+                    func_004890B0(operand, vfpupair ? 5 : 1, flag7 ? -1 : -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'N':
+                    i = def->unk10 & 3;
+                    if (i == 0) {
+                        data_00625ECD |= 8;
+                    } else if (i == 1) {
+                        data_00625ECD |= 4;
+                    } else if (i == 2) {
+                        data_00625ECD |= 2;
+                    } else if (i == 3) {
+                        data_00625ECD |= 1;
+                    }
+                    func_004890B0(operand, vfpupair ? 5 : 1, flag7 ? -1 : -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'A':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 2, mode);
+                    } else {
+                        func_00489410(operand, 0, mode);
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'U':
+                    func_00489410(operand, 0, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'b':
+                    if (!vfpupair) {
+                        CError_FATAL(2186);
+                    } else {
+                        func_00488EB0(operand, 1);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'a':
+                case 'q':
+                    func_00488EB0(operand, 1);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'G':
+                    func_004890B0(operand, 0, -1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'o':
+                    func_00489410(operand, 1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'v':
+                    if (opcode == 0x43F || opcode == 0x480 || opcode == 0x4BA || opcode == 0x505) {
+                        if (tk == TK_IDENTIFIER) {
+                            name = tkidentifier->name;
+                            for (i = 0; i < 32; i++) {
+                                if (!strcmp(name, data_005CED74[i].name)) {
+                                    operand->type = 0;
+                                    CInt64_SetLong(&operand->u.imm, data_005CED74[i].value);
+                                    tk = lex();
+                                    goto vfpu_cc_done;
+                                }
+                            }
+                        }
+                        func_0048AA50(operand, 0, 0xF);
+                    } else {
+                        func_0048AA50(operand, 0, 0x10);
+                    }
+vfpu_cc_done:
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'J':
+                case 'L':
+                    func_004890B0(operand, 6, -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                default:
+                    CError_FATAL(2228);
+                    break;
+            }
+            fmt++;
+        } while (*fmt);
+    }
+
+    if (tk == ',' && (rec->opcode == 0x4CD || rec->opcode == 0x5B6)) {
+        if (lookahead() == TK_IDENTIFIER && !strcmp(tkidentifier->name, "wb")) {
+            rec->opcode = (rec->opcode == 0x4CD) ? 0x4CE : 0x5B9;
+            tk = lex();
+            tk = lex();
+        }
+    }
+    if (tk == ',') {
+        InlineAsm_SyntaxError(0xA2);
+    }
+    if (data_00624810) {
+        rec->flags |= 8;
+    }
+    return rec;
+}
+
+// 0x48AA50: an immediate operand in [min, max]; in a GCC asm statement also
+// ?N, %N and %hi()/%lo()
+void func_0048AA50(MAsmOperand* op, SInt32 min, SInt32 max) {
+    MLookupResult result;
+    CInt64 value;
+    CInt64 qconst;
+    CInt64 intconst;
+    char* name;
+    SInt32 v = 0;
+    SInt32 n;
+
+    if (InlineAsm_gccmode && tk == '?') {
+        tk = lex();
+        if (tk == TK_INTCONST) {
+            qconst = tkintconst;
+            n = qconst.lo;
+            if (n < 0) {
+                InlineAsm_SyntaxError(0x2D);
+            }
+        } else {
+            InlineAsm_SyntaxError(0x2D);
+        }
+        op->type = MOpnd_GCCImm;
+        op->u.gcc.num = n;
+        tk = lex();
+        return;
+    }
+
+    if (InlineAsm_gccmode && tk == '%') {
+        tk = lex();
+        if (tk == TK_IDENTIFIER) {
+            name = tkidentifier->name;
+            if (!strcmp(name, "hi") || !strcmp(name, "lo")) {
+                if (!strcmp(name, "hi")) {
+                    data_00625E5A = 1;
+                } else {
+                    data_00625E5A = 2;
+                }
+                tk = lex();
+                if (tk == '(') {
+                    tk = lex();
+                    if (tk == TK_INTCONST) {
+                        op->type = MOpnd_Imm;
+                        if (data_00625E5A & 1) {
+                            v = (UInt32)tkintconst.lo >> 16;
+                        } else {
+                            v = (UInt16)tkintconst.lo;
+                        }
+                    } else if (tk == TK_IDENTIFIER) {
+                        InlineAsm_LookupSymbolMIPS(tkidentifier, &result);
+                        if (!result.object) {
+                            InlineAsm_SyntaxError(0x2D);
+                        }
+                        if (result.object->datatype == DDATA &&
+                            (result.object->qual & Q_INLINE_DATA)) {
+                            if (data_00625E5A & 1) {
+                                v = (UInt32)result.object->u.data.u.intconst.lo >> 16;
+                            } else {
+                                v = (UInt16)result.object->u.data.u.intconst.lo;
+                            }
+                        } else {
+                            InlineAsm_SyntaxError(0x2D);
+                        }
+                    } else {
+                        InlineAsm_SyntaxError(0x2D);
+                    }
+                    CInt64_SetLong(&op->u.imm, v);
+                    tk = lex();
+                    if (tk != ')') {
+                        InlineAsm_SyntaxError(0x10);
+                        return;
+                    }
+                    tk = lex();
+                }
+            }
+        } else if (tk == TK_INTCONST) {
+            intconst = tkintconst;
+            n = intconst.lo;
+            if (n < 0) {
+                CError_Error(0x2D);
+            }
+            data_00624810 = 1;
+            op->type = MOpnd_GCCImm;
+            op->u.gcc.num = n;
+            tk = lex();
+        }
+    } else {
+        value = InlineAsm_Int64Expression();
+        if (CInt64_IsInRange(value, 4) && (SInt32)value.lo >= min && (SInt32)value.lo <= max) {
+            op->type = MOpnd_Imm;
+            op->u.imm = value;
+            return;
+        }
+        InlineAsm_SyntaxError(0x37);
+    }
+}
+
+extern void* func_0053EBB0(char* name); // register lookup
+
+// 0x48AD70: a register by name; a VFPU register is S/C/R/M/E with three
+// digits, and may be followed by a .s/.p/.t/.q size
+void* func_0048AD70(char* name) {
+    char buf[5];
+    SInt32 state;
+    void* reg;
+    HashNameNode* saved;
+    char c;
+    char ch;
+    Boolean sized;
+
+    c = 0;
+    if (!name) {
+        CError_FATAL(134);
+        return NULL;
+    }
+
+    switch (name[0]) {
+        case 'S':
+        case 's':
+            c = 's';
+            break;
+        case 'C':
+        case 'c':
+            c = 'c';
+            break;
+        case 'R':
+        case 'r':
+            c = 'r';
+            break;
+        case 'M':
+        case 'm':
+            c = 'm';
+            break;
+        case 'E':
+        case 'e':
+            c = 'e';
+            break;
+    }
+
+    if (c &&
+        name[1] >= '0' &&
+        name[1] <= '7' &&
+        name[2] >= '0' &&
+        name[2] <= '3' &&
+        name[3] >= '0' &&
+        name[3] <= '3' &&
+        name[4] == 0) {
+        buf[0] = c;
+        buf[1] = name[1];
+        buf[2] = name[2];
+        buf[3] = name[3];
+        buf[4] = 0;
+        reg = func_0053EBB0(buf);
+        if (reg) {
+            sized = FALSE;
+            saved = tkidentifier;
+            CPrep_TokenStreamGetState(&state);
+            if (lookahead() == '.') {
+                lex();
+                if (lookahead() == TK_IDENTIFIER && tkidentifier->name) {
+                    ch = tkidentifier->name[0];
+                    if ((ch == 's' || ch == 'p' || ch == 't' || ch == 'q') &&
+                        tkidentifier->name[1] == 0) {
+                        sized = TRUE;
+                    }
+                }
+            }
+            CPrep_TokenStreamSetState(&state);
+            if (sized) {
+                lex();
+                lex();
+            }
+            tkidentifier = saved;
+        }
+        return reg;
+    }
+
+    return func_0053EBB0(name);
+}
+
+#include "compiler/CMachine.h"
+#include <stdio.h>
+
+extern void func_00481EE0(
+    Statement* stmt, Object* gpr, Object* fpr, Boolean tofloat, Boolean after
+);
+extern HashNameNode* MakeLocalLabel(CInt64 num);
+extern CLabel* InlineAsm_LookupLabel(HashNameNode* name);
+extern CLabel* InlineAsm_DeclareLabel(HashNameNode* name);
+
+// 0x488D60: a variable in a register of the other class (a float in an
+// integer register, an int in an FP register) moves through a temporary
+void func_00488D60(Statement* stmt) {
+    MAsmInstruction* mi;
+    MAsmOperand* op;
+    Object* obj;
+    Object* temp;
+    int i;
+
+    mi = (MAsmInstruction*)stmt->expr;
+    for (i = 0, op = mi->ops; i < mi->nops; i++, op++) {
+        if (op->type == MOpnd_Reg && (obj = op->u.reg.object)) {
+            if (obj->type->type == TYPEFLOAT && obj->type->size == 4 && op->rclass == 0) {
+                temp = create_temp_object(TYPE(&stsignedint));
+                if (temp->u.var.info) {
+                    temp->u.var.info->used = TRUE;
+                }
+                if (op->effect & 2) {
+                    op->u.reg.object = temp;
+                    func_00481EE0(stmt, temp, obj, TRUE, TRUE);
+                }
+                if (op->effect & 1) {
+                    op->u.reg.object = temp;
+                    func_00481EE0(stmt, temp, obj, FALSE, FALSE);
+                }
+            } else if (obj->type->type != TYPEFLOAT && obj->type->size == 4 && op->rclass == 1) {
+                temp = create_temp_object(TYPE(&stfloat));
+                if (temp->u.var.info) {
+                    temp->u.var.info->used = TRUE;
+                }
+                if (op->effect & 2) {
+                    op->u.reg.object = temp;
+                    func_00481EE0(stmt, obj, temp, FALSE, TRUE);
+                }
+                if (op->effect & 1) {
+                    op->u.reg.object = temp;
+                    func_00481EE0(stmt, obj, temp, TRUE, FALSE);
+                }
+            }
+        }
+    }
+}
+
+// 0x488EB0: a label operand: a numeric local label (1b, 1f) or a name; a
+// function's name too if allowed
+void func_00488EB0(MAsmOperand* op, Boolean allowfunc) {
+    char buf[0x50];
+    MLookupResult result;
+    HashNameNode* name;
+    CLabel* label;
+    char ch;
+    Boolean forward;
+
+    if (tk == TK_INTCONST) {
+        name = MakeLocalLabel(tkintconst);
+        tk = lex();
+        if (tk != TK_IDENTIFIER) {
+            InlineAsm_SyntaxError(0x2D);
+        }
+        ch = tkidentifier->name[0];
+        if (ch == 'b' || ch == 'B') {
+            forward = FALSE;
+        } else if (ch == 'f' || ch == 'F') {
+            forward = TRUE;
+        } else {
+            CError_Error(0x2D);
+        }
+        if (tkidentifier->name[1]) {
+            CError_Error(0x2D);
+        }
+        tk = lex();
+        label = InlineAsm_LookupLabel(name);
+        if (forward) {
+            if (label && label->stmt) {
+                sprintf(buf, "%i", tkintconst.lo);
+                CError_Error(0x48, buf);
+            }
+            if (!label) {
+                label = InlineAsm_DeclareLabel(name);
+            }
+        } else if (!label || !label->stmt) {
+            sprintf(buf, "%i", tkintconst.lo);
+            CError_Error(0x3C, buf);
+        }
+        op->type = MOpnd_Lab;
+        op->u.lab.label = label;
+    } else if (tk == TK_IDENTIFIER) {
+        if (!InlineAsm_LookupSymbolMIPS(tkidentifier, &result)) {
+            result.label = InlineAsm_DeclareLabel(tkidentifier);
+        }
+        if (result.label) {
+            op->type = MOpnd_Lab;
+            op->u.lab.label = result.label;
+        } else if (allowfunc && result.object && result.object->datatype == DFUNC) {
+            op->type = MOpnd_GlobalObj;
+            op->u.obj.obj = result.object;
+            op->u.obj.offset = 0;
+        } else {
+            CError_Error(0x2D);
+        }
+        tk = lex();
+    } else {
+        InlineAsm_SyntaxError(0x2D);
+    }
+}
+
+// a register's name table record, from its name field (InlineAsmTables.c)
+typedef struct AsmRegRec {
+    char* name;
+    SInt32 rclass;
+    SInt32 num;
+    Object* object;
+} AsmRegRec;
+
+extern SInt32 data_00624744[]; // registers in each class
+extern Boolean func_0050CCC0(Object** obj, CInt64* offset); // a variable operand
+
+// 0x4890B0: a register operand of class rclass: $N, a name, a GCC %N, or a
+// variable (kept in a register)
+void func_004890B0(MAsmOperand* op, char rclass, SInt32 sub, SInt16 mode) {
+    CInt64 c;
+    CInt64 offset;
+    CInt64 c3;
+    CInt64 c2;
+    Boolean numeric;
+    Object* obj;
+    char name[0x100];
+    AsmRegRec* reg;
+    SInt32 n;
+
+    numeric = FALSE;
+    obj = NULL;
+    offset = cint64_zero;
+    if (sub == -2) {
+        numeric = TRUE;
+    }
+
+    if (tk == '$') {
+        numeric = TRUE;
+        tk = lex();
+        if (!data_00625E98 &&
+            (!strcmp("at", tkidentifier->name) || !strcmp("AT", tkidentifier->name))) {
+            func_004C5890(3);
+        }
+    } else if (tk == '%' && InlineAsm_gccmode) {
+        tk = lex();
+        if (tk == TK_INTCONST) {
+            c = tkintconst;
+            n = c.lo;
+            if (n < 0) {
+                CError_Error(0x2D);
+            }
+        } else {
+            CError_Error(0x2D);
+        }
+        data_00624810 = 1;
+        op->type = MOpnd_GCCReg;
+        op->u.gcc.num = n;
+        op->u.gcc.effect = mode;
+        op->u.gcc.rclass = rclass;
+        tk = lex();
+        return;
+    }
+
+    if (tk == TK_IDENTIFIER) {
+        strcpy(name, tkidentifier->name);
+    }
+    if (tk == TK_IDENTIFIER && (reg = func_0048AD70(name)) && reg->rclass == rclass) {
+        op->type = MOpnd_Reg;
+        op->u.reg.object = reg->object;
+        op->u.reg.num = reg->num;
+        op->effect = mode;
+        op->rclass = rclass;
+        if (reg->object) {
+            reg->object->flags |= 1;
+        }
+        tk = lex();
+    } else if (tk == TK_INTCONST) {
+        c2 = tkintconst;
+        n = c2.lo;
+        tk = lex();
+        if (n == 0 && tk == TK_INTCONST) {
+            c3 = tkintconst;
+            n = c3.lo;
+            tk = lex();
+        }
+        if (numeric && n < data_00624744[rclass]) {
+            op->type = MOpnd_Reg;
+            op->u.reg.object = NULL;
+            op->u.reg.num = n;
+            op->effect = mode;
+            op->rclass = rclass;
+        } else {
+            InlineAsm_SyntaxError(0x2D);
+        }
+    } else if (tk == TK_IDENTIFIER && func_0048AD70(name)) {
+        InlineAsm_SyntaxError(0x2D);
+    } else if (func_0050CCC0(&obj, &offset)) {
+        if (obj) {
+            data_00624810 = 1;
+            op->type = MOpnd_Reg;
+            op->u.reg.object = obj;
+            op->u.reg.num = 0;
+            op->effect = mode;
+            op->rclass = rclass;
+            obj->flags |= 1;
+        } else {
+            InlineAsm_SyntaxError(0x2D);
+        }
+    } else {
+        InlineAsm_SyntaxError(0x2D);
+    }
+}
+
+#include "compiler/RegisterInfo.h"
+
+extern SInt32 InlineAsm_StructMemberOffset(Type* type);
+extern SInt32 InlineAsm_ConstantExpression(void);
+
+// 0x489410: a memory operand (a variable, with .member and +/- offsets), a
+// label, a GCC %N, or an offset (kind 1); in optional parentheses
+void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode) {
+    MLookupResult result;
+    CInt64 c;
+    SInt32 n;
+    Boolean paren;
+
+    paren = FALSE;
+    if (tk == '(') {
+        paren = TRUE;
+        tk = lex();
+    }
+
+    if (tk == TK_IDENTIFIER && InlineAsm_LookupSymbolMIPS(tkidentifier, &result)) {
+        if (result.object) {
+            if (result.object->datatype == DLOCAL) {
+                op->type = MOpnd_LocalObj;
+                Registers_GetVarInfo(result.object)->noregister = TRUE;
+                Registers_GetVarInfo(result.object)->used = TRUE;
+            } else {
+                op->type = MOpnd_GlobalObj;
+                op->effect = mode;
+                op->rclass = 0;
+            }
+            result.object->u.var.offset = 0;
+            op->u.obj.obj = result.object;
+            op->u.obj.offset = 0;
+            result.object->flags |= 1;
+            tk = lex();
+            if (tk == '.') {
+                op->u.obj.offset += InlineAsm_StructMemberOffset(result.object->type);
+            }
+            if (tk == '+') {
+                tk = lex();
+                op->u.obj.offset += InlineAsm_ConstantExpression();
+            } else if (tk == '-') {
+                tk = lex();
+                op->u.obj.offset -= InlineAsm_ConstantExpression();
+            }
+            if (paren) {
+                if (tk == ')') {
+                    tk = lex();
+                } else {
+                    InlineAsm_SyntaxError(0x10);
+                }
+            }
+            return;
+        }
+        if (result.label) {
+            tk = lex();
+            op->type = MOpnd_Lab;
+            op->u.lab.label = result.label;
+            if (paren) {
+                if (tk == ')') {
+                    tk = lex();
+                } else {
+                    InlineAsm_SyntaxError(0x10);
+                }
+            }
+            return;
+        }
+    } else if (tk == '%' && InlineAsm_gccmode) {
+        tk = lex();
+        if (tk == TK_INTCONST) {
+            c = tkintconst;
+            n = c.lo;
+            if (n < 0) {
+                CError_Error(0x2D);
+            }
+        } else {
+            CError_Error(0x2D);
+        }
+        op->type = MOpnd_GCCReg;
+        op->u.gcc.num = n;
+        op->u.gcc.effect = mode;
+        op->u.gcc.rclass = -1;
+        tk = lex();
+        if (paren) {
+            if (tk == ')') {
+                tk = lex();
+            } else {
+                InlineAsm_SyntaxError(0x10);
+            }
+        }
+        return;
+    }
+
+    if (kind) {
+        func_0048AA50(op, -0x8000, 0x7FFF);
+    } else {
+        tk = lex();
+        result.label = InlineAsm_DeclareLabel(tkidentifier);
+        op->type = MOpnd_Lab;
+        op->u.lab.label = result.label;
+    }
+    if (paren) {
+        if (tk == ')') {
+            tk = lex();
+        } else {
+            InlineAsm_SyntaxError(0x10);
+        }
+    }
+}
+
+// 0x4896F0: a single-precision immediate, as its bits
+void func_004896F0(MAsmOperand* op) {
+    SInt32 bits;
+    union {
+        float f;
+        SInt32 i;
+    } u;
+    Boolean neg;
+
+    neg = FALSE;
+    if (tk == '-') {
+        neg = TRUE;
+        tk = lex();
+    } else if (tk == '+') {
+        tk = lex();
+    }
+
+    if (tk == TK_FLOATCONST) {
+        u.f = tkfloatconst.data.value;
+        bits = u.i;
+    } else if (tk == TK_INTCONST) {
+        *(float*)&bits = tkintconst.lo;
+    } else if (tk != TK_FLOATCONST) {
+        CError_Error(0x2D);
+        bits = 0;
+    }
+    if (neg) {
+        bits ^= 0x80000000;
+    }
+    op->type = MOpnd_Imm;
+    CInt64_SetLong(&op->u.imm, bits);
+    tk = lex();
+}
+
+// 0x4897C0: vfim's half-precision immediate (or an integer)
+void func_004897C0(MAsmOperand* op) {
+    float f;
+    UInt32 bits;
+    double d;
+    UInt32 sign;
+    UInt32 exp;
+    SInt32 e;
+    UInt32 mant;
+    UInt32 m;
+    SInt32 half;
+    Boolean neg;
+
+    neg = FALSE;
+    if (tk == TK_INTCONST) {
+        func_0048AA50(op, -0x8000, 0xFFFF);
+        return;
+    }
+    if (tk == '-') {
+        neg = TRUE;
+        tk = lex();
+    } else if (tk == '+') {
+        tk = lex();
+    }
+    if (tk != TK_FLOATCONST) {
+        CError_Error(0x2D);
+    }
+
+    d = 0.0;
+    d = neg ? -tkfloatconst.data.value : tkfloatconst.data.value;
+    f = d;
+    bits = *(UInt32*)&f;
+    sign = (bits >> 31) & 1;
+    exp = (UInt8)(bits >> 23);
+    e = exp - 0x70;
+    mant = bits & 0x7FFFFF;
+    m = mant >> 13;
+    if (exp == 0 && mant == 0) {
+        half = 0;
+    } else {
+        if (((sign & ~1) != 0) | ((e & ~0x1F) != 0) | ((m & ~0x3FF) != 0)) {
+            CError_Error(0x2D);
+        }
+        half = (sign << 15) | (e << 10) | m;
+    }
+    op->type = MOpnd_Imm;
+    CInt64_SetLong(&op->u.imm, half);
+    tk = lex();
+}
+
+// 0x489920: a VFPU source prefix (vpfxs, vpfxt): four of x/y/z/w (in their
+// place), 0, 1, [0:1], [-1:1], m; or a number
+void func_00489920(MAsmOperand* op) {
+    SInt32 used[4];
+    SInt32 absval[4];
+    CInt64 c4;
+    CInt64 c1;
+    CInt64 c2;
+    CInt64 c5;
+    CInt64 c3;
+    UInt8 swz[4];
+    SInt32 bits;
+    SInt32 la;
+    int k;
+    int i;
+    char ch;
+    Boolean err;
+
+    err = FALSE;
+    i = 0;
+    if (tk == TK_INTCONST) {
+        la = lookahead();
+        if (la != ',') {
+            func_0048AA50(op, 0, 0xFFFFFF);
+            return;
+        }
+    }
+
+    for (k = 0; k < 4; k++) {
+        swz[k] = 0;
+        absval[k] = 0;
+        used[k] = 0;
+    }
+
+    CPrep_UnLex();
+    do {
+        tk = lex();
+        if (tk == TK_EOL || tk == '"' || tk == ';') {
+            if (i != 3) {
+                err = TRUE;
+            }
+            break;
+        }
+        switch (tk) {
+            default:
+                err = TRUE;
+                break;
+            case ',':
+                if (++i >= 4) {
+                    err = TRUE;
+                }
+                break;
+            case TK_IDENTIFIER:
+                ch = tkidentifier->name[0];
+                if (tkidentifier->name[1]) {
+                    err = TRUE;
+                    break;
+                }
+                if (ch == 'm' || ch == 'M') {
+                    if (used[i]) {
+                        err = TRUE;
+                    } else {
+                        absval[i] = 1;
+                        used[i] = 1;
+                    }
+                } else if ((i == 0 && (ch == 'x' || ch == 'X')) ||
+                           (i == 1 && (ch == 'y' || ch == 'Y')) ||
+                           (i == 2 && (ch == 'z' || ch == 'Z')) ||
+                           (i == 3 && (ch == 'w' || ch == 'W'))) {
+                    if (used[i]) {
+                        err = TRUE;
+                    } else {
+                        used[i] = 1;
+                    }
+                } else {
+                    err = TRUE;
+                }
+                break;
+            case TK_INTCONST:
+                if (used[i]) {
+                    err = TRUE;
+                    break;
+                }
+                c1 = tkintconst;
+                if (c1.lo == 0) {
+                    swz[i] = 1;
+                    used[i] = 1;
+                } else if (c1.lo == 1) {
+                    swz[i] = 3;
+                    used[i] = 1;
+                }
+                break;
+            case '[':
+                la = lookahead();
+                if (la == TK_INTCONST) {
+                    tk = lex();
+                    c2 = tkintconst;
+                    if (c2.lo != 0 || lookahead() != ':') {
+                        err = TRUE;
+                    } else {
+                        tk = lex();
+                        if (lookahead() != TK_INTCONST) {
+                            err = TRUE;
+                        } else {
+                            tk = lex();
+                            c3 = tkintconst;
+                            if (c3.lo != 1 || lookahead() != ']') {
+                                err = TRUE;
+                            } else {
+                                tk = lex();
+                                swz[i] = 1;
+                                used[i] = 1;
+                            }
+                        }
+                    }
+                } else if (la == '-') {
+                    tk = lex();
+                    if (lookahead() != TK_INTCONST) {
+                        err = TRUE;
+                    } else {
+                        tk = lex();
+                        c4 = tkintconst;
+                        if (c4.lo != 1 || lookahead() != ':') {
+                            err = TRUE;
+                        } else {
+                            tk = lex();
+                            if (lookahead() != TK_INTCONST) {
+                                err = TRUE;
+                            } else {
+                                tk = lex();
+                                c5 = tkintconst;
+                                if (c5.lo != 1 || lookahead() != ']') {
+                                    err = TRUE;
+                                } else {
+                                    tk = lex();
+                                    swz[i] = 3;
+                                    used[i] = 1;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    err = TRUE;
+                }
+                break;
+        }
+    } while (!err);
+
+    bits = 0;
+    if (err) {
+        CError_Error(0x2D);
+        while (tk != TK_EOL && tk != '"' && tk != 0) {
+            tk = lex();
+        }
+    } else {
+        bits |= (absval[0] << 8) | swz[0];
+        bits |= (swz[1] << 2) | (absval[1] << 9);
+        bits |= (swz[2] << 4) | (absval[2] << 10);
+        bits |= (swz[3] << 6) | (absval[3] << 11);
+    }
+    CPrep_UnLex();
+    tk = '"';
+    op->type = MOpnd_Imm;
+    CInt64_SetLong(&op->u.imm, bits);
+}
+
+// a component of a VFPU source prefix (0xC bytes)
+typedef struct VPfxComp {
+    SInt32 neg;
+    SInt32 abs;
+    SInt8 swz; // x/y/z/w, or -1
+    SInt8 cst; // 0, 1, 2, 1/2, 3, 1/3, 1/4, 1/6, or -1
+} VPfxComp;
+
+// 0x489DE0: a VFPU source prefix with negation, |x|, swizzles and
+// constants; or a number
+void func_00489DE0(MAsmOperand* op) {
+    VPfxComp comp[4];
+    CInt64 c1;
+    CInt64 c2;
+    SInt32 bits;
+    SInt32 la;
+    SInt32 sh;
+    int k;
+    int i;
+    char ch;
+    Boolean err;
+
+    i = 0;
+    err = FALSE;
+    if (tk == TK_INTCONST) {
+        la = lookahead();
+        if (la != '/' && la != ',') {
+            func_0048AA50(op, 0, 0xFFFFFF);
+            return;
+        }
+    }
+
+    for (k = 0; k < 4; k++) {
+        comp[k].neg = 0;
+        comp[k].abs = 0;
+        comp[k].swz = -1;
+        comp[k].cst = -1;
+    }
+
+    CPrep_UnLex();
+    do {
+        tk = lex();
+        if (tk == TK_EOL || tk == '"' || tk == ';') {
+            if (i != 3) {
+                err = TRUE;
+            }
+            break;
+        }
+        switch (tk) {
+            default:
+                err = TRUE;
+                break;
+            case ',':
+                if (comp[i].swz != -1 || comp[i].cst != -1) {
+                    if (++i < 4) {
+                        break;
+                    }
+                }
+                err = TRUE;
+                break;
+            case '-':
+                if (comp[i].neg) {
+                    err = TRUE;
+                } else {
+                    comp[i].neg = 1;
+                }
+                break;
+            case TK_IDENTIFIER:
+                ch = tkidentifier->name[0];
+                if (tkidentifier->name[1] || comp[i].swz != -1 || comp[i].cst != -1) {
+                    err = TRUE;
+                } else if (ch == 'x' || ch == 'X') {
+                    comp[i].swz = 0;
+                } else if (ch == 'y' || ch == 'Y') {
+                    comp[i].swz = 1;
+                } else if (ch == 'z' || ch == 'Z') {
+                    comp[i].swz = 2;
+                } else if (ch == 'w' || ch == 'W') {
+                    comp[i].swz = 3;
+                } else {
+                    err = TRUE;
+                }
+                break;
+            case '|':
+                if (comp[i].swz != -1 || comp[i].cst != -1 || comp[i].abs) {
+                    err = TRUE;
+                    break;
+                }
+                tk = lex();
+                if (tk != TK_IDENTIFIER || tkidentifier->name[1]) {
+                    err = TRUE;
+                    break;
+                }
+                ch = tkidentifier->name[0];
+                if (ch == 'x' || ch == 'X') {
+                    comp[i].swz = 0;
+                } else if (ch == 'y' || ch == 'Y') {
+                    comp[i].swz = 1;
+                } else if (ch == 'z' || ch == 'Z') {
+                    comp[i].swz = 2;
+                } else if (ch == 'w' || ch == 'W') {
+                    comp[i].swz = 3;
+                } else {
+                    err = TRUE;
+                    break;
+                }
+                tk = lex();
+                if (tk == '|') {
+                    comp[i].abs = 1;
+                } else {
+                    err = TRUE;
+                }
+                break;
+            case TK_INTCONST:
+                if (comp[i].swz != -1 || comp[i].cst != -1 || comp[i].abs) {
+                    err = TRUE;
+                    break;
+                }
+                c1 = tkintconst;
+                if (c1.lo == 0) {
+                    comp[i].cst = 0;
+                } else if (c1.lo == 1) {
+                    if (lookahead() != '/') {
+                        comp[i].cst = 1;
+                    } else {
+                        tk = lex();
+                        if (lookahead() != TK_INTCONST) {
+                            err = TRUE;
+                            break;
+                        }
+                        tk = lex();
+                        c2 = tkintconst;
+                        if (c2.lo == 2) {
+                            comp[i].cst = 3;
+                        } else if (c2.lo == 3) {
+                            comp[i].cst = 5;
+                        } else if (c2.lo == 4) {
+                            comp[i].cst = 6;
+                        } else if (c2.lo == 6) {
+                            comp[i].cst = 7;
+                        } else {
+                            err = TRUE;
+                        }
+                    }
+                } else if (c1.lo == 2) {
+                    comp[i].cst = 2;
+                } else if (c1.lo == 3) {
+                    comp[i].cst = 4;
+                } else {
+                    err = TRUE;
+                }
+                break;
+        }
+    } while (!err);
+
+    bits = 0;
+    if (err) {
+        CError_Error(0x2D);
+        while (tk != TK_EOL && tk != '"' && tk != 0) {
+            tk = lex();
+        }
+    } else {
+        for (i = 0, sh = 0; i < 4; i++, sh += 2) {
+            bits |= comp[i].neg << (i + 16);
+            if (comp[i].swz != -1) {
+                bits |= (comp[i].abs << (i + 8)) | (comp[i].swz << sh);
+            } else {
+                bits |= ((comp[i].cst & 3) << sh) | (0x1000 << i) | ((comp[i].cst & 4) << (i + 6));
+            }
+        }
+    }
+    CPrep_UnLex();
+    tk = '"';
+    op->type = MOpnd_Imm;
+    CInt64_SetLong(&op->u.imm, bits);
+}
+
+extern Boolean CInt64_IsZero(CInt64* n);
+extern void CPrep_MatchChar(char ch, Boolean flag);
+
+// 0x48A340: vrot's rotation: [c, s, -s, 0, ...] for n (2-4) components;
+// each is 1 none, 2 '-', 3 c, 4 s, 5 -s, 6 0 (octal digits of the key)
+void func_0048A340(MAsmOperand* op, SInt32 n) {
+    UInt8 comp[4];
+    Boolean err;
+    SInt32 val;
+    int i;
+    char ch;
+    UInt8 state;
+
+    i = 0;
+    val = 0;
+    err = FALSE;
+    *(SInt32*)comp = 0;
+    state = 1;
+    if (tk != '[') {
+        func_0048AA50(op, 0, 0x1F);
+        return;
+    }
+
+    while (!err && tk != ']') {
+        tk = lex();
+        if (tk == ']') {
+            err = (UInt8)(state - 3) > 3;
+            break;
+        } else if (tk == ',') {
+            if (state == 3 || state == 4 || state == 5 || state == 6) {
+                if (++i > n) {
+                    err = TRUE;
+                }
+            } else {
+                err = TRUE;
+            }
+            state = 1;
+        } else if (tk == '-') {
+            err = state != 1;
+            state = 2;
+        } else if (tk == TK_IDENTIFIER) {
+            ch = tkidentifier->name[0];
+            if ((ch == 'c' || ch == 'C') && !tkidentifier->name[1]) {
+                err = state != 1;
+                state = 3;
+                comp[i] = state;
+            } else if ((ch == 's' || ch == 'S') && !tkidentifier->name[1]) {
+                if (state == 2) {
+                    state = 5;
+                    comp[i] = state;
+                } else if (state == 1) {
+                    state = 4;
+                    comp[i] = state;
+                } else {
+                    err = TRUE;
+                }
+            } else {
+                err = TRUE;
+            }
+        } else if (tk == TK_INTCONST) {
+            if (state == 1 && CInt64_IsZero(&tkintconst)) {
+                state = 6;
+                comp[i] = state;
+            } else {
+                err = TRUE;
+            }
+        } else {
+            err = TRUE;
+        }
+    }
+
+    if (tk != ']') {
+        CPrep_MatchChar(']', TRUE);
+    }
+    if (err) {
+        CError_Error(0x2D);
+    } else if (n == 2) {
+        switch ((comp[0] << 3) | comp[1]) {
+            case 034:
+                val = 4;
+                break;
+            case 035:
+                val = 20;
+                break;
+            case 036:
+                val = 12;
+                break;
+            case 043:
+                val = 1;
+                break;
+            case 044:
+                val = 15;
+                break;
+            case 046:
+                val = 3;
+                break;
+            case 053:
+                val = 17;
+                break;
+            case 055:
+                val = 31;
+                break;
+            case 056:
+                val = 19;
+                break;
+            case 063:
+                val = 13;
+                break;
+            case 064:
+                val = 7;
+                break;
+            case 065:
+                val = 23;
+                break;
+            case 066:
+                val = 11;
+                break;
+            default:
+                CError_Error(0x2D);
+                break;
+        }
+    } else if (n == 3) {
+        switch ((comp[0] << 6) | (comp[1] << 3) | comp[2]) {
+            case 0344:
+                val = 0;
+                break;
+            case 0346:
+                val = 4;
+                break;
+            case 0355:
+                val = 16;
+                break;
+            case 0356:
+                val = 20;
+                break;
+            case 0364:
+                val = 8;
+                break;
+            case 0365:
+                val = 24;
+                break;
+            case 0366:
+                val = 12;
+                break;
+            case 0434:
+                val = 5;
+                break;
+            case 0436:
+                val = 1;
+                break;
+            case 0443:
+                val = 10;
+                break;
+            case 0444:
+                val = 15;
+                break;
+            case 0463:
+                val = 2;
+                break;
+            case 0466:
+                val = 3;
+                break;
+            case 0535:
+                val = 21;
+                break;
+            case 0536:
+                val = 17;
+                break;
+            case 0553:
+                val = 26;
+                break;
+            case 0555:
+                val = 31;
+                break;
+            case 0563:
+                val = 18;
+                break;
+            case 0566:
+                val = 19;
+                break;
+            case 0634:
+                val = 9;
+                break;
+            case 0635:
+                val = 25;
+                break;
+            case 0636:
+                val = 13;
+                break;
+            case 0643:
+                val = 6;
+                break;
+            case 0646:
+                val = 7;
+                break;
+            case 0653:
+                val = 22;
+                break;
+            case 0656:
+                val = 23;
+                break;
+            case 0663:
+                val = 14;
+                break;
+            case 0664:
+                val = 11;
+                break;
+            case 0665:
+                val = 27;
+                break;
+            default:
+                CError_Error(0x2D);
+                break;
+        }
+    } else if (n == 4) {
+        switch ((comp[0] << 9) | (comp[1] << 6) | (comp[2] << 3) | comp[3]) {
+            case 03444:
+                val = 0;
+                break;
+            case 03466:
+                val = 4;
+                break;
+            case 03555:
+                val = 16;
+                break;
+            case 03566:
+                val = 20;
+                break;
+            case 03646:
+                val = 8;
+                break;
+            case 03656:
+                val = 24;
+                break;
+            case 03664:
+                val = 12;
+                break;
+            case 03665:
+                val = 28;
+                break;
+            case 04344:
+                val = 5;
+                break;
+            case 04366:
+                val = 1;
+                break;
+            case 04434:
+                val = 10;
+                break;
+            case 04443:
+                val = 15;
+                break;
+            case 04636:
+                val = 2;
+                break;
+            case 04663:
+                val = 3;
+                break;
+            case 05355:
+                val = 21;
+                break;
+            case 05366:
+                val = 17;
+                break;
+            case 05535:
+                val = 26;
+                break;
+            case 05553:
+                val = 31;
+                break;
+            case 05636:
+                val = 18;
+                break;
+            case 05663:
+                val = 19;
+                break;
+            case 06346:
+                val = 9;
+                break;
+            case 06356:
+                val = 25;
+                break;
+            case 06364:
+                val = 13;
+                break;
+            case 06365:
+                val = 29;
+                break;
+            case 06436:
+                val = 6;
+                break;
+            case 06463:
+                val = 7;
+                break;
+            case 06536:
+                val = 22;
+                break;
+            case 06563:
+                val = 23;
+                break;
+            case 06634:
+                val = 14;
+                break;
+            case 06635:
+                val = 30;
+                break;
+            case 06643:
+                val = 11;
+                break;
+            case 06653:
+                val = 27;
+                break;
+            default:
+                CError_Error(0x2D);
+                break;
+        }
+    }
+    tk = '"';
+    op->type = MOpnd_Imm;
+    CInt64_SetLong(&op->u.imm, val);
+}
+
+// 0x481EE0: an mtc1 (tofloat: the int in operand 0 into the float) or an
+// mfc1 next to stmt, moving a variable between register
+// classes
+void func_00481EE0(Statement* stmt, Object* gpr, Object* fpr, Boolean tofloat, Boolean after) {
+    Statement* s;
+    OpcodeDef* def;
+    MAsmInstruction* mi;
+
+    if (after) {
+        s = CFunc_InsertStatement((StatementType)16, stmt);
+        if (curstmt == stmt && stmt->next) {
+            curstmt = stmt->next;
+        }
+    } else {
+        s = CFunc_InsertBeforeStatement((StatementType)16, stmt);
+        if (curstmt == stmt && stmt->next) {
+            curstmt = stmt->next;
+        }
+    }
+    s->expr = NULL;
+
+    def = tofloat ? &data_006115F8[0xAD] : &data_006115F8[0xA5];
+    mi = lalloc(def->nargs * sizeof(MAsmOperand) + 8);
+    if (tofloat) {
+        mi->opcode = 0xAD;
+    } else {
+        mi->opcode = 0xA5;
+    }
+    mi->flags = 0x20;
+    mi->nops = 2;
+    mi->ops[0].type = MOpnd_Reg;
+    mi->ops[0].u.reg.num = 0;
+    mi->ops[0].u.reg.object = gpr;
+    mi->ops[1].type = MOpnd_Reg;
+    mi->ops[1].u.reg.num = 0;
+    mi->ops[1].u.reg.object = fpr;
+    mi->ops[0].rclass = 0;
+    mi->ops[1].rclass = 1;
+    if (tofloat) {
+        mi->ops[0].effect = 1;
+        mi->ops[1].effect = 2;
+    } else {
+        mi->ops[0].effect = 2;
+        mi->ops[1].effect = 1;
+    }
+    s->expr = (ENode*)mi;
+}
+
+// 0x481FE0: an instruction's mnemonic
+char* func_00481FE0(MAsmInstruction* mi) {
+    return data_006115F8[mi->opcode].name;
+}
+
+#include "psp/BE.h"
+
+extern SInt16 data_00625E56; // the current block's flags (.set reorder/noreorder)
+extern Boolean data_00625E7E;
+extern MPCodeBlock* data_00624C18;
+extern SInt32 data_006241E0[7]; // registers in each class
+extern SInt32 data_0060E038[7][128]; // the registers of each class
+extern SInt32 func_004B8990(void);
+extern SInt32 func_00461F50(void);
+extern void func_0046FA50(void);
+extern MPCode* func_00482330(MAsmInstruction* mi, int nargs);
+
+// 0x482000: an asm statement's instruction into PCode
+void func_00482000(Statement* stmt) {
+    MAsmInstruction* mi;
+    MPCode* pc;
+    MOperand* arg;
+    MPCodeLabel* label;
+    SInt32 reg;
+    int nargs;
+    int rclass;
+    int i;
+
+    mi = (MAsmInstruction*)stmt->expr;
+    nargs = data_006115F8[mi->opcode].nargs;
+    if (mi->opcode == 0x5C4) {
+        // .set
+        if (((AsmSetRecord*)mi)->mode & 4) {
+            volatileasm = 1;
+        }
+        if (((AsmSetRecord*)mi)->mode & 0x10) {
+            volatileasm = 0;
+        }
+        if (((AsmSetRecord*)mi)->mode & 1) {
+            data_00625EAC = 0;
+            func_0046FA50();
+            data_00625E56 &= 0xBF77;
+            data_006246B4->flags2E = data_00625E56;
+        }
+        if (((AsmSetRecord*)mi)->mode & 2) {
+            data_00625EAC = 1;
+            func_0046FA50();
+            data_00625E56 |= 0x4088;
+            data_006246B4->flags2E = data_00625E56;
+        }
+        return;
+    }
+
+    if (data_006115F8[mi->opcode].flags & 8) {
+        i = func_004B8990();
+        nargs += func_00461F50() - i;
+    }
+    pc = func_00482330(mi, nargs);
+    pc->flags |= 0x200000;
+    appendpcode(data_006246B4, pc);
+
+    if (pc->flags & 1) {
+        if (data_006115F8[pc->op].flags & 8) {
+            // a call: the registers it uses
+            arg = &pc->args[nargs - 1];
+            for (rclass = 0; rclass < 7; rclass++) {
+                for (i = 0; i < data_006241E0[rclass]; i++) {
+                    if (rclass == 5) {
+                        break;
+                    }
+                    reg = data_0060E038[rclass][i];
+                    arg->kind = 0;
+                    arg->rclass = rclass;
+                    arg->reg = reg;
+                    arg->flags = 3;
+                    arg--;
+                }
+            }
+        }
+        if (pc->op < 0x518) {
+            data_00624C3C = pc;
+        }
+        if (pc->flags & 0x10000000) {
+            label = makepclabel();
+            for (arg = pc->args;; arg++) {
+                if (arg->kind == 6) {
+                    pcbranch(data_006246B4, (MPCodeLabel*)arg->ptr, 0);
+                    pcbranch(data_006246B4, label, 0);
+                    data_006246B4->flags2E |= data_00625E56;
+                    makepcblock();
+                    pclabel(data_006246B4, label);
+                    break;
+                }
+            }
+        } else if (pc->op == 0x3B) {
+            data_006246B4->flags2E |= data_00625E56;
+            makepcblock();
+        } else if (pc->args[0].kind == 6) {
+            pcbranch(data_006246B4, (MPCodeLabel*)pc->args[0].ptr, 0);
+            data_006246B4->flags2E |= data_00625E56;
+            makepcblock();
+        } else {
+            data_006246B4->flags2E |= data_00625E56;
+            func_0046FA50();
+        }
+    } else {
+        if (data_00624C3C && (data_00625E56 & 0x4000) && pc->op < 0x518 && !data_00625E7E) {
+            // noreorder: fill the delay slot of the branch before
+            deletepcode(pc);
+            insertpcodebefore(data_00624C3C, pc);
+            pc->flags |= 0x40000000;
+        }
+        data_00624C3C = NULL;
+    }
+
+    if (data_00625E7E) {
+        data_00625E7E = 0;
+    }
+    data_006246B4->flags2E |= data_00625E56;
+    data_00624C18 = data_006246B4;
+}
+
+// 0x4833E0: a VFPU register operand (class 5, numbered matrix*100 +
+// column*10 + row) of a vector or matrix instruction, written out as one
+// operand per element; src becomes the instruction's encoded register.
+// Returns the element count, 0 if the register does not fit the operand.
+int func_004833E0(MOperand* src, int index, UInt16 opcode, MOperand* out) {
+    int count;
+    int transpose;
+    int reg;
+    int mode;
+    int size;
+    int outer;
+    int mtx;
+    int col;
+    int row;
+    int base;
+    int i;
+    int j;
+    int rr;
+    int cc;
+    int a;
+    int b;
+    int num;
+    UInt8 kind;
+
+    count = 0;
+    transpose = 0;
+    reg = src->reg;
+    mode = -1;
+    if (src->kind != 0 || src->rclass != 5) {
+        CError_FATAL(3705);
+        return 0;
+    }
+
+    size = 0;
+    switch (opcode) {
+        case 0x454:
+        case 0x458:
+        case 0x459:
+        case 0x45B:
+        case 0x45C:
+        case 0x470:
+        case 0x472:
+        case 0x473:
+        case 0x495:
+        case 0x498:
+        case 0x4AC:
+        case 0x4AD:
+        case 0x4D7:
+        case 0x4D9:
+        case 0x4DA:
+        case 0x4DC:
+        case 0x4F6:
+        case 0x4F7:
+            if (index == 0) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x421:
+        case 0x42C:
+        case 0x432:
+        case 0x434:
+        case 0x4D8:
+        case 0x4DB:
+        case 0x4DD:
+        case 0x4F1:
+        case 0x4F2:
+        case 0x4F3:
+            if (index == 0) {
+                size = 2;
+                mode = 0;
+            }
+            break;
+        case 0x489:
+            if (index == 0) {
+                size = 2;
+                mode = 0;
+            } else if (index == 1) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x4C3:
+            if (index == 0) {
+                size = 3;
+                mode = 0;
+            } else if (index == 1) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x50E:
+            if (index == 0) {
+                size = 4;
+                mode = 0;
+            } else if (index == 1) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x450:
+        case 0x451:
+        case 0x45A:
+        case 0x467:
+        case 0x46C:
+        case 0x46E:
+            if (index == 0) {
+                size = 4;
+                mode = 0;
+            }
+            break;
+        case 0x474:
+        case 0x47F:
+            if (index == 1) {
+                size = 2;
+                mode = 1;
+            }
+            break;
+        case 0x4AE:
+        case 0x4B9:
+            if (index == 1) {
+                size = 3;
+                mode = 1;
+            }
+            break;
+        case 0x4F8:
+        case 0x504:
+            if (index == 1) {
+                size = 4;
+                mode = 1;
+            }
+            break;
+        case 0x478:
+        case 0x47A:
+        case 0x4B2:
+        case 0x4B4:
+        case 0x4FC:
+        case 0x4FF:
+            if (index == 2) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x418:
+            if (index == 0) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+        case 0x40E:
+        case 0x40F:
+        case 0x419:
+            if (index == 1) {
+                size = 1;
+                mode = 0;
+            }
+            break;
+    }
+
+    if (size == 0) {
+        if ((opcode >= 0x41A && opcode <= 0x451) || opcode == 0x5BA) {
+            size = 1;
+        } else if (opcode >= 0x452 && opcode <= 0x492) {
+            size = 2;
+        } else if (opcode >= 0x493 && opcode <= 0x4CB) {
+            size = 3;
+        } else if (opcode >= 0x4CC && opcode <= 0x517) {
+            size = 4;
+        } else {
+            return 0;
+        }
+    }
+
+    if (mode < 0) {
+        // the matrix instructions
+        switch (opcode) {
+            case 0x45E:
+            case 0x477:
+            case 0x478:
+            case 0x48B:
+            case 0x48C:
+            case 0x48D:
+            case 0x49A:
+            case 0x4B1:
+            case 0x4B2:
+            case 0x4C4:
+            case 0x4C5:
+            case 0x4C6:
+            case 0x4DF:
+            case 0x4FB:
+            case 0x4FC:
+            case 0x510:
+            case 0x511:
+            case 0x512:
+                mode = 1;
+                break;
+            default:
+                mode = 0;
+                break;
+        }
+    }
+
+    mtx = (reg / 100) % 10;
+    row = reg % 10;
+    col = (reg / 10) % 10;
+    if ((reg >= 2000 && reg <= 2733) || (reg >= 4000 && reg <= 4733)) {
+        transpose = 0x20; // row (R) and transposed matrix (E) forms
+    }
+
+    switch (size) {
+        case 1:
+            if (reg < 0x80) {
+                *out = *src;
+                return 1;
+            }
+            return 0;
+        case 2:
+            if (mode) {
+                if ((row | col) & 1) {
+                    return 0;
+                }
+                kind = 5;
+            } else if (transpose) {
+                if (col & 1) {
+                    return 0;
+                }
+                kind = 2;
+            } else {
+                if (row & 1) {
+                    return 0;
+                }
+                kind = 2;
+            }
+            break;
+        case 3:
+            if (mode) {
+                if (row > 1 || col > 1) {
+                    return 0;
+                }
+                kind = 6;
+            } else if (transpose) {
+                if (col > 1) {
+                    return 0;
+                }
+                kind = 3;
+            } else {
+                if (row > 1) {
+                    return 0;
+                }
+                kind = 3;
+            }
+            break;
+        case 4:
+            if (mode) {
+                if (row | col) {
+                    return 0;
+                }
+                kind = 7;
+            } else if (transpose) {
+                if (col) {
+                    return 0;
+                }
+                kind = 4;
+            } else {
+                if (row) {
+                    return 0;
+                }
+                kind = 4;
+            }
+            break;
+        default:
+            return 0;
+    }
+
+    if (mode) {
+        outer = size;
+    } else if (transpose) {
+        outer = size;
+        size = 1;
+    } else {
+        outer = 1;
+    }
+
+    for (i = 0; i < outer; i++) {
+        base = mtx << 2;
+        for (j = 0; j < size; j++) {
+            rr = row + i;
+            cc = col + j;
+            if (!transpose) {
+                a = cc;
+                b = rr;
+            } else {
+                a = rr;
+                b = cc;
+            }
+            num = (rr << 5) | (cc | base);
+            *out = *src;
+            out->reg = num;
+            out++;
+            if (count++ == 0) {
+                switch (kind) {
+                    case 0:
+                        return 0;
+                    case 1:
+                        src->reg = num;
+                        continue;
+                    case 2:
+                        src->reg = ((b & 2) << 5) | (a | base) | transpose;
+                        break;
+                    case 3:
+                        src->reg = ((b & 1) << 6) | (a | base) | transpose;
+                        break;
+                    case 4:
+                        src->reg = a | base | transpose;
+                        break;
+                    case 5:
+                        src->reg = ((b & 2) << 5) | ((a & 2) | base) | transpose;
+                        break;
+                    case 6:
+                        src->reg = ((b & 1) << 6) | ((a & 1) | base) | transpose;
+                        break;
+                    case 7:
+                        src->reg = transpose | base;
+                        break;
+                }
+                src->flags = 0;
+            }
+        }
+    }
+
+    if (index == 1 && (opcode == 0x477 || opcode == 0x4B1 || opcode == 0x4FB)) {
+        src->reg ^= 0x20;
+    }
+    return count;
+}
+
+extern SInt32 data_00624D84; // the current source position
+extern struct Alias* make_alias(Object* obj, SInt32 offset, SInt32 size);
+extern SInt32 func_0048FBE0(UInt16 op); // an opcode's memory access size
+extern Boolean is_volatile_object(Object* obj);
+extern Boolean is_const_object(Object* obj);
+
+// the register number a variable was allocated to, or 0
+static SInt16 asm_var_reg(Object* obj) {
+    return obj->datatype == DLOCAL ? obj->u.var.info->reg : 0;
+}
+
+// 0x482330: an asm instruction's PCode, its operands converted by the
+// opcode's format; VFPU vector operands also get one operand per element
+MPCode* func_00482330(MAsmInstruction* mi, int nargs) {
+    OpcodeDef* def;
+    MPCode* pc;
+    MAsmOperand* op;
+    MOperand* arg;
+    MOperand extra[64];
+    char buf[20];
+    char* fmt;
+    ObjAddress addr;
+    SInt32 mode;
+    UInt32 extracount;
+    UInt32 extraslots;
+    UInt32 i;
+    int size;
+    int k;
+    int n;
+    int reg;
+    char ch;
+    Boolean vfpupair;
+
+    def = &data_006115F8[mi->opcode];
+    fmt = def->format;
+    vfpupair = FALSE;
+    extraslots = 0;
+    extracount = 0;
+    if (*fmt == '#') {
+        CError_FATAL(4157);
+    }
+
+    if (mi->opcode >= 0x40A && mi->opcode <= 0x517) {
+        // VFPU: room for the elements of its vector operands
+        k = 0;
+        if ((mi->opcode >= 0x41A && mi->opcode <= 0x451) || mi->opcode == 0x5BA) {
+            k = 1;
+        } else if (mi->opcode >= 0x452 && mi->opcode <= 0x492) {
+            k = 2;
+        } else if (mi->opcode >= 0x493 && mi->opcode <= 0x4CB) {
+            k = 3;
+        } else if (mi->opcode >= 0x4CC && mi->opcode <= 0x517) {
+            k = 4;
+        }
+        if (mi->opcode == 0x510 ||
+            mi->opcode == 0x4C4 ||
+            mi->opcode == 0x48B ||
+            mi->opcode == 0x4DF ||
+            mi->opcode == 0x49A ||
+            mi->opcode == 0x45E ||
+            mi->opcode == 0x4FB ||
+            mi->opcode == 0x4B1 ||
+            mi->opcode == 0x477 ||
+            mi->opcode == 0x511 ||
+            mi->opcode == 0x4C5 ||
+            mi->opcode == 0x48C ||
+            mi->opcode == 0x4FC ||
+            mi->opcode == 0x4B2 ||
+            mi->opcode == 0x478 ||
+            mi->opcode == 0x512 ||
+            mi->opcode == 0x4C6 ||
+            mi->opcode == 0x48D) {
+            extraslots = k * 3 * k;
+        } else if (mi->opcode == 0x474 ||
+                   mi->opcode == 0x47F ||
+                   mi->opcode == 0x4AE ||
+                   mi->opcode == 0x4B9 ||
+                   mi->opcode == 0x4F8 ||
+                   mi->opcode == 0x504) {
+            extraslots = k * k + k * 2;
+        } else if (mi->opcode == 0x450 || mi->opcode == 0x451) {
+            extraslots = k << 2;
+        } else {
+            extraslots = k * 3;
+        }
+    }
+
+    size = PCODE_SIZE(nargs + extraslots);
+    pc = lalloc(size);
+    memset(pc, 0, size);
+    pc->argcount = nargs;
+    pc->op = mi->opcode;
+    pc->unk20 = data_00624D84;
+    pc->flags |= def->flags;
+    if (volatileasm || data_00625EAC || (mi->flags & 4)) {
+        if (!(mi->flags & 0x20)) {
+            pc->flags |= 0x100;
+            pc->flags &= ~0x4010;
+        }
+    }
+
+    op = mi->ops;
+    arg = pc->args;
+    if (*fmt) {
+        do {
+            if (*fmt == ';') {
+                fmt++;
+            }
+            if (*fmt == ',') {
+                fmt++;
+            }
+            if (*fmt == '(' || *fmt == '[') {
+                fmt++;
+            }
+            mode = 1;
+            if (*fmt == '=') {
+                fmt++;
+                mode = 2;
+            } else if (*fmt == '+') {
+                mode = 3;
+                fmt++;
+            }
+            if (*fmt == '!') {
+                mode |= 0xFFFF8000;
+                fmt++;
+                if (copts.mips_option1A) {
+                    mode |= 0x20;
+                }
+            }
+            if (*fmt == '$') {
+                mode |= 0x2000;
+                fmt++;
+            }
+            if (*fmt == '2') {
+                fmt++;
+                vfpupair = TRUE;
+                if (*fmt == '+') {
+                    fmt++;
+                }
+            }
+            if (*fmt == '\'') {
+                fmt++;
+            }
+
+            switch (*fmt) {
+                case '&':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    if (arg->value < 15) {
+                        pc->flags &= ~0x4010;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case '<':
+                case '>':
+                case '@':
+                case 'X':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'e':
+                case 'i':
+                case 'j':
+                case 'k':
+                    arg->kind = 3;
+                    arg->value = op->u.imm.hi;
+                    arg->value2 = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'B':
+                case 'C':
+                case 'M':
+                case 'c':
+                case 'v':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'h':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 0;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'H':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 1;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'Y':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 7;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'Z':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 2;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case '1':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 3;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case '3':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 6;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'r':
+                    arg->kind = 0;
+                    arg->rclass = 0;
+                    arg->reg = 31;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case '0':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 4;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'Q':
+                case 'R':
+                    if (vfpupair) {
+                        arg->kind = 0;
+                        arg->rclass = 6;
+                        arg->reg = op->u.reg.num;
+                        arg->flags = mode;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'I':
+                    if (vfpupair) {
+                        arg->kind = 0;
+                        arg->rclass = 6;
+                        arg->reg = op->u.reg.num;
+                        arg->flags = mode;
+                    } else {
+                        arg->kind = 3;
+                        arg->value = op->u.imm.hi;
+                        arg->value2 = op->u.imm.lo;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'K':
+                    // the condition register an FP or VFPU compare/branch uses
+                    switch (pc->op) {
+                        case 0x68:
+                        case 0x69:
+                        case 0x6A:
+                        case 0x6B:
+                        case 0x1CD:
+                        case 0x1CE:
+                        case 0x1CF:
+                        case 0x1D0:
+                            arg->kind = 0;
+                            if (pc->args[1].reg == 0x14) {
+                                arg->rclass = 6;
+                                arg->reg = 3;
+                                arg->flags = mode;
+                            } else if (pc->args[1].reg == 0x15) {
+                                arg->rclass = 6;
+                                arg->reg = 0;
+                                arg->flags = mode;
+                            } else if (pc->args[1].reg == 0x16) {
+                                arg->rclass = 6;
+                                arg->reg = 1;
+                                arg->flags = mode;
+                            } else {
+                                arg->kind = 7;
+                            }
+                            break;
+                        case 0x26C:
+                        case 0x273:
+                        case 0x27C:
+                        case 0x296:
+                        case 0x29D:
+                        case 0x2B3:
+                        case 0x2BA:
+                        case 0x2C2:
+                        case 0x2C9:
+                        case 0x2D4:
+                        case 0x2D8:
+                        case 0x2DB:
+                        case 0x2E2:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x16;
+                            arg->flags = mode;
+                            break;
+                        case 0x26B:
+                        case 0x272:
+                        case 0x295:
+                        case 0x29C:
+                        case 0x2A3:
+                        case 0x2B2:
+                        case 0x2B9:
+                        case 0x2C1:
+                        case 0x2C8:
+                        case 0x2DA:
+                        case 0x2E1:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x15;
+                            arg->flags = mode;
+                            break;
+                        case 0x2D1:
+                        case 0x2D3:
+                        case 0x2D5:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x14;
+                            arg->flags = mode;
+                            break;
+                        default:
+                            CError_FATAL(4523);
+                            break;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'f':
+                    arg->kind = 3;
+                    arg->value = op->u.imm.hi;
+                    arg->value2 = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'p':
+                    arg->kind = 6;
+                    MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    if (!arg->value) {
+                        CError_FATAL(4541);
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'l':
+                    pc->unk38 = 2;
+                    arg->kind = 6;
+                    MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    if (!arg->value) {
+                        CError_FATAL(4551);
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'b':
+                    CError_FATAL(4585);
+                case 'a':
+                    pc->unk38 = 4;
+                    if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                        op++;
+                        arg++;
+                        break;
+                    }
+                    goto memory;
+                case 'q':
+                    pc->unk38 = 0xA;
+                case 'A':
+                case 'o':
+memory:
+                    if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                        pc->unk38 = 0;
+                    } else if (op->type == MOpnd_Imm) {
+                        arg->kind = 4;
+                        arg->value2 = 0;
+                        arg->value = op->u.imm.lo;
+                        pc->unk38 = 0;
+                    } else if (op->type == MOpnd_Reg) {
+                        // through the register a variable is in
+                        arg->kind = 4;
+                        arg->value2 = 0;
+                        arg->value = 0;
+                        arg++;
+                        arg->kind = 0;
+                        arg->rclass = 0;
+                        if (op->u.reg.object &&
+                            Registers_GetVarInfo(op->u.reg.object) &&
+                            Registers_GetVarInfo(op->u.reg.object)->reg) {
+                            arg->reg = Registers_GetVarInfo(op->u.reg.object)->reg;
+                        }
+                        arg->flags = 1;
+                    } else {
+                        arg->kind = 4;
+                        MOP_SETOBJ(*arg, op->u.obj.obj);
+                        arg->value = op->u.obj.offset + op->u.obj.obj->u.var.offset;
+                        pc->relobj = (Object*)MOP_OBJ(*arg);
+                        if (pc->flags & 6) {
+                            pc->alias = make_alias(
+                                (Object*)MOP_OBJ(*arg),
+                                arg->value - op->u.obj.obj->u.var.offset,
+                                func_0048FBE0(pc->op)
+                            );
+                            if (is_volatile_object((Object*)MOP_OBJ(*arg))) {
+                                pc->flags |= 0x80;
+                            }
+                            if (is_const_object((Object*)MOP_OBJ(*arg))) {
+                                pc->flags |= 0x40;
+                            }
+                        }
+                        ObjGen_GetObjectAddress(op->u.obj.obj, &addr);
+                        if (*fmt == 'A') {
+                            arg++;
+                            arg->kind = 0;
+                            arg->rclass = 0;
+                            arg->reg = addr.basereg;
+                            arg->flags = 1;
+                        } else if (*fmt != 'a') {
+                            op[1].u.reg.num = addr.basereg;
+                        }
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'U':
+                    if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    } else {
+                        arg->kind = 4;
+                        MOP_SETOBJ(*arg, op->u.obj.obj);
+                        arg->value = op->u.obj.offset;
+                        pc->relobj = (Object*)MOP_OBJ(*arg);
+                        if (pc->flags & 6) {
+                            pc->alias = make_alias(
+                                (Object*)MOP_OBJ(*arg),
+                                arg->value - op->u.obj.obj->u.var.offset,
+                                func_0048FBE0(pc->op)
+                            );
+                        }
+                    }
+                    op++;
+                    arg++;
+                    pc->unk38 = 2;
+                    break;
+                case 'd':
+                case 's':
+                case 't':
+                case 'x':
+                    if (op->u.reg.object) {
+                        op->u.reg.num = asm_var_reg(op->u.reg.object);
+                        if (!op->u.reg.num) {
+                            CError_Error(0xA4, op->u.reg.object->name->name);
+                        }
+                    }
+                    arg->kind = 0;
+                    arg->rclass = 0;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'P':
+                    arg->kind = 0;
+                    arg->rclass = 0;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case '9':
+                    arg->kind = 0;
+                    arg->rclass = 3;
+                    arg->reg = 0x1B;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'D':
+                case 'S':
+                    if (op->u.reg.object &&
+                        op->u.reg.object->type->type != TYPEFLOAT &&
+                        !vfpupair) {
+                        op->u.reg.num = 0;
+                        CError_Error(0x2D);
+                    }
+                case 'E':
+                case 'N':
+                case 'T':
+                case 'V':
+                case 'W':
+                    if (op->u.reg.object) {
+                        op->u.reg.num = asm_var_reg(op->u.reg.object);
+                        if (!op->u.reg.num) {
+                            CError_Error(0xA4, op->u.reg.object->name->name);
+                        }
+                    }
+                    arg->kind = 0;
+                    arg->rclass = vfpupair ? 5 : 1;
+                    arg->reg = op->u.reg.num;
+                    if ((mode & 2) && !(op->effect & 1) && (mode & 1)) {
+                        mode &= ~1;
+                    }
+                    arg->flags = mode;
+                    if (vfpupair) {
+                        n = func_004833E0(arg, arg - pc->args, pc->op, &extra[extracount]);
+                        if (n == 0) {
+                            reg = arg->reg;
+                            if (arg->kind == 0 && arg->rclass == 5) {
+                                if (arg->kind == 0 && arg->rclass == 5 && reg < 0x80) {
+                                    sprintf(buf, "$%d", reg);
+                                } else {
+                                    if (arg->kind == 0 &&
+                                        arg->rclass == 5 &&
+                                        reg >= 1000 &&
+                                        reg <= 1733) {
+                                        ch = 'c';
+                                    } else if (arg->kind == 0 &&
+                                               arg->rclass == 5 &&
+                                               reg >= 2000 &&
+                                               reg <= 2733) {
+                                        ch = 'r';
+                                    } else if (arg->kind == 0 &&
+                                               arg->rclass == 5 &&
+                                               reg >= 3000 &&
+                                               reg <= 3733) {
+                                        ch = 'm';
+                                    } else if (arg->kind == 0 &&
+                                               arg->rclass == 5 &&
+                                               reg >= 4000 &&
+                                               reg <= 4733) {
+                                        ch = 'e';
+                                    } else {
+                                        ch = 'x';
+                                    }
+                                    sprintf(buf, "%c%03d", ch, reg % 1000);
+                                }
+                                func_004C5940(0x20, buf);
+                            } else {
+                                func_004C5940(0x21);
+                            }
+                        } else {
+                            if (n > 1 || arg->reg != extra[extracount].reg || arg->flags == 0) {
+                                extracount += n;
+                                if (extracount >= 64 || extracount > extraslots) {
+                                    CError_FATAL(4962);
+                                }
+                            }
+                        }
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'G':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'J':
+                case 'L':
+                    arg->kind = 0;
+                    arg->rclass = 6;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case '-':
+                case '|':
+                    break;
+                default:
+                    CError_FATAL(5002);
+                    break;
+            }
+
+            fmt++;
+            vfpupair = FALSE;
+            if (*fmt == ')' || *fmt == ']') {
+                fmt++;
+            }
+            if (*fmt == '}') {
+                fmt++;
+            }
+        } while (*fmt);
+    }
+
+    for (i = 0; i < extracount; i++) {
+        pc->argcount++;
+        *arg++ = extra[i];
+    }
+
+    if ((pc->flags & 6) && !pc->alias) {
+        pc->flags |= 0x20;
+    }
+    return pc;
+}

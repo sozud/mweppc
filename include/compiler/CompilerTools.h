@@ -7,6 +7,9 @@
 #include "compiler/win32.h"
 
 struct FSSpec;
+#if MWCCPSP
+struct CWFileSpec;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +42,9 @@ extern void (*GListErrorProc)(void);
 extern short InitGList(GList* gl, SInt32 size);
 extern void FreeGList(GList* gl);
 extern void LockGList(GList* gl);
+#if MWCCPSP
+extern void UnlockGList(GList* gl);
+#endif
 extern void ShrinkGList(GList* gl);
 extern void AppendGListData(GList* gl, const void* data, SInt32 size);
 extern void AppendGListNoData(GList* gl, SInt32 size);
@@ -84,7 +90,14 @@ extern void memclrw(void* ptr, SInt32 size);
 extern void CToLowercase(char* src, char* dst);
 extern short getbit(SInt32 mask);
 extern UInt16 CTool_EndianConvertWord16(UInt16 theword);
+#if MWCCPSP
+// 3.0.1: host and target are both little endian; no conversion function
+static inline UInt32 CTool_EndianConvertWord32(UInt32 theword) {
+    return theword;
+}
+#else
 extern UInt32 CTool_EndianConvertWord32(UInt32 theword);
+#endif
 extern void CTool_EndianConvertMem(void* data, short len);
 static inline UInt32 CTool_EndianReadWord32(void* ptr) {
     return *(UInt32*)ptr;
@@ -92,7 +105,12 @@ static inline UInt32 CTool_EndianReadWord32(void* ptr) {
 extern void CTool_EndianConvertWord64(CInt64 ci, char* result);
 extern UInt16 CTool_EndianConvertInPlaceWord16Ptr(UInt16* x);
 extern UInt32 CTool_EndianConvertInPlaceWord32Ptr(UInt32* x);
+#if MWCCPSP && !MWCCPSP_MAC_FILESPEC
+struct COSFileTime;
+extern char* CTool_GetPathName(const struct CWFileSpec* fss, struct COSFileTime* moddateptr);
+#else
 extern HashNameNode* CTool_GetPathName(const struct FSSpec* fss, SInt32* moddateptr);
+#endif
 
 #ifdef __cplusplus
 }

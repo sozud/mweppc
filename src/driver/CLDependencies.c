@@ -21,7 +21,13 @@ static Path* specialAccessPath;
 
 static Boolean FindFileInPaths(Paths* paths, const char* filename, Path** thepath, OSSpec* spec);
 Path* Deps_GetSpecialAccessPath(void);
+#if MWCCPSP
+static void SetSpecialAccessPathFromIncludeStackTOS(SInt32 specFormat);
+// 0x4246A0: a compiler file spec as an OSSpec (by the plugin's spec format)
+extern void func_004246A0(SInt32 specFormat, const void* cwspec, OSSpec* spec);
+#else
 static void SetSpecialAccessPathFromIncludeStackTOS(void);
+#endif
 
 Boolean Incls_Initialize(Incls* incls, Target* targ) {
     specialAccessPath = NULL;
@@ -118,7 +124,11 @@ static Boolean FindFileInPaths(Paths* paths, const char* filename, Path** thepat
 
     for (idx = 0; idx < Paths_Count(paths); idx++) {
         path = Paths_GetPath(paths, idx);
+#if MWCCPSP
+        OS_ASSERT(166, path);
+#else
         OS_ASSERT(175, path);
+#endif
         if (_FindFileInPath(path, filename, thepath, spec)) {
             return TRUE;
         }
@@ -176,9 +186,20 @@ static void AddFileToIncls(
     *index = incls->numincls++;
 }
 
+#if MWCCPSP
+Boolean Incls_FindFileInPaths(
+    SInt32 specFormat,
+    Incls* incls,
+    char* filename,
+    Boolean fullsearch,
+    OSSpec* spec,
+    SInt32* inclidx
+) {
+#else
 Boolean Incls_FindFileInPaths(
     Incls* incls, char* filename, Boolean fullsearch, OSSpec* spec, SInt32* inclidx
 ) {
+#endif
     Boolean found;
     InclFile* incl;
     Boolean userpath;
@@ -188,9 +209,24 @@ Boolean Incls_FindFileInPaths(
     Path* specialpath;
 
     found = FALSE;
+#if MWCCPSP
+    incl = NULL;
+    // 0x42DCD0: a system include search starts without the special path
+    if (optsCompiler.includeSearch == IncludeSearch_Include) {
+        if (fullsearch) {
+            SetSpecialAccessPathFromIncludeStackTOS(specFormat);
+        } else {
+            specialAccessPath = NULL;
+            if (optsCmdLine.verbose > 2) {
+                CLReport(CLStr105, "<none>");
+            }
+        }
+    }
+#else
     if (optsCompiler.includeSearch == IncludeSearch_Include && fullsearch) {
         SetSpecialAccessPathFromIncludeStackTOS();
     }
+#endif
     *inclidx = -1;
 
     foundglobal = QuickFindFileInIncls(incls, fullsearch, filename, spec, inclidx, &incl);
@@ -292,9 +328,15 @@ int Deps_ChangeSpecialAccessPath(OSSpec* srcfss, Boolean initialize) {
             }
             break;
         default:
+#if MWCCPSP
+            DO_INTERNAL_ERROR(
+                482, "Unhandled include file search type (%d)\n", optsCompiler.includeSearch
+            );
+#else
             DO_INTERNAL_ERROR(
                 468, "Unhandled include file search type (%d)\n", optsCompiler.includeSearch
             );
+#endif
     }
 
     specialAccessPath = FindOrAddGlobalInclPath(gTarg->incls.allPaths, pathspecptr);
@@ -308,6 +350,39 @@ Path* Deps_GetSpecialAccessPath(void) {
     return specialAccessPath;
 }
 
+#if MWCCPSP
+// 0x42E070
+static void SetSpecialAccessPathFromIncludeStackTOS(SInt32 specFormat) {
+    OSSpec spec;
+    SInt16 index;
+    char* fnameptr;
+    VFile* vf;
+
+    if (optsCompiler.includeSearch == IncludeSearch_Include && CLT_filesp && CLT_filestack) {
+        if (*CLT_filesp >= 0) {
+            index = *CLT_filesp;
+            while (index) {
+                if (!CLT_filestack[index]) {
+                    break;
+                }
+                func_004246A0(specFormat, &CLT_filestack[index--]->textfile, &spec);
+                fnameptr =
+                    OS_GetFileNamePtr(OS_NameSpecToString(&spec.name, STSbuf, sizeof(STSbuf)));
+                vf = VFiles_Find(gTarg->virtualFiles, fnameptr);
+                if (!vf) {
+                    if (!specialAccessPath ||
+                        !OS_EqualPathSpec(&spec.path, specialAccessPath->spec)) {
+                        Deps_ChangeSpecialAccessPath(&spec, FALSE);
+                        return;
+                    }
+                    return;
+                }
+            }
+        }
+        Deps_ChangeSpecialAccessPath(NULL, FALSE);
+    }
+}
+#else
 static void SetSpecialAccessPathFromIncludeStackTOS(void) {
     OSSpec spec;
     SInt16 index;
@@ -340,6 +415,7 @@ static void SetSpecialAccessPathFromIncludeStackTOS(void) {
         Deps_ChangeSpecialAccessPath(NULL, FALSE);
     }
 }
+#endif
 
 static Boolean FindDepFile(Deps* deps, SInt32 incl) {
     int idx;
@@ -415,6 +491,25 @@ static char* EscapeName(Boolean spaces, char* escbuf, char* path) {
     return ret;
 }
 
+#if MWCCPSP
+#if MWCCPSP_NATIVE
+// the native tool writes POSIX names (the specs keep Windows separators)
+static char* DepsName(char* buf, const char* name) {
+    char* p = buf;
+
+    while (*name) {
+        *(p++) = (*name == '\\') ? '/' : *name;
+        name++;
+    }
+    *p = 0;
+    return buf;
+}
+#define DEPS_NAME(buf, name) DepsName(buf, name)
+#else
+#define DEPS_NAME(buf, name) (name)
+#endif
+
+#endif
 void Deps_ListDependencies(Incls* incls, File* file, OSHandle* h) {
     Boolean spaces;
     int idx;
@@ -445,12 +540,24 @@ void Deps_ListDependencies(Incls* incls, File* file, OSHandle* h) {
         OS_SpecToStringRelative(&file->outfss, NULL, outfilename, sizeof(outfilename));
         if (outfilename[0]) {
             spaces = strchr(outfilename, ' ') != NULL;
+#if MWCCPSP
+            LIST_DEP("%s%s%s%s ", DEPS_NAME(path, outfilename), ":");
+#else
             LIST_DEP("%s%s%s%s ", outfilename, ":");
+#endif
             spaces = strchr(file->srcfilename, ' ') != NULL;
+#if MWCCPSP
+            LIST_DEP("%s%s%s %s\n", DEPS_NAME(path, file->srcfilename), totdeps ? "\\" : "");
+#else
             LIST_DEP("%s%s%s %s\n", file->srcfilename, totdeps ? "\\" : "");
+#endif
         } else {
             spaces = strchr(file->srcfilename, ' ') != NULL;
+#if MWCCPSP
+            LIST_DEP("%s%s%s%s %s\n", DEPS_NAME(path, file->srcfilename), ":", totdeps ? "\\" : "");
+#else
             LIST_DEP("%s%s%s%s %s\n", file->srcfilename, ":", totdeps ? "\\" : "");
+#endif
         }
 
         for (idx = 0; idx < file->deps.numDeps; idx++) {
@@ -458,7 +565,11 @@ void Deps_ListDependencies(Incls* incls, File* file, OSHandle* h) {
             MakeInclFileSpec(incls, file->deps.list[idx], &spec);
             OS_SpecToString(&spec, path, sizeof(path));
             spaces = strchr(path, ' ') != NULL;
+#if MWCCPSP
+            LIST_DEP("\t%s%s%s %s\n", DEPS_NAME(path, path), totdeps ? "\\" : "");
+#else
             LIST_DEP("\t%s%s%s %s\n", path, totdeps ? "\\" : "");
+#endif
         }
         return;
     }

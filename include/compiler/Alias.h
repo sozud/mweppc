@@ -28,7 +28,12 @@ struct Alias {
     PCode* valuepcode;
     UInt32* membervec;
     int index;
+#if MWCCPSP
+    UInt8 type; // 3.0.1: one byte (add_aliased_locals_to_worst_case)
+    UInt8 pad2D[3]; // 3.0.1: sizeof(Alias) is 0x30 (create_alias)
+#else
     AliasType type;
+#endif
 };
 
 struct AliasMember {

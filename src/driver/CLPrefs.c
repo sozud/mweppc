@@ -2,14 +2,90 @@
 #include "driver/CLErrors.h"
 #include "driver/CLIO.h"
 #include "driver/CLMain.h"
+#if MWCCPSP
+#include "driver/Generic.h"
+#endif
 #include "driver/Memory.h"
 #include "driver/MemUtils.h"
+#if MWCCPSP
+#include "driver/MsDos.h"
+#endif
 #include "driver/oslib.h"
 #include "driver/StringExtras.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#if MWCCPSP
+// 3.0.1: the panel data is an OS handle (0x41A650..0x41A760)
+struct PrefPanel {
+    char* name;
+    OSHandle data;
+    PrefPanel* next;
+};
+
+static PrefPanel* panellist;
+
+PrefPanel* PrefPanel_New(const char* name, void* initdata, SInt32 initdatasize) {
+    PrefPanel* pnl;
+    void* ptr;
+
+    pnl = xmalloc(NULL, sizeof(PrefPanel));
+    if (!pnl) {
+        return pnl;
+    }
+
+    pnl->name = xstrdup(name);
+    if (OS_NewHandle(initdatasize, &pnl->data)) {
+        fprintf(stderr, "\n*** Out of memory\n");
+        exit(-23);
+    }
+
+    ptr = OS_LockHandle(&pnl->data);
+    if (initdata) {
+        memcpy(ptr, initdata, initdatasize);
+    } else {
+        memset(ptr, 0, initdatasize);
+    }
+    OS_UnlockHandle(&pnl->data);
+
+    pnl->next = NULL;
+    return pnl;
+}
+
+// a copy of the panel data in `out`
+OSHandle* PrefPanel_GetHandle(PrefPanel* panel, OSHandle* out) {
+    if (OS_CopyHandle(&panel->data, out)) {
+        return NULL;
+    }
+    return out;
+}
+
+int PrefPanel_PutHandle(PrefPanel* panel, OSHandle* data) {
+    UInt32 len;
+
+    OS_GetHandleSize(data, &len);
+    OS_FreeHandle(&panel->data);
+    OS_CopyHandle(data, &panel->data);
+    return TRUE;
+}
+
+void Prefs_Initialize(void) {
+    panellist = NULL;
+}
+
+void Prefs_Terminate(void) {
+    PrefPanel* scan;
+    PrefPanel* next;
+
+    for (scan = panellist; scan; scan = next) {
+        xfree(scan->name);
+        OS_FreeHandle(&scan->data);
+        next = scan->next;
+        xfree(scan);
+    }
+}
+#else
 struct PrefPanel {
     char* name;
     Handle data;
@@ -108,6 +184,10 @@ void Prefs_Terminate(void) {
     }
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 Boolean Prefs_AddPanel(PrefPanel* panel) {
     PrefPanel** scan;
 

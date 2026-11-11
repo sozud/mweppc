@@ -156,6 +156,25 @@ int bitvectorintersectionisempty(UInt32* a, UInt32* b, int len) {
     return TRUE;
 }
 
+#if MWCCPSP
+// New in 3.0.1 (0x52FFF0).
+int bitvectorisempty(UInt32* a, int len) {
+    int i = (len + 31) >> 5;
+
+    while (i != 0) {
+        if (*a) {
+            return FALSE;
+        }
+        a++;
+        i--;
+    }
+
+    return TRUE;
+}
+#endif
+#if MWCCPSP
+
+#endif
 #if VERSION >= VERSION_GC_2_5
 void init_compressed_bitvectors(int bitCount) {
     int size;

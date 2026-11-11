@@ -46,7 +46,11 @@ void IRO_FindEmptyLoops(void) {
             IRO_Dump("IRO_FindEmptyLoops:Found loop with header %d\n", fnode->index);
             IRO_DumpBits("Loop includes: ", InLoop);
             EmptyLoop(fnode);
+#if MWCCPSP
+            IRO_UpdateFlagsOnInts(IRO_FirstLinear);
+#else
             IRO_UpdateFlagsOnInts();
+#endif
         }
     }
 

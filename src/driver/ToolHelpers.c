@@ -1,4 +1,7 @@
 #include "driver/ToolHelpers.h"
+#if MWCCPSP
+#include "driver/PluginSpecs.h"
+#endif
 #include "driver/CWParserPluginsPrivate.h"
 #include "driver/CWPlugins.h"
 #include "driver/CWPluginsPrivate.h"
@@ -69,14 +72,30 @@ int Opt_HandleOutputName(const char* opt, void* var, const char* filename, int f
         }
 
         if (!err && !isfile) {
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+            CWFileSpec ofd;
+#else
             FSSpec ofd;
+#endif
+#else
+            FSSpec ofd;
+#endif
             if (setOutputDirectory) {
                 CLPReportError(CLPStr59, filename);
                 return FALSE;
             }
             setOutputDirectory = TRUE;
 
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+            func_004246F0(2, &spec, &ofd);
+#else
             OS_OSSpec_To_FSSpec(&spec, &ofd);
+#endif
+#else
+            OS_OSSpec_To_FSSpec(&spec, &ofd);
+#endif
             result = CWParserSetOutputFileDirectory(parseopts.context, &ofd);
             if (result) {
                 failedCallback = "CWParserSetOutputFileDirectory";

@@ -1,4 +1,8 @@
 #include "driver/ParserHelpers.h"
+#if MWCCPSP
+#include "driver/pref_structs.h"
+#include "driver/PluginSpecs.h"
+#endif
 #include "compiler/win32.h"
 #include "driver/CWPlugins.h"
 #include "driver/CWPluginsPrivate.h"
@@ -37,7 +41,15 @@ int FindFileInPath(const char* filename, OSSpec* fss) {
 
     result = CWFindAndLoadFile(parseopts.context, filename, &fi);
     if (!result) {
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+        func_004246A0(2, &fi.filespec, fss);
+#else
         OS_FSSpec_To_OSSpec(&fi.filespec, fss);
+#endif
+#else
+        OS_FSSpec_To_OSSpec(&fi.filespec, fss);
+#endif
         return TRUE;
     } else {
         return FALSE;
@@ -127,7 +139,14 @@ int Opt_AddAccessPath(const char* opt, void* var, const char* arg, int flags) {
 
     err = OS_MakePathSpec(0, path, &spec);
     if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
+#if MWCCPSP
+        // 3.0.1 reports a missing path only when verbose
+        if (pCmdLine.verbose) {
+            CLPReportWarning(CLPStr45, path);
+        }
+#else
         CLPReportWarning(CLPStr45, path);
+#endif
         return TRUE;
     } else if (err != 0) {
         CLPOSAlert(CLPStr45, err, path);
@@ -214,7 +233,14 @@ int AddAccessPathList(
 
         err = OS_MakePathSpec(0, path, &spec);
         if (err) {
+#if MWCCPSP
+            // 3.0.1 reports a bad path only when verbose
+            if (pCmdLine.verbose) {
+                ListParseMessage(CLPReportWarning_V, (source == 1) ? text : NULL, CLPStr45, path);
+            }
+#else
             ListParseMessage(CLPReportWarning_V, (source == 1) ? text : NULL, CLPStr45, path);
+#endif
         } else {
             AddAccessPath(&spec, type, position, recurse ^ recursive);
         }

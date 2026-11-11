@@ -229,7 +229,11 @@ static Boolean CTempl_FuncIsAtLeastAsSpecialized(Object* func1, Object* func2) {
         if (!arg1) {
             break;
         }
+#if MWCCPSP
+        CError_ASSERT(250, arg1->type != &stvoid);
+#else
         CError_ASSERT(233, arg1->type != &stvoid);
+#endif
         if (arg1 == &elipsis) {
             break;
         }
@@ -265,7 +269,11 @@ static Boolean CTempl_FuncIsAtLeastAsSpecialized(Object* func1, Object* func2) {
             break;
         }
 
+#if MWCCPSP
+        CError_ASSERT(274, arg2);
+#else
         CError_ASSERT(257, arg2);
+#endif
 
         type1 = arg1->type;
         qual1 = arg1->qual & (Q_CONST | Q_VOLATILE);
@@ -354,7 +362,11 @@ Object* CTempl_PartialOrdering(Object* object, ObjectList* list, int argcount) {
 }
 
 int CTempl_GetTemplateArgumentExpressionIndex(TemplArg* arg) {
+#if MWCCPSP
+    CError_ASSERT(548, arg->data.paramdecl.expr);
+#else
     CError_ASSERT(531, arg->data.paramdecl.expr);
+#endif
 
     if (ENODE_IS(arg->data.paramdecl.expr, ETEMPLDEP) &&
         arg->data.paramdecl.expr->data.templdep.subtype == TDE_PARAM) {
@@ -447,7 +459,11 @@ static Boolean CTempl_DeduceTemplateArgs(TemplArg* args1, TemplArg* args2, Templ
                 break;
 
             default:
+#if MWCCPSP
+                CError_FATAL(670);
+#else
                 CError_FATAL(642);
+#endif
         }
 
         args1 = args1->next;
@@ -713,7 +729,11 @@ static Boolean CTempl_DeduceTypeTemplDep(
                 }
 
                 if (ENODE_IS(type1->u.array.index, EINTCONST)) {
+#if MWCCPSP
+                    CError_ASSERT(1040, TPTR_TARGET(type2)->size);
+#else
                     CError_ASSERT(963, TPTR_TARGET(type2)->size);
+#endif
                     elements = type2->size / TPTR_TARGET(type2)->size;
                     return elements == (SInt32)CInt64_GetULong(&type1->u.array.index->data.intval);
                 }
@@ -723,12 +743,20 @@ static Boolean CTempl_DeduceTypeTemplDep(
                     return TRUE;
                 }
 
+#if MWCCPSP
+                CError_ASSERT(973, TPTR_TARGET(type2)->size);
+#else
                 CError_ASSERT(972, TPTR_TARGET(type2)->size);
+#endif
 
                 elements = type2->size / TPTR_TARGET(type2)->size;
                 index = type1->u.array.index->data.templdep.u.pid.index;
                 if (argArray[index].is_deduced) {
+#if MWCCPSP
+                    CError_ASSERT(982, ENODE_IS(argArray[index].data.paramdecl.expr, EINTCONST));
+#else
                     CError_ASSERT(978, ENODE_IS(argArray[index].data.paramdecl.expr, EINTCONST));
+#endif
                     return elements ==
                         (SInt32)CInt64_GetULong(&argArray[index].data.paramdecl.expr->data.intval);
                 } else {
@@ -785,7 +813,11 @@ static Boolean CTempl_DeduceTypeTemplDep(
 
         case TEMPLDEP_BITFIELD:
         default:
+#if MWCCPSP
+            CError_FATAL(1035);
+#else
             CError_FATAL(1024);
+#endif
             return TRUE;
     }
 }
@@ -907,7 +939,11 @@ static Boolean CTempl_DeduceType1(
                 return CTempl_DeduceFuncType(TYPE_FUNC(type1), TYPE_FUNC(type2), argArray);
 
             default:
+#if MWCCPSP
+                CError_FATAL(1156);
+#else
                 CError_FATAL(1126);
+#endif
         }
     }
 }
@@ -1139,7 +1175,11 @@ static Boolean CTempl_TypeNeedsDeduction(Type* type) {
 
                     case TEMPLDEP_BITFIELD:
                     default:
+#if MWCCPSP
+                        CError_FATAL(1479);
+#else
                         CError_FATAL(1359);
+#endif
                 }
 
             case TYPEVOID:
@@ -1179,7 +1219,11 @@ static Boolean CTempl_TypeNeedsDeduction(Type* type) {
                 return result;
 
             default:
+#if MWCCPSP
+                CError_FATAL(1514);
+#else
                 CError_FATAL(1391);
+#endif
         }
     }
 }
@@ -1509,7 +1553,11 @@ Object* CTempl_DeduceFromConversion(Object* funcobj, Type* type, UInt32 qual) {
     DeduceInfo info;
     int i;
 
+#if MWCCPSP
+    CError_ASSERT(1910, IS_TEMPL_FUNC(funcobj->type));
+#else
     CError_ASSERT(1747, IS_TEMPL_FUNC(funcobj->type));
+#endif
 
     if (!CTemplTool_InitDeduceInfo(&info, CTemplTool_GetFuncTempl(funcobj)->params, NULL, FALSE)) {
         return NULL;
@@ -1563,7 +1611,11 @@ static Boolean CTemplFunc_SameFuncType(TypeFunc* a, TypeFunc* b) {
     FuncArg* arg1;
     FuncArg* arg2;
 
+#if MWCCPSP
+    CError_ASSERT(1965, IS_TYPE_FUNC(a) && IS_TYPE_FUNC(b));
+#else
     CError_ASSERT(1802, IS_TYPE_FUNC(a) && IS_TYPE_FUNC(b));
+#endif
 
     if (!is_typesame(a->functype, b->functype)) {
         return FALSE;
@@ -1579,13 +1631,21 @@ static Boolean CTemplFunc_SameFuncType(TypeFunc* a, TypeFunc* b) {
 
     arg1 = a->args;
     if ((a->flags & FUNC_METHOD) && !TYPE_METHOD(a)->is_static) {
+#if MWCCPSP
+        CError_ASSERT(1973, arg1);
+#else
         CError_ASSERT(1810, arg1);
+#endif
         arg1 = arg1->next;
     }
 
     arg2 = b->args;
     if ((b->flags & FUNC_METHOD) && !TYPE_METHOD(b)->is_static) {
+#if MWCCPSP
+        CError_ASSERT(1979, arg2);
+#else
         CError_ASSERT(1816, arg2);
+#endif
         arg2 = arg2->next;
     }
 

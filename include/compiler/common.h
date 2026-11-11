@@ -201,8 +201,19 @@ typedef unsigned char UInt8;
 typedef signed char SInt8;
 typedef unsigned short UInt16;
 typedef short SInt16;
+#if MWCCPSP
+#ifdef __LP64__
+// native 64-bit build: the original's long is 32 bits
+typedef unsigned int UInt32;
+typedef int SInt32;
+#else
 typedef unsigned long UInt32;
 typedef long SInt32;
+#endif
+#else
+typedef unsigned long UInt32;
+typedef long SInt32;
+#endif
 typedef unsigned char Boolean;
 
 #ifdef __MWERKS__
@@ -223,7 +234,11 @@ typedef enum TemplParamType {
 struct TemplParamID {
     UInt16 index;
     UInt8 nindex;
+#if MWCCPSP
+    UInt8 type; // a byte in 3.0.1 (TypeTemplDep.u.pid.type at +0xF)
+#else
     TemplParamType type;
+#endif
 };
 
 typedef enum AccessType {
@@ -287,8 +302,14 @@ enum {
 #define HIGH_PART(value) ((short)(((value) >> 16) + (((value) >> 15) & 1)))
 #define LOW_PART(value) ((short)(value))
 
+#if MWCCPSP
+#define Q_INTERRUPT 0 // no interrupt functions in 3.0.1 (CDecl_GetFunctionObject's qualifier mask)
+#else
 #define Q_INTERRUPT 0x80000000
+#endif
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(push, 2)
+#endif
 struct HashNameNode {
     struct HashNameNode* next;
     SInt32 id;
@@ -329,7 +350,9 @@ union MWVector128 {
     UInt32 ul[4];
     float f[4];
 };
+#if !MWCCPSP // 3.0.1: natural alignment
 #pragma pack(pop)
+#endif
 
 #ifdef __cplusplus
 }

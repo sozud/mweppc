@@ -18,6 +18,9 @@ extern "C" {
 typedef struct CLState {
     int argc;
     char** argv;
+#if MWCCPSP
+    char** envp; // 3.0.1: a copy of the environment (Main_CopyEnvironment)
+#endif
     OSType cpu;
     OSType os;
     OSType plugintype;

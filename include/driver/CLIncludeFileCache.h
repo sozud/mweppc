@@ -10,9 +10,15 @@ extern "C" {
 
 extern void InitializeIncludeCache(void);
 extern void CleanupIncludeCache(void);
+#if MWCCPSP
+extern void CacheIncludeFile(OSSpec* spec, DriverHandle text, Boolean precompiled);
+extern DriverHandle CachedIncludeFile(OSSpec* spec, Boolean* precompiled);
+extern void FreeIncludeFile(DriverHandle text);
+#else
 extern void CacheIncludeFile(OSSpec* spec, Handle text, Boolean precompiled);
 extern Handle CachedIncludeFile(OSSpec* spec, Boolean* precompiled);
 extern void FreeIncludeFile(Handle text);
+#endif
 
 #ifdef __cplusplus
 }

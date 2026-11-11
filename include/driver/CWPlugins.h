@@ -395,6 +395,16 @@ typedef struct CompilerLinkerPluginCallbacks {
     CWPLUGIN_ENTRY (*Unmangle)(struct CWUnmangleInfo* unmangleInfo);
     CWPLUGIN_ENTRY (*BrSymbolEntryPoint)(struct CWCompilerBrSymbolInfo* symbolInfo);
     CWPLUGIN_ENTRY (*GetObjectFlags)(const CWObjectFlags** objectFlags);
+#if MWCCPSP
+    // 3.0.1: the driver hands over copies of its OSSpecs
+    CWPLUGIN_ENTRY (*WriteObjectFile)(
+        const struct OSSpec* srcfss,
+        const struct OSSpec* outfss,
+        CWDataType creator,
+        CWDataType type,
+        Handle data
+    );
+#else
     CWPLUGIN_ENTRY (*WriteObjectFile)(
         const CWFileSpec* srcfss,
         const CWFileSpec* outfss,
@@ -402,6 +412,7 @@ typedef struct CompilerLinkerPluginCallbacks {
         CWDataType type,
         Handle data
     );
+#endif
 } CompilerLinkerPluginCallbacks;
 
 struct CWParserCallbacks {

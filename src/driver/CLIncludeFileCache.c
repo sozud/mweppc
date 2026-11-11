@@ -4,12 +4,22 @@
 #include "driver/MsDos.h"
 #include "driver/oslib.h"
 
+#if MWCCPSP
+#define DisposeHandle OS_FreeHandle // 3.0.1: the cache holds OS handles
+#endif
+#if MWCCPSP
+
+#endif
 typedef struct CacheEntry {
     struct CacheEntry* next;
     struct CacheEntry* prev;
     int locked;
     int precompiled;
+#if MWCCPSP
+    DriverHandle text;
+#else
     Handle text;
+#endif
     OSSpec spec;
     UInt32 size;
     UInt32 when;
@@ -80,12 +90,24 @@ void CleanupIncludeCache(void) {
     InitializeIncludeCache();
 }
 
+#if MWCCPSP
+void CacheIncludeFile(OSSpec* spec, DriverHandle text, Boolean precompiled) {
+#else
 void CacheIncludeFile(OSSpec* spec, Handle text, Boolean precompiled) {
+#endif
+#if MWCCPSP
+    UInt32 size;
+#else
     SInt32 size;
+#endif
     CacheEntry* c;
     CacheEntry* lru;
 
+#if MWCCPSP
+    OS_GetHandleSize(text, &size);
+#else
     size = GetHandleSize(text);
+#endif
     if (precompiled) {
         lru = NULL;
         for (c = cachelist; c; c = c->next) {
@@ -102,7 +124,11 @@ void CacheIncludeFile(OSSpec* spec, Handle text, Boolean precompiled) {
             freelist = lru;
         }
     } else {
+#if MWCCPSP
+        if (size > CACHE_SIZE) {
+#else
         if ((SInt32)size > (SInt32)CACHE_SIZE) {
+#endif
             return;
         } else {
             while ((UInt32)size > availablecache) {
@@ -141,7 +167,11 @@ void CacheIncludeFile(OSSpec* spec, Handle text, Boolean precompiled) {
     }
 }
 
+#if MWCCPSP
+DriverHandle CachedIncludeFile(OSSpec* spec, Boolean* precompiled) {
+#else
 Handle CachedIncludeFile(OSSpec* spec, Boolean* precompiled) {
+#endif
     CacheEntry* c;
 
     for (c = cachelist; c; c = c->next) {
@@ -156,7 +186,11 @@ Handle CachedIncludeFile(OSSpec* spec, Boolean* precompiled) {
     return NULL;
 }
 
+#if MWCCPSP
+void FreeIncludeFile(DriverHandle text) {
+#else
 void FreeIncludeFile(Handle text) {
+#endif
     CacheEntry* c;
 
     for (c = cachelist; c; c = c->next) {

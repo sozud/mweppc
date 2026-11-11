@@ -136,7 +136,11 @@ typedef struct PointerHash {
     TypePointer* prec_tptr;
 } PointerHash;
 
+#if MWCCPSP
+static COSFileRef cprec_refnum;
+#else
 static short cprec_refnum;
+#endif
 static GList cprec_glist;
 static Header* cprec_header;
 static AddrPatch** cprec_addrhash;
@@ -166,6 +170,11 @@ static Object* CPrec_GetObjectPatch(Object* obj);
 static ObjBase* CPrec_GetObjBasePatch(ObjBase* obj);
 static ObjMemberVar* CPrec_GetObjMemberVarPatch(ObjMemberVar* ivar);
 static Type* CPrec_GetTypePatch(Type* type);
+#if MWCCPSP
+static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass);
+// 3.0.1 patches class pointers with CPrec_GetTypeClassPatch directly
+#define CPREC_CLASSPATCH(x) CPrec_GetTypeClassPatch(TYPE_CLASS(x))
+#endif
 static ENode* CPrec_GetExpressionPatch(ENode* expr);
 static ObjCMethod* CPrec_GetObjCMethodPatch(ObjCMethod* meth);
 static ObjCProtocolList* CPrec_GetObjCProtocolListPatch(ObjCProtocolList* lst);
@@ -386,11 +395,19 @@ static void CPrec_NewPointerPatch(void* src, void* ptr) {
     if (cprec_dowrite) {
         Patch* patch = lalloc(sizeof(Patch));
         patch->offset = (SInt32)src;
+#if MWCCPSP
+        CError_ASSERT(496, (patch->offset & 0x80000001) == 0);
+#else
         CError_ASSERT(523, (patch->offset & 0x80000001) == 0);
+#endif
 
         if ((SInt32)ptr < 0) {
             ptr = (void*)~((SInt32)ptr);
+#if MWCCPSP
+            CError_ASSERT(502, (SInt32)ptr < cprec_builtins);
+#else
             CError_ASSERT(529, (SInt32)ptr < cprec_builtins);
+#endif
 
             patch->next = cprec_builtin[(int)ptr].patches;
             cprec_builtin[(int)ptr].patches = patch;
@@ -401,7 +418,11 @@ static void CPrec_NewPointerPatch(void* src, void* ptr) {
         }
 
         src = (void*)((char*)src - cprec_zero_offset);
+#if MWCCPSP
+        CError_ASSERT(514, (SInt32)src >= 0 && (SInt32)src <= cprec_glist.size);
+#else
         CError_ASSERT(541, (SInt32)src >= 0 && (SInt32)src <= cprec_glist.size);
+#endif
         *((void**)(*cprec_glist.data + (SInt32)src)) = ptr;
     }
 }
@@ -412,17 +433,29 @@ static void CPrec_ExistingPointerPatch(void* src, void* ptr) {
         AddrPatch* addrPatch;
         Patch* patch;
 
+#if MWCCPSP
+        CError_ASSERT(532, addrPatch = CPrec_FindAddrPatch((void*)key));
+#else
         CError_ASSERT(559, addrPatch = CPrec_FindAddrPatch((void*)key));
+#endif
 
         patch = lalloc(sizeof(Patch));
         patch->offset = (SInt32)src;
         patch->next = cprec_patch_list;
         cprec_patch_list = patch;
 
+#if MWCCPSP
+        CError_ASSERT(537, (patch->offset & 0x80000001) == 0);
+#else
         CError_ASSERT(564, (patch->offset & 0x80000001) == 0);
+#endif
 
         src = (void*)((char*)src - cprec_zero_offset);
+#if MWCCPSP
+        CError_ASSERT(541, (SInt32)src >= 0 && (SInt32)src <= cprec_glist.size);
+#else
         CError_ASSERT(568, (SInt32)src >= 0 && (SInt32)src <= cprec_glist.size);
+#endif
         *((void**)(*cprec_glist.data + (SInt32)src)) = addrPatch->value;
     }
 }
@@ -961,7 +994,11 @@ static TypeFunc* CPrec_GetTypeFuncPatch(TypeFunc* type) {
     if (type->flags & FUNC_METHOD) {
         CPrec_NewPointerPatch(
             (void*)(p + offsetof(TypeMemberFunc, theclass)),
+#if MWCCPSP
+            CPREC_CLASSPATCH(TYPE_METHOD(type)->theclass)
+#else
             CPrec_GetTypePatch((Type*)TYPE_METHOD(type)->theclass)
+#endif
         );
     }
 
@@ -1003,7 +1040,11 @@ static TypeTemplDep* CPrec_GetTypeTemplDepPatch(TypeTemplDep* type) {
         case TEMPLDEP_TEMPLATE:
             CPrec_NewPointerPatch(
                 (void*)(p + offsetof(TypeTemplDep, u.templ.templ)),
+#if MWCCPSP
+                CPREC_CLASSPATCH(type->u.templ.templ)
+#else
                 CPrec_GetTypePatch((Type*)type->u.templ.templ)
+#endif
             );
             CPrec_NewPointerPatch(
                 (void*)(p + offsetof(TypeTemplDep, u.templ.args)),
@@ -1061,7 +1102,11 @@ static ClassList* CPrec_GetClassListPatch(ClassList* cl) {
 
     do {
         CPrec_AppendData(cl, sizeof(ClassList));
+#if MWCCPSP
+        CPrec_NewPointerPatch(&current->base, CPREC_CLASSPATCH(cl->base));
+#else
         CPrec_NewPointerPatch(&current->base, CPrec_GetTypePatch((Type*)cl->base));
+#endif
 
         if (!cl->next) {
             break;
@@ -1090,7 +1135,11 @@ static VClassList* CPrec_GetVClassListPatch(VClassList* vcl) {
     first = current = (void*)CPrec_AppendAlign();
     for (;;) {
         CPrec_AppendData(vcl, sizeof(VClassList));
+#if MWCCPSP
+        CPrec_NewPointerPatch(&current->base, CPREC_CLASSPATCH(vcl->base));
+#else
         CPrec_NewPointerPatch(&current->base, CPrec_GetTypePatch((Type*)vcl->base));
+#endif
         if (!vcl->next) {
             break;
         }
@@ -1112,7 +1161,11 @@ static ClassFriend* CPrec_GetClassFriendPatch(ClassFriend* cf) {
     do {
         CPrec_AppendData(cf, sizeof(ClassFriend));
         if (cf->isclass) {
+#if MWCCPSP
+            CPrec_NewPointerPatch(&current->u.theclass, CPREC_CLASSPATCH(cf->u.theclass));
+#else
             CPrec_NewPointerPatch(&current->u.theclass, CPrec_GetTypePatch(TYPE(cf->u.theclass)));
+#endif
         } else {
             CPrec_NewPointerPatch(&current->u.obj, CPrec_GetObjectPatch(cf->u.obj));
         }
@@ -1161,7 +1214,11 @@ static VTable* CPrec_GetVTablePatch(VTable* vtbl) {
         CPrec_NewPointerPatch(&p->object, CPrec_GetObjectPatch(vtbl->object));
     }
     if (vtbl->owner) {
+#if MWCCPSP
+        CPrec_NewPointerPatch(&p->owner, CPREC_CLASSPATCH(vtbl->owner));
+#else
         CPrec_NewPointerPatch(&p->owner, CPrec_GetTypePatch((Type*)vtbl->owner));
+#endif
     }
 
     return p;
@@ -1194,7 +1251,11 @@ static SOMInfo* CPrec_GetSOMInfoPatch(SOMInfo* som) {
     CPrec_AppendData(som, sizeof(SOMInfo));
 
     if (som->metaclass) {
+#if MWCCPSP
+        CPrec_NewPointerPatch(&p->metaclass, CPREC_CLASSPATCH(som->metaclass));
+#else
         CPrec_NewPointerPatch(&p->metaclass, CPrec_GetTypePatch((Type*)som->metaclass));
+#endif
     }
     if (som->classdataobject) {
         CPrec_NewPointerPatch(&p->classdataobject, CPrec_GetObjectPatch(som->classdataobject));
@@ -1583,7 +1644,11 @@ static TemplArg* CPrec_GetTemplateArgPatch(TemplArg* arg) {
                 }
                 break;
             default:
+#if MWCCPSP
+                CError_FATAL(1934);
+#else
                 CError_FATAL(1895);
+#endif
         }
 
         if (!arg->next) {
@@ -1639,7 +1704,11 @@ static TemplParam* CPrec_GetTemplateParamPatch(TemplParam* param) {
                         CPrec_GetTemplateParamPatch(param->data.templparam.plist)
                     );
                 }
+#if MWCCPSP
+                CError_ASSERT(1994, !param->data.templparam.defaultarg);
+#else
                 CError_ASSERT(1969, !param->data.templparam.defaultarg);
+#endif
                 break;
             default:
                 CError_FATAL(1974);
@@ -1729,7 +1798,11 @@ static TStreamElement* CPrec_GetTStreamPatch(TStreamElement* tokens, SInt32 coun
                 break;
             default:
                 if (scan->tokentype < 0) {
+#if MWCCPSP
+                    CError_FATAL(2078);
+#else
                     CError_FATAL(2079);
+#endif
                 }
         }
         x++;
@@ -1832,7 +1905,11 @@ static TemplPartialSpec* CPrec_GetTemplPartialSpecPatch(TemplPartialSpec* pspec)
     do {
         CPrec_AppendData(pspec, sizeof(TemplPartialSpec));
         if (pspec->templ) {
+#if MWCCPSP
+            CPrec_NewPointerPatch(&current->templ, CPREC_CLASSPATCH(pspec->templ));
+#else
             CPrec_NewPointerPatch(&current->templ, CPrec_GetTypePatch((Type*)pspec->templ));
+#endif
         }
         if (pspec->args) {
             CPrec_NewPointerPatch(&current->args, CPrec_GetTemplateArgPatch(pspec->args));
@@ -1893,7 +1970,11 @@ static TemplateAction* CPrec_GetTemplateActionPatch(TemplateAction* act) {
             case TAT_NESTEDCLASS:
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplateAction, u.tclasstype)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(act->u.tclasstype)
+#else
                     CPrec_GetTypePatch(TYPE(act->u.tclasstype))
+#endif
                 );
                 break;
             case TAT_ENUMTYPE:
@@ -2063,13 +2144,21 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
             if (TEMPL_CLASS(tclass)->templ_parent) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClass, templ_parent)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS(tclass)->templ_parent)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS(tclass)->templ_parent)
+#endif
                 );
             }
             if (TEMPL_CLASS(tclass)->inst_parent) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClass, inst_parent)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS(tclass)->inst_parent)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS(tclass)->inst_parent)
+#endif
                 );
             }
             if (TEMPL_CLASS(tclass)->templ__params) {
@@ -2087,13 +2176,21 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
             if (TEMPL_CLASS(tclass)->instances) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClass, instances)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS(tclass)->instances)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS(tclass)->instances)
+#endif
                 );
             }
             if (TEMPL_CLASS(tclass)->pspec_owner) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClass, pspec_owner)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS(tclass)->pspec_owner)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS(tclass)->pspec_owner)
+#endif
                 );
             }
             if (TEMPL_CLASS(tclass)->pspecs) {
@@ -2116,13 +2213,21 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
             if (TEMPL_CLASS_INST(tclass)->parent) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClassInst, parent)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS_INST(tclass)->parent)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS_INST(tclass)->parent)
+#endif
                 );
             }
             if (TEMPL_CLASS_INST(tclass)->templ) {
                 CPrec_NewPointerPatch(
                     (void*)(current + offsetof(TemplClassInst, templ)),
+#if MWCCPSP
+                    CPREC_CLASSPATCH(TEMPL_CLASS_INST(tclass)->templ)
+#else
                     CPrec_GetTypePatch((Type*)TEMPL_CLASS_INST(tclass)->templ)
+#endif
                 );
             }
             if (TEMPL_CLASS_INST(tclass)->inst_args) {
@@ -2169,12 +2274,14 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
                 CPrec_GetObjMemberVarPatch(tclass->ivars)
             );
         }
+#if !MWCCPSP
         if (tclass->friends) {
             CPrec_NewPointerPatch(
                 (void*)(current + offsetof(TypeClass, friends)),
                 CPrec_GetClassFriendPatch(tclass->friends)
             );
         }
+#endif
         if (tclass->vtable) {
             CPrec_NewPointerPatch(
                 (void*)(current + offsetof(TypeClass, vtable)), CPrec_GetVTablePatch(tclass->vtable)
@@ -2186,12 +2293,14 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
                 CPrec_GetSOMInfoPatch(tclass->sominfo)
             );
         }
+#if !MWCCPSP
         if (tclass->objcinfo) {
             CPrec_NewPointerPatch(
                 (void*)(current + offsetof(TypeClass, objcinfo)),
                 CPrec_GetObjCInfoPatch(tclass->objcinfo)
             );
         }
+#endif
 
         if (hasNextTempl) {
             if (!(addrPatch = CPrec_FindAddrPatch(TEMPL_CLASS(tclass)->next))) {
@@ -2662,7 +2771,9 @@ static ENode* CPrec_GetExpressionPatch(ENode* expr) {
         case ELOCOBJ:
         case ELABEL:
         case EINSTRUCTION:
+#if !MWCCPSP // not a 3.0.1 node kind
         case EVECTOR128CONST:
+#endif
             break;
         default:
             CError_FATAL(3158);
@@ -2816,6 +2927,11 @@ static CI_FuncData* CPrec_GetInlineFuncPatch(CI_FuncData* ifunc) {
     p = (void*)CPrec_AppendAlign();
     CPrec_AppendData(ifunc, sizeof(CI_FuncData));
 
+#if MWCCPSP
+    if (ifunc->numvars) {
+        CPrec_NewPointerPatch(&p->vars, CPrec_GetLocObjectPatch(ifunc->vars, ifunc->numvars));
+    }
+#else
     if (ifunc->numarguments) {
         CPrec_NewPointerPatch(
             &p->arguments, CPrec_GetLocObjectPatch(ifunc->arguments, ifunc->numarguments)
@@ -2824,6 +2940,7 @@ static CI_FuncData* CPrec_GetInlineFuncPatch(CI_FuncData* ifunc) {
     if (ifunc->numlocals) {
         CPrec_NewPointerPatch(&p->locals, CPrec_GetLocObjectPatch(ifunc->locals, ifunc->numlocals));
     }
+#endif
     if (ifunc->numstatements) {
         CPrec_NewPointerPatch(
             &p->statements, CPrec_GetStatementPatch(ifunc->statements, ifunc->numstatements)
@@ -2848,7 +2965,11 @@ static ObjEnumConst* CPrec_GetObjEnumConstPatch(ObjEnumConst* obj) {
     do {
         CPrec_AppendData(obj, sizeof(ObjEnumConst));
         if (cprec_dowrite) {
+#if MWCCPSP
+            CError_ASSERT(3544, obj->access != 255);
+#else
             CError_ASSERT(3416, obj->access != 255);
+#endif
             obj->access = 255;
         }
         CPrec_NamePatch((void*)(current + offsetof(ObjEnumConst, name)), obj->name);
@@ -3070,7 +3191,11 @@ static Object* CPrec_GetObjectPatch(Object* obj) {
             break;
 
         case DDATA:
+#if MWCCPSP
+            CError_ASSERT(3885, !obj->u.data.info);
+#else
             CError_ASSERT(3689, !obj->u.data.info);
+#endif
             if (obj->qual & Q_INLINE_DATA) {
                 switch (obj->type->type) {
                     case TYPEINT:
@@ -3085,7 +3210,11 @@ static Object* CPrec_GetObjectPatch(Object* obj) {
                         );
                         break;
                     default:
+#if MWCCPSP
+                        CError_FATAL(3769);
+#else
                         CError_FATAL(3705);
+#endif
                 }
             }
             if (obj->u.data.linkname) {
@@ -3121,7 +3250,11 @@ static Object* CPrec_GetObjectPatch(Object* obj) {
             break;
 
         default:
+#if MWCCPSP
+            CError_FATAL(3838);
+#else
             CError_FATAL(3744);
+#endif
     }
 
     if (cprec_dowrite) {
@@ -3305,7 +3438,11 @@ static NameSpace* CPrec_GetNameSpacePatch(NameSpace* nspace) {
     }
     if (nspace->theclass) {
         CPrec_NewPointerPatch(
+#if MWCCPSP
+            (void*)(p + offsetof(NameSpace, theclass)), CPREC_CLASSPATCH(nspace->theclass)
+#else
             (void*)(p + offsetof(NameSpace, theclass)), CPrec_GetTypePatch((Type*)nspace->theclass)
+#endif
         );
     }
 
@@ -3374,7 +3511,11 @@ static CSOMStub* CPrec_GetSOMPatch(CSOMStub* stub) {
         CPrec_AppendData(stub, sizeof(CSOMStub));
 
         CPrec_NewPointerPatch(&current->object, CPrec_GetObjectPatch(stub->object));
+#if MWCCPSP
+        CPrec_NewPointerPatch(&current->tclass, CPREC_CLASSPATCH(stub->tclass));
+#else
         CPrec_NewPointerPatch(&current->tclass, CPrec_GetTypePatch(TYPE(stub->tclass)));
+#endif
 
         if (!stub->next) {
             break;
@@ -3464,7 +3605,11 @@ static CallbackAction* CPrec_GetCallbackPatch(CallbackAction* ca) {
         CPrec_AppendData(ca, sizeof(CallbackAction));
 
         CPrec_NewPointerPatch(&current->obj, CPrec_GetObjectPatch(ca->obj));
+#if MWCCPSP
+        CPrec_NewPointerPatch(&current->tclass, CPREC_CLASSPATCH(ca->tclass));
+#else
         CPrec_NewPointerPatch(&current->tclass, CPrec_GetTypePatch(TYPE(ca->tclass)));
+#endif
 
         if (!ca->next) {
             break;
@@ -3553,17 +3698,29 @@ static CI_Action* CPrec_GetInlineActionPatch(CI_Action* act) {
                 if (act->u.inlinefunc.tclass) {
                     CPrec_NewPointerPatch(
                         &current->u.inlinefunc.tclass,
+#if MWCCPSP
+                        CPREC_CLASSPATCH(act->u.inlinefunc.tclass)
+#else
                         CPrec_GetTypePatch(TYPE(act->u.inlinefunc.tclass))
+#endif
                     );
                 }
                 break;
 
             case CI_ActionMemberFunc:
                 CPrec_NewPointerPatch(
+#if MWCCPSP
+                    &current->u.memberfunc.templ, CPREC_CLASSPATCH(act->u.memberfunc.templ)
+#else
                     &current->u.memberfunc.templ, CPrec_GetTypePatch(TYPE(act->u.memberfunc.templ))
+#endif
                 );
                 CPrec_NewPointerPatch(
+#if MWCCPSP
+                    &current->u.memberfunc.inst, CPREC_CLASSPATCH(act->u.memberfunc.inst)
+#else
                     &current->u.memberfunc.inst, CPrec_GetTypePatch(TYPE(act->u.memberfunc.inst))
+#endif
                 );
                 CPrec_NewPointerPatch(
                     &current->u.memberfunc.tmemb,
@@ -3799,7 +3956,11 @@ static OSErr CPrec_DumpColorSymbolTable(Boolean doWrite) {
     }
 
     if (ctempl_templates) {
+#if MWCCPSP
+        TemplClass* p = TEMPL_CLASS(CPREC_CLASSPATCH(ctempl_templates));
+#else
         TemplClass* p = TEMPL_CLASS(CPrec_GetTypePatch(TYPE(ctempl_templates)));
+#endif
         if (doWrite) {
             cprec_header->ctempl_templates = p;
         }
@@ -3932,7 +4093,11 @@ static OSErr CPrec_DumpColorSymbolTable(Boolean doWrite) {
     return noErr;
 }
 
+#if MWCCPSP
+static OSErr CPrec_FileAlign(COSFileRef refnum, SInt32* len) {
+#else
 static OSErr CPrec_FileAlign(short refnum, SInt32* len) {
+#endif
     char buf[8];
     SInt32 n;
     OSErr err;
@@ -4069,7 +4234,11 @@ void PrecompilerWrite(void) {
     }
 
     strindex = 3;
+#if MWCCPSP
+    err = COS_FileNew(&spec, &cprec_refnum);
+#else
     err = COS_FileNew(&spec, &cprec_refnum, copts.appltype, copts.headtype);
+#endif
     if (err == noErr) {
         strindex = 4;
         err = CPrec_WriteFile();
@@ -4290,7 +4459,11 @@ static void CPrec_RelocateMacroTable(void) {
     } while (++i < 0x800);
 }
 
+#if MWCCPSP
+void PrecompilerRead(COSFileRef refnum, void* buffer) {
+#else
 void PrecompilerRead(short refnum, void* buffer) {
+#endif
     Header* header;
     SInt32 offset;
     UInt8* base;
@@ -4508,3 +4681,20 @@ void PrecompilerRead(short refnum, void* buffer) {
 }
 
 #pragma pack(2)
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 3.0.1's SetupPrecompiler (0x4F85E0, no argument): clears four of the
+// precompiler's globals (which of 2.4.7's they are is not settled beyond the
+// file handle and the global list)
+extern void* data_006041A0;
+extern void* data_006041D0;
+
+void func_004F85E0(void) {
+    data_006041A0 = NULL;
+    data_006041D0 = NULL;
+    cprec_glist.data = NULL;
+    cprec_refnum = 0;
+}
+#endif

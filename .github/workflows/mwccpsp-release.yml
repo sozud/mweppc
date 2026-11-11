@@ -1,0 +1,84 @@
+name: Release the PSP compiler
+
+# Pushing a tag such as mwccpsp-v1.0.0 builds the native mwccpsp for each
+# platform and attaches mwccpsp-native64-<os>-<arch>.tar.gz to a release, the
+# names the Castlevania: Symphony of the Night build downloads.
+on:
+  push:
+    tags:
+      - 'mwccpsp-*'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Docker
+        run: |
+          docker build -f tools/mwccpsp/Dockerfile -t mwccpsp .
+          mkdir -p build
+          docker run --rm -v "$PWD/build:/out" mwccpsp
+          sudo chown "$(id -u):$(id -g)" build/mwccpsp
+
+      - name: Package
+        run: |
+          cp build/mwccpsp mwccpsp-native64-linux-amd64
+          tar -czf mwccpsp-native64-linux-amd64.tar.gz mwccpsp-native64-linux-amd64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccpsp-native64-linux-amd64
+          path: mwccpsp-native64-linux-amd64.tar.gz
+
+  macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x86_64
+            goarch: amd64
+          - runner: macos-14
+            arch: arm64
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the original compiler
+        run: |
+          mkdir -p orig/PSP_3_0_1
+          curl -fsSL -o mwccpsp_219.tar.gz \
+            https://github.com/Xeeynamo/sotn-decomp/releases/download/cc1-psx-26/mwccpsp_219.tar.gz
+          echo "62ec4faa807ad5afaefa7c92de6423505072c321fad13c071c2f640e9820b5c8  mwccpsp_219.tar.gz" | shasum -a 256 -c
+          tar -xzf mwccpsp_219.tar.gz -C orig/PSP_3_0_1
+
+      - name: Build
+        run: python3 tools/mwccpsp/native_build.py --arch ${{ matrix.arch }} -o build/mwccpsp
+
+      - name: Package
+        run: |
+          cp build/mwccpsp mwccpsp-native64-darwin-${{ matrix.goarch }}
+          tar -czf mwccpsp-native64-darwin-${{ matrix.goarch }}.tar.gz mwccpsp-native64-darwin-${{ matrix.goarch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccpsp-native64-darwin-${{ matrix.goarch }}
+          path: mwccpsp-native64-darwin-${{ matrix.goarch }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz

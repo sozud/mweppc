@@ -39,9 +39,18 @@ const char* __stdcall OS_GetErrText(int err) {
     }
     return errtext;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+static char* cygwin_root; // 3.0.1: MW_CYGWIN_ROOT (read here; users not found yet)
+#endif
 
 int __stdcall OS_InitProgram(int* pArgc, char*** pArgv) {
     cygdrive_prefix = getenv("MW_CYGDRIVE_PREFIX");
+#if MWCCPSP
+    cygwin_root = getenv("MW_CYGWIN_ROOT");
+#endif
     return 0;
 }
 
@@ -443,7 +452,11 @@ char* __stdcall OS_GetDirPtr(char* path) {
     return path;
 }
 
+#if MWCCPSP
+int __stdcall OS_CanonPath(const char* src, char* dst) {
+#else
 int OS_CanonPath(const char* src, char* dst) {
+#endif
     const char* read;
     char* write;
     const char* rest;
@@ -846,6 +859,46 @@ int __stdcall OS_IsFile(const OSSpec* spec) {
     return (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+#if MWCCPSP
+// 3.0.1 follows Cygwin-style symbolic links: a file holding "!<symlink>"
+// and the target path
+static int ReadSymlink(const OSSpec* spec, char* target) {
+    char header[10];
+    UInt32 len;
+    int ref;
+
+    ref = 0;
+    len = 10;
+    if (!OS_Open(spec, OSReadOnly, &ref) &&
+        !OS_Read(ref, header, &len) &&
+        len == 10 &&
+        !memcmp(header, "!<symlink>", 10) &&
+        !OS_GetSize(ref, &len) &&
+        (len -= 10) < 0x103 &&
+        !OS_Read(ref, target, &len)) {
+        target[len] = 0;
+        OS_Close(ref);
+        return TRUE;
+    }
+    OS_Close(ref);
+    return FALSE;
+}
+
+int __stdcall OS_IsLink(const OSSpec* spec) {
+    char target[260];
+    return ReadSymlink(spec, target);
+}
+
+int __stdcall OS_ResolveLink(const OSSpec* link, OSSpec* target) {
+    char path[260];
+
+    if (ReadSymlink(link, path)) {
+        return OS_MakeSpec(path, target, NULL);
+    }
+    *target = *link;
+    return ERROR_FILE_NOT_FOUND;
+}
+#else
 int __stdcall OS_IsLink(const OSSpec* spec) {
     return FALSE;
 }
@@ -854,6 +907,7 @@ int __stdcall OS_ResolveLink(const OSSpec* link, OSSpec* target) {
     *target = *link;
     return 0;
 }
+#endif
 
 int __stdcall OS_OpenDir(const OSPathSpec* spec, OSOpenedDir* ref) {
     char pattern[260];
@@ -1149,11 +1203,19 @@ SInt16 __stdcall OS_RefToMac(int ref) {
     if (ref == -1 || (long)ref < 0) {
         return 0;
     }
+#if MWCCPSP
+    OS_ASSERT(1760, (long)ref < 0xffff);
+#else
     OS_ASSERT(1642, (long)ref < 0xffff);
+#endif
     return ref + 1;
 }
 
+#if MWCCPSP
+int __stdcall OS_MacToRef(SInt16 refnum) {
+#else
 int OS_MacToRef(SInt16 refnum) {
+#endif
     if (refnum != 0) {
         return refnum - 1;
     }

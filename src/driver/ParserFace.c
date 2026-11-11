@@ -23,7 +23,12 @@ static CWResult SetupParamBlock(CWPluginContext context) {
     CWResult result;
     int x;
     Handle h;
+#if MWCCPSP
+    CWMemHandle mh;
+    PCmdLineEnvir* cle;
+#else
     PCmdLineEnvir cle;
+#endif
 
     memset(&parseopts, 0, sizeof(parseopts));
     parseopts.context = context;
@@ -33,10 +38,20 @@ static CWResult SetupParamBlock(CWPluginContext context) {
         return result;
     }
 
+#if MWCCPSP
+    // 3.0.1 reads the panel in place and then frees the handle
+    cle = *((PCmdLineEnvir**)h);
+    parseopts.underIDE = cle->underIDE;
+    parseopts.ioRows = cle->rows;
+    parseopts.ioCols = cle->cols;
+    CWSecretAttachHandle(context, h, &mh);
+    CWFreeMemHandle(context, mh);
+#else
     cle = **((PCmdLineEnvir**)h);
     parseopts.underIDE = cle.underIDE;
     parseopts.ioRows = cle.rows;
     parseopts.ioCols = cle.cols;
+#endif
 
     result = CWParserGetCommandLine(context, &parseopts.args);
     if (result) {
@@ -135,6 +150,29 @@ static CWResult Parse(CWPluginContext context) {
     return (parseopts.success && !parseopts.hadErrors) ? cwNoErr : cwErrRequestFailed;
 }
 
+#if MWCCPSP
+// 3.0.1 allocates the copy through the plugin context
+Handle Parser_FindPrefPanel(const char* name) {
+    int idx;
+    CWMemHandle h;
+    void* ptr;
+
+    for (idx = 0; idx < pTool->numPrefDataPanels; idx++) {
+        if (!ustrcmp(name, pTool->prefDataPanels[idx].name)) {
+            if (CWAllocMemHandle(parseopts.context, pTool->prefDataPanels[idx].size, FALSE, &h)) {
+                return NULL;
+            }
+
+            CWLockMemHandle(parseopts.context, h, FALSE, &ptr);
+            memcpy(ptr, pTool->prefDataPanels[idx].ptr, pTool->prefDataPanels[idx].size);
+            CWUnlockMemHandle(parseopts.context, h);
+            return (Handle)h;
+        }
+    }
+
+    return NULL;
+}
+#else
 Handle Parser_FindPrefPanel(const char* name) {
     int idx;
     Handle h;
@@ -155,6 +193,7 @@ Handle Parser_FindPrefPanel(const char* name) {
 
     return NULL;
 }
+#endif
 
 CWResult Parser_StorePanels(CWPluginContext context) {
     int idx;

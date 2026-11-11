@@ -1,3 +1,8 @@
 lib/**
 src/msl/**
 src/runtime/**
+src/native/parser_tables.c
+src/native/exe_data.c
+src/native/strings.c
+src/psp/backend/OpcodeTable.c
+tools/mwccpsp/tests/**

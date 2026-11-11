@@ -162,6 +162,40 @@ been:
 - `snow_life` should not be `const`;
 - `NPAR_TubeSpiralMagic`'s colours should be `static const` locals.
 
+## PlayStation Portable 3.0.1 (`mwccpsp.exe`)
+
+The PSP compiler (3.0.1 build 219) shares most of its front end and optimizer with the GameCube compilers. Its changes
+live in the same sources under `#if MWCCPSP` (the GameCube builds read exactly the code they did before), and its MIPS
+back end, driver and the optimizer passes 3.0.1 rewrote are in `src/psp/`. It builds into a native 64-bit program with
+clang (x86-64 or arm64, macOS or Linux) that produces the same objects as the original:
+
+```sh
+mkdir -p orig/PSP_3_0_1 && cp /path/to/mwccpsp.exe orig/PSP_3_0_1/
+python3 tools/mwccpsp/native_build.py -o build/PSP_3_0_1/mwccpsp
+```
+
+or in Docker, which downloads the original itself:
+
+```sh
+docker build -f tools/mwccpsp/Dockerfile -t mwccpsp .
+docker run --rm -v "$PWD/build:/out" mwccpsp
+```
+
+The build copies the original's data tables from `mwccpsp.exe`, with `config/PSP_3_0_1/symbols*.txt` giving their
+addresses. `tools/mwccpsp/test.py` compiles the files in `tools/mwccpsp/tests/` with both compilers and compares the
+objects:
+
+```sh
+python3 tools/mwccpsp/test.py --cc build/PSP_3_0_1/mwccpsp --orig "wibo orig/PSP_3_0_1/mwccpsp.exe"
+```
+
+Pushing a tag named `mwccpsp-*` builds the compiler for Linux and macOS and attaches
+`mwccpsp-native64-<os>-<arch>.tar.gz` to a release (`.github/workflows/mwccpsp-release.yml`).
+
+Everything the [Castlevania: Symphony of the Night](https://github.com/Xeeynamo/sotn-decomp) PSP build reaches is
+decompiled and gives identical objects at every optimization level. Code it never reaches (much of C++, some
+diagnostics) is not all written yet: the program stops with "not implemented" at the first function without source.
+
 ## Contributing
 
 - Format C with `clang-format -i`, and Python with `ruff format` and `ruff check` (the venv's pinned versions); CI

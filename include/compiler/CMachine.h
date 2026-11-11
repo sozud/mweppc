@@ -19,10 +19,18 @@ extern TypeIntegral stsignedlong;
 extern TypeIntegral stunsignedlong;
 extern TypeIntegral stsignedlonglong;
 extern TypeIntegral stunsignedlonglong;
+#if MWCCPSP
+// the type of address offsets and sizes in generated expressions: unsigned
+// long in mweppc (pointer-sized on PPC), unsigned int in 3.0.1
+#define TYPE_UNSIGNED_OFFSET TYPE(&stunsignedint)
+#endif
 extern TypeIntegral stfloat;
 extern TypeIntegral stshortdouble;
 extern TypeIntegral stdouble;
 extern TypeIntegral stlongdouble;
+#if MWCCPSP
+extern TypeIntegral stint128; // 3.0.1: 16-byte integer, integral 18 (0x5CCB44)
+#endif
 extern TypeIntegral stwchar;
 extern TypeIntegral stvec2x32float;
 extern TypeStruct stvectorunsignedchar;
@@ -58,7 +66,11 @@ extern Boolean CMach_FloatIsNegOne(Float fval);
 extern void CMach_InitFloatMem(Type* type, Float val, void* mem);
 extern void CMach_PrintFloat(char* buf, Float val);
 extern void CMach_PragmaParams(void);
+#if MWCCPSP
+extern int CMach_GetStructAlign(TypeStruct* str);
+#else
 extern UInt16 CMach_GetStructAlign(TypeStruct* str);
+#endif
 extern SInt16 CMach_GetClassAlign(TypeClass* tclass);
 extern SInt16 CMach_GetTypeAlign(Type* type);
 extern SInt16 CMach_MemberAlignValue(Type* type, SInt32 offset);

@@ -23,7 +23,11 @@ extern HashNameNode* CMangler_ThunkName(
     Object* vfunc, SInt32 this_delta, SInt32 return_delta, SInt32 ctoroffset
 );
 extern HashNameNode* CMangler_TemplateInstanceName(HashNameNode* basename, TemplArg* args);
+#if MWCCPSP
+extern void CMangler_MangleType(Type* type, UInt32 qual, Boolean append);
+#else
 extern void CMangler_MangleType(Type* type, UInt32 qual);
+#endif
 extern HashNameNode* CMangler_ConversionFuncName(Type* type, UInt32 qual);
 extern HashNameNode* CMangler_GetCovariantFunctionName(Object* dobj, TypeClass* theclass);
 extern HashNameNode* CMangler_GetLinkName(Object* obj);

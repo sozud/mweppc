@@ -1,3 +1,667 @@
+#if MWCCPSP
+// mwccpsp 3.0.1: value numbering on the MIPS back end's pcode
+// (removecommonsubexpressions, 0x4B11D0..0x4B3090). 2.4.7's code below is
+// the template; 3.0.1 reads an instruction's result from args[1] when flag
+// 0x80000000 is set, propagates copies only in blocks without flag 0x180,
+// and keeps its state at fixed addresses that Alias.c's killmemory shares.
+#include "compiler/common.h"
+#include "compiler/Alias.h"
+#include "compiler/CError.h"
+#include "compiler/CompilerTools.h"
+#include "compiler/CInt64.h"
+#include "compiler/Registers.h"
+#include "psp/BE.h"
+#include <stddef.h>
+
+typedef struct ValueLabel301 {
+    struct ValueLabel301* next;
+    MOperand op; // +4
+} ValueLabel301; // 0x14
+
+typedef struct AvailableValue301 {
+    struct AvailableValue301* next;
+    ValueLabel301* labelled; // +4
+    MPCode* pcode; // +8
+    int killedregister; // +0xC
+    int aliasnumber; // +0x10
+    int opnumbers[1]; // +0x14
+} AvailableValue301;
+
+typedef struct RegValue301 {
+    int number;
+    int copyreg;
+    AvailableValue301* available;
+} RegValue301; // 0xC
+
+typedef struct StackedValue301 {
+    struct StackedValue301* next;
+    MOperand op; // +4
+    RegValue301 value; // +0x14
+    Alias* alias; // +0x20
+    MPCode* valuepcode; // +0x24
+} StackedValue301; // 0x28
+
+#define OPCODE_MAX_301 0x5C5
+
+int nextvaluenumber;
+int data_006245C0; // removedcommonsubexpressions
+int data_005F2630; // moreaggressiveoptimization
+int data_005F2634; // valueceiling
+StackedValue301* data_005F2638; // stackedvalues
+RegValue301* data_005F263C[7]; // regvalue
+AvailableValue301* data_005F2658[OPCODE_MAX_301]; // opvalue
+
+#define removedcommonsubexpressions data_006245C0
+#define moreaggressiveoptimization data_005F2630
+#define valueceiling data_005F2634
+#define stackedvalues data_005F2638
+#define regvalue data_005F263C
+#define opvalue data_005F2658
+
+extern SInt32 data_00624744[7]; // the first virtual register of each class
+extern SInt32 data_00625A98[7]; // the registers used in each class
+extern void gather_alias_info(void);
+extern void initialize_alias_values(void);
+extern void update_all_alias_values(void);
+extern MPCode* func_00490280(MOperand* src, MOperand* dst); // a register copy
+extern MPCode* func_0048FDC0(int kind, MOperand* src, MOperand* dst); // a copy for a load
+extern SInt32 func_0048FFA0(MPCode* store, MPCode* load); // can_reuse_stored_value
+
+#define RESULT_OP(pc) (&(pc)->args[((pc)->flags & 0x80000000) ? 1 : 0])
+#define REGVALUE(op) (&regvalue[(op)->rclass][(op)->reg])
+
+static void labelvalue(AvailableValue301* av, MOperand* op) {
+    ValueLabel301* label = oalloc(sizeof(ValueLabel301));
+    label->op = *op;
+    label->next = av->labelled;
+    av->labelled = label;
+}
+
+static void unlabelvalue(AvailableValue301* av, MOperand* op) {
+    ValueLabel301* labelled;
+    ValueLabel301** ptr;
+
+    ptr = &av->labelled;
+    while ((labelled = *ptr)) {
+        if (labelled->op.reg == op->reg) {
+            *ptr = labelled->next;
+        } else {
+            ptr = &labelled->next;
+        }
+    }
+}
+
+static void stackregistervalue(MOperand* op, RegValue301* value) {
+    StackedValue301* stacked = oalloc(sizeof(StackedValue301));
+    stacked->next = stackedvalues;
+    stackedvalues = stacked;
+    stacked->op = *op;
+    stacked->value = *value;
+}
+
+static void stackmemoryvalue(Alias* alias) {
+    StackedValue301* stacked = oalloc(sizeof(StackedValue301));
+    stacked->next = stackedvalues;
+    stackedvalues = stacked;
+    stacked->op.kind = 4;
+    stacked->alias = alias;
+    stacked->value.number = alias->valuenumber;
+    stacked->valuepcode = (MPCode*)alias->valuepcode;
+}
+
+static void unstackvalue(StackedValue301* stacked) {
+    MOperand* op = &stacked->op;
+    RegValue301* value;
+
+    if (op->kind == 4) {
+        stacked->alias->valuenumber = stacked->value.number;
+        stacked->alias->valuepcode = (PCode*)stacked->valuepcode;
+    } else {
+        value = REGVALUE(op);
+        if (value->available) {
+            unlabelvalue(value->available, op);
+        }
+        value->number = stacked->value.number;
+        value->copyreg = stacked->value.copyreg;
+        value->available = stacked->value.available;
+        if (value->available) {
+            labelvalue(value->available, op);
+        }
+    }
+}
+
+static int samevalue(MOperand* op1, MOperand* op2) {
+    return REGVALUE(op1)->number == REGVALUE(op2)->number;
+}
+
+static int killregister(MOperand* op) {
+    RegValue301* value = REGVALUE(op);
+
+    if (value->number < valueceiling && nextvaluenumber >= valueceiling) {
+        stackregistervalue(op, value);
+    }
+    if (value->available) {
+        unlabelvalue(value->available, op);
+    }
+    value->available = NULL;
+    value->copyreg = 0;
+    return value->number = nextvaluenumber++;
+}
+
+// 0x4B2EE0
+void killmemory(Alias* alias, MPCode* newValue) {
+    if (alias->valuenumber < valueceiling && nextvaluenumber >= valueceiling) {
+        stackmemoryvalue(alias);
+    }
+    if (newValue) {
+        alias->valuenumber = REGVALUE(&newValue->args[0])->number;
+        alias->valuepcode = (PCode*)newValue;
+    } else {
+        alias->valuenumber = nextvaluenumber++;
+        alias->valuepcode = NULL;
+    }
+}
+
+// 0x4B2DC0
+static void killallCSEs(void) {
+    AvailableValue301* av;
+    ValueLabel301* labelled;
+    int i;
+
+    for (i = 0; i < OPCODE_MAX_301; i++) {
+        for (av = opvalue[i]; av; av = av->next) {
+            for (labelled = av->labelled; labelled; labelled = labelled->next) {
+                killregister(&labelled->op);
+            }
+        }
+    }
+}
+
+static inline void killregisters(MPCode* pcode) {
+    MOperand* op;
+    int i;
+
+    for (i = 0, op = pcode->args; i < pcode->argcount; i++, op++) {
+        if (op->kind == 0 && (op->flags & 2)) {
+            killregister(op);
+        }
+    }
+}
+
+// 0x4B2C80
+static void copyregister(MOperand* src, MOperand* dest) {
+    RegValue301* srcvalue = REGVALUE(src);
+    RegValue301* destvalue = REGVALUE(dest);
+
+    if (destvalue->number < valueceiling && nextvaluenumber >= valueceiling) {
+        stackregistervalue(dest, destvalue);
+    }
+    if (destvalue->available) {
+        unlabelvalue(destvalue->available, dest);
+    }
+    destvalue->available = srcvalue->available;
+    if (destvalue->available) {
+        labelvalue(destvalue->available, dest);
+    }
+    destvalue->number = srcvalue->number;
+    if (srcvalue->copyreg && srcvalue->number == regvalue[src->rclass][srcvalue->copyreg].number) {
+        destvalue->copyreg = srcvalue->copyreg;
+    } else {
+        destvalue->copyreg = src->reg;
+    }
+}
+
+// 0x4B2A10
+static int matchvalues(AvailableValue301* av, MPCode* match) {
+    MPCode* avpc = av->pcode;
+    MOperand* avOp = &avpc->args[0];
+    MOperand* matchOp = &match->args[0];
+    int base = (match->flags & 0x80000000) ? 1 : 0;
+    int i;
+
+    if (match->alias != avpc->alias) {
+        return FALSE;
+    }
+    if (match->unk38 != avpc->unk38) {
+        return FALSE;
+    }
+    for (i = 0; i < match->argcount; i++, avOp++, matchOp++) {
+        if (i != base) {
+            switch (avOp->kind) {
+                case 0:
+                    if (av->opnumbers[i] != REGVALUE(matchOp)->number) {
+                        return FALSE;
+                    }
+                    break;
+                case 1:
+                    if (matchOp->reg != avOp->reg) {
+                        return FALSE;
+                    }
+                    break;
+                case 2:
+                    if (matchOp->kind != 2 || matchOp->value != avOp->value) {
+                        return FALSE;
+                    }
+                    break;
+                case 3:
+                    if (matchOp->kind != 3 ||
+                        !CInt64_Equal(*(CInt64*)&matchOp->value, *(CInt64*)&avOp->value)) {
+                        return FALSE;
+                    }
+                    break;
+                case 4:
+                    if (matchOp->kind != 4 ||
+                        MOP_OBJ(*matchOp) != MOP_OBJ(*avOp) ||
+                        matchOp->value != avOp->value) {
+                        return FALSE;
+                    }
+                    break;
+                case 5:
+                    if (matchOp->kind != 5 ||
+                        matchOp->unk0C != avOp->unk0C ||
+                        !CInt64_Equal(*(CInt64*)&matchOp->value, *(CInt64*)&avOp->value)) {
+                        return FALSE;
+                    }
+                    break;
+                case 6:
+#if MWCCPSP_NATIVE
+                    if (matchOp->kind != 6 || matchOp->ptr != avOp->ptr) {
+#else
+                    if (matchOp->kind != 6 || matchOp->value != avOp->value) {
+#endif
+                        return FALSE;
+                    }
+                    break;
+            }
+        }
+    }
+    if ((match->flags & 0x20002) && match->alias->valuenumber != av->aliasnumber) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static inline void chooselocation(AvailableValue301* av, MOperand* op) {
+    MOperand* baseop = RESULT_OP(av->pcode);
+    ValueLabel301* labelled;
+
+    for (labelled = av->labelled; labelled; labelled = labelled->next) {
+        if (labelled->op.reg == baseop->reg) {
+            *op = labelled->op;
+            return;
+        }
+    }
+    *op = av->labelled->op;
+}
+
+// 0x4B2860
+static int findavailablevalue(MPCode* pcode, MOperand* op) {
+    AvailableValue301* av;
+    MOperand swap;
+
+    for (av = opvalue[pcode->op]; av; av = av->next) {
+        if (av->labelled &&
+            av->pcode->flags == pcode->flags &&
+            av->pcode->argcount == pcode->argcount) {
+            if (!matchvalues(av, pcode)) {
+                if (!(pcode->flags & 0x2000)) {
+                    continue;
+                }
+                swap = pcode->args[1];
+                pcode->args[1] = pcode->args[2];
+                pcode->args[2] = swap;
+                if (!matchvalues(av, pcode)) {
+                    swap = pcode->args[1];
+                    pcode->args[1] = pcode->args[2];
+                    pcode->args[2] = swap;
+                    continue;
+                }
+            }
+            chooselocation(av, op);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// 0x4B2670
+static void addavailablevalue(MPCode* pcode) {
+    AvailableValue301* av;
+    MOperand* op;
+    int i;
+
+    av = oalloc(offsetof(AvailableValue301, opnumbers) + sizeof(int) * pcode->argcount);
+    av->labelled = NULL;
+    av->pcode = pcode;
+    for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
+        if (op->kind == 0) {
+            av->opnumbers[i] = REGVALUE(op)->number;
+        }
+    }
+    if (pcode->flags & 0x20002) {
+        av->aliasnumber = pcode->alias->valuenumber;
+    }
+    op = RESULT_OP(pcode);
+    av->killedregister = killregister(op);
+    labelvalue(av, op);
+    REGVALUE(op)->available = av;
+    av->next = opvalue[pcode->op];
+    opvalue[pcode->op] = av;
+}
+
+// exactly one register is written
+static inline int isCSEload(MPCode* pcode) {
+    MOperand* op;
+    int i;
+    int count;
+
+    if (pcode->flags & 0x180) {
+        return FALSE;
+    }
+    count = 0;
+    for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
+        if (op->kind == 0 && (op->flags & 2)) {
+            count++;
+        }
+    }
+    return count == 1;
+}
+
+// no other operand is the result register
+static inline int isCSEop(MPCode* pcode) {
+    MOperand* baseOp = RESULT_OP(pcode);
+    MOperand* op;
+    int i;
+
+    if (pcode->flags & 0x180) {
+        return FALSE;
+    }
+    for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
+        if (op != baseOp &&
+            op->kind == baseOp->kind &&
+            op->rclass == baseOp->rclass &&
+            op->reg == baseOp->reg) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+// the value is available in op: copy it to the result and drop pcode
+static inline void reusevalue(MPCode* pcode, MOperand* op, MOperand* base) {
+    if (REGVALUE(base)->number != REGVALUE(op)->number) {
+        insertpcodebefore(pcode, func_00490280(op, base));
+        copyregister(op, base);
+    }
+    deletepcode(pcode);
+    removedcommonsubexpressions = TRUE;
+}
+
+// 0x4B20B0
+static void pointerload(MPCode* pcode, Boolean propagate) {
+    MOperand* base = RESULT_OP(pcode);
+    MOperand op;
+
+    if ((pcode->flags & 0x200080) || !isCSEload(pcode)) {
+        killregisters(pcode);
+    } else if (propagate && findavailablevalue(pcode, &op)) {
+        reusevalue(pcode, &op, base);
+    } else {
+        addavailablevalue(pcode);
+    }
+}
+
+// 0x4B2300
+static void simpleload(MPCode* pcode, Boolean propagate) {
+    MOperand* base = RESULT_OP(pcode);
+    MOperand op;
+    MPCode* rs;
+    MPCode* pc;
+    MPCode* copy;
+    SInt32 kind;
+
+    if ((pcode->flags & 0x200080) || !isCSEload(pcode)) {
+        killregisters(pcode);
+        return;
+    }
+    if (propagate && findavailablevalue(pcode, &op)) {
+        reusevalue(pcode, &op, base);
+        return;
+    }
+    pc = (MPCode*)pcode->alias->valuepcode;
+    if (pc &&
+        !(pc->flags & 0x200000) &&
+        pcode->alias->valuenumber == REGVALUE(&pc->args[0])->number) {
+        op = pc->args[0];
+        rs = pc;
+    } else {
+        rs = NULL;
+    }
+    if (rs) {
+        kind = func_0048FFA0(rs, pcode);
+    }
+    if (propagate && rs && kind) {
+        if (kind != 1 || !samevalue(&op, base)) {
+            copy = func_0048FDC0(kind, &op, base);
+            insertpcodebefore(pcode, copy);
+            if (copy->flags & 0x10) {
+                copyregister(&op, base);
+            } else {
+                addavailablevalue(copy);
+            }
+        }
+        deletepcode(pcode);
+        removedcommonsubexpressions = TRUE;
+    } else {
+        addavailablevalue(pcode);
+    }
+}
+
+// 0x4B1C80
+static void operatefrommemory(MPCode* pcode, Boolean propagate) {
+    MOperand* base = RESULT_OP(pcode);
+    MOperand op;
+
+    if ((pcode->flags & 0x4000) && isCSEop(pcode) && !(pcode->flags & 0x80)) {
+        if (propagate && findavailablevalue(pcode, &op)) {
+            reusevalue(pcode, &op, base);
+        } else {
+            addavailablevalue(pcode);
+        }
+    } else {
+        killregisters(pcode);
+    }
+}
+
+// 0x4B1F60
+static void functioncall(MPCode* pcode) {
+    killregisters(pcode);
+    if (coloring) {
+        update_all_alias_values();
+        killallCSEs();
+    } else {
+        update_alias_value(pcode->alias, NULL);
+    }
+}
+
+// 0x4B1470
+static void removecsesfrombasicblock(MPCodeBlock* block) {
+    MPCode* pcode;
+    MPCode* next;
+    MOperand* op;
+    MOperand* base;
+    MOperand buf;
+    RegValue301* value;
+    Boolean propagate;
+    int i;
+
+    propagate = !(block->flags2E & 0x180) && block->pcodecount != 0;
+    for (pcode = block->first; pcode; pcode = next) {
+        next = pcode->next;
+        if (propagate) {
+            for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
+                if (op->kind == 0 &&
+                    (op->flags & 0xB) == 1 &&
+                    op->reg >= data_00624744[op->rclass]) {
+                    value = REGVALUE(op);
+                    if (value->copyreg &&
+                        value->copyreg >= data_00624744[op->rclass] &&
+                        value->number == regvalue[op->rclass][value->copyreg].number) {
+                        op->reg = value->copyreg;
+                    }
+                }
+            }
+        }
+        if (pcode->flags & 0x10) {
+            if (propagate && samevalue(&pcode->args[0], &pcode->args[1])) {
+                deletepcode(pcode);
+                removedcommonsubexpressions = TRUE;
+            } else {
+                copyregister(&pcode->args[1], &pcode->args[0]);
+            }
+        } else if (pcode->flags & 8) {
+            functioncall(pcode);
+        } else if (pcode->flags & 2) {
+            if (pcode->flags & 0x20) {
+                pointerload(pcode, propagate);
+            } else {
+                simpleload(pcode, propagate);
+            }
+        } else if (pcode->flags & 4) {
+            update_alias_value(pcode->alias, (PCode*)pcode);
+            killregisters(pcode);
+        } else if (pcode->flags & 0x20000) {
+            operatefrommemory(pcode, propagate);
+        } else if (pcode->flags & 0x40000) {
+            update_alias_value(pcode->alias, (PCode*)pcode);
+            killregisters(pcode);
+        } else if ((pcode->flags & 0x4000) && isCSEop(pcode)) {
+            base = RESULT_OP(pcode);
+            if (propagate && findavailablevalue(pcode, &buf)) {
+                reusevalue(pcode, &buf, base);
+            } else {
+                addavailablevalue(pcode);
+            }
+        } else {
+            killregisters(pcode);
+        }
+    }
+    block->flags2E |= 4;
+}
+
+// 0x4B1360
+static void regressvaluestate(void) {
+    AvailableValue301* av;
+    AvailableValue301** ptr;
+    StackedValue301* stacked;
+    int i;
+
+    for (i = 0; i < OPCODE_MAX_301; i++) {
+        ptr = &opvalue[i];
+        while ((av = *ptr)) {
+            if (av->killedregister >= valueceiling) {
+                *ptr = av->next;
+            } else {
+                ptr = &av->next;
+            }
+        }
+    }
+    for (stacked = stackedvalues; stacked; stacked = stacked->next) {
+        unstackvalue(stacked);
+    }
+}
+
+// a successor whose only predecessor is block, not yet visited
+static inline int ExtendsBlock301(MPBlockLink* succ) {
+    return !(succ->block->flags2E & 4) &&
+        succ->block->predecessors &&
+        !succ->block->predecessors->nextpred;
+}
+
+// 0x4B1280
+static void removecsesfromextendedbasicblock(MPCodeBlock* block) {
+    MPBlockLink* succ;
+    StackedValue301* savedStack;
+    int savedCeiling;
+    int counter;
+
+    removecsesfrombasicblock(block);
+    while (block->successors &&
+           !block->successors->next &&
+           block->successors->block->predecessors &&
+           !block->successors->block->predecessors->nextpred) {
+        removecsesfrombasicblock(block = block->successors->block);
+    }
+    counter = 0;
+    for (succ = block->successors; succ; succ = succ->next) {
+        if (ExtendsBlock301(succ)) {
+            counter++;
+        }
+    }
+    if (!counter) {
+        return;
+    }
+    savedCeiling = valueceiling;
+    savedStack = stackedvalues;
+    stackedvalues = NULL;
+    valueceiling = nextvaluenumber;
+    for (succ = block->successors; succ; succ = succ->next) {
+        if (ExtendsBlock301(succ)) {
+            removecsesfromextendedbasicblock(succ->block);
+            regressvaluestate();
+        }
+    }
+    stackedvalues = savedStack;
+    valueceiling = savedCeiling;
+}
+
+// 0x4B2F70
+static void initializecsedatastructures(void) {
+    RegValue301* rv;
+    char rclass;
+    int i;
+
+    nextvaluenumber = 0;
+    for (i = 0; i < OPCODE_MAX_301; i++) {
+        opvalue[i] = NULL;
+    }
+    for (rclass = 0; rclass < 7; rclass++) {
+        rv = regvalue[rclass];
+        for (i = 0; i < data_00625A98[rclass]; i++, rv++) {
+            rv->number = nextvaluenumber++;
+            rv->copyreg = 0;
+            rv->available = NULL;
+        }
+    }
+    initialize_alias_values();
+    stackedvalues = NULL;
+    valueceiling = 0x7FFFFFFF;
+}
+
+// 0x4B11D0
+void func_004B11D0(int moreAggressive) {
+    MPCodeBlock* block;
+    int rclass;
+
+    moreaggressiveoptimization = moreAggressive;
+    removedcommonsubexpressions = FALSE;
+    gather_alias_info();
+    for (rclass = 0; rclass < 7; rclass++) {
+        regvalue[rclass] = oalloc(sizeof(RegValue301) * data_00625A98[rclass]);
+    }
+    for (block = data_00624FD0; block; block = block->next) {
+        block->flags2E &= ~4;
+    }
+    for (block = data_00624FD0; block; block = block->next) {
+        if (!(block->flags2E & 4)) {
+            initializecsedatastructures();
+            removecsesfromextendedbasicblock(block);
+        }
+    }
+    freeoheap();
+}
+
+#else
 #include "compiler/ValueNumbering.h"
 #include "compiler/Alias.h"
 #include "compiler/CError.h"
@@ -734,3 +1398,4 @@ void removecommonsubexpressions(Object* proc, int moreAggressive) {
 
     freeoheap();
 }
+#endif

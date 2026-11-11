@@ -85,6 +85,21 @@ int __stdcall OS_GetMacFileType(const OSSpec* spec, OSType* mactype) {
     OSSpec rsrc;
     UInt32 rsize;
 
+#if MWCCPSP
+    // 3.0.1: a file that cannot be opened still gets a type (the hook,
+    // a resource fork, or TEXT)
+    flen = 0;
+    if (!OS_Open(spec, OSReadOnly, &ref)) {
+        OS_GetSize(ref, &flen);
+        count = sizeof(buffer);
+        err = OS_Read(ref, buffer, &count);
+        OS_Close(ref);
+
+        if (!err && count && OS_GetMacFileTypeMagic(buffer, count, mactype)) {
+            return 0;
+        }
+    }
+#else
     err = OS_Open(spec, OSReadOnly, &ref);
     if (err) {
         return err;
@@ -100,6 +115,7 @@ int __stdcall OS_GetMacFileType(const OSSpec* spec, OSType* mactype) {
             return 0;
         }
     }
+#endif
 
     if (!__OS_ExtendedGetMacFileTypeHook || !__OS_ExtendedGetMacFileTypeHook(spec, mactype)) {
         if (flen == 0) {

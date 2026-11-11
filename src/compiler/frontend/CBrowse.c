@@ -106,12 +106,25 @@ static void RecordUndefinedMemberFunctions(void);
 void CBrowse_Setup(CompilerLinkerParamBlk* params) {
     BrowseHeader hdr;
 
+#if MWCCPSP
+    CError_ASSERT(122, params != NULL);
+#else
     CError_ASSERT(123, params != NULL);
+#endif
 
     params->object.browsedata = NULL;
 
+#if MWCCPSP
+    if (InitGList(&gBrowseData, 0x10000)) {
+        CError_NoMem();
+    }
+    if (InitGList(&gMemberFuncList, 1024)) {
+        CError_NoMem();
+    }
+#else
     InitGList(&gBrowseData, 0x10000);
     InitGList(&gMemberFuncList, 1024);
+#endif
 
     gNextMemberFuncID = 1;
     gForceSourceLoc = FALSE;
@@ -121,12 +134,38 @@ void CBrowse_Setup(CompilerLinkerParamBlk* params) {
     hdr.browse_header = 0xBEABBAEB;
     hdr.browse_version = 2;
     hdr.earliest_compatible_version = 2;
+#if MWCCPSP
+    hdr.browse_language = copts.cplusplus ? (UInt8)langCPlus : (UInt8)langC;
+#else
     hdr.browse_language = copts.cplusplus ? langCPlus : langC;
+#endif
     hdr.uses_name_table = gUseNameTable;
 
     AppendGListData(&gBrowseData, &hdr, sizeof(hdr));
 }
 
+#if MWCCPSP
+// shrinks the list and stores its handle as params->object.browsedata
+extern void func_004234E0(CompilerLinkerParamBlk* params, GList* gl);
+
+// 3.0.1 (0x4234E0): the browse data handed to the plugin context
+extern CWMemHandle COS_DetachHandle(Handle* handle);
+
+void func_004234E0(CompilerLinkerParamBlk* params, GList* gl) {
+    ShrinkGList(gl);
+    params->object.browsedata = COS_DetachHandle((Handle*)&gl->data); // +8 in 3.0.1
+}
+
+void CBrowse_Finish(CompilerLinkerParamBlk* params) {
+    CError_ASSERT(155, params != NULL);
+
+    if (gBrowseData.size >= sizeof(BrowseHeader)) {
+        RecordUndefinedMemberFunctions();
+        AppendGListByte(&gBrowseData, -1);
+        func_004234E0(params, &gBrowseData);
+    }
+}
+#else
 void CBrowse_Finish(CompilerLinkerParamBlk* params) {
     CWMemHandle hnd;
 
@@ -144,6 +183,7 @@ void CBrowse_Finish(CompilerLinkerParamBlk* params) {
         }
     }
 }
+#endif
 
 void CBrowse_Cleanup(CompilerLinkerParamBlk* params) {
     FreeGList(&gBrowseData);
@@ -161,7 +201,11 @@ static void AppendGList(GList* dst, GList* src) {
 static void RecordName(GList* gl, const char* str, SInt32 id) {
     HashNameNode* name;
 
+#if MWCCPSP
+    CError_ASSERT(189, gl && str && *str);
+#else
     CError_ASSERT(190, gl && str && *str);
+#endif
 
     if (id < 0 && gUseNameTable) {
         for (name = name_hash_nodes[CHash(str)]; name; name = name->next) {
@@ -224,7 +268,11 @@ void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
         TYPE_CLASS(di->thetype)->classname->id
     );
 
+#if MWCCPSP
+    CMangler_MangleType(di->thetype, 0, FALSE);
+#else
     CMangler_MangleType(di->thetype, 0);
+#endif
     AppendGListByte(&name_mangle_list, 0);
 
     buf = lalloc(name_mangle_list.size + 1);
@@ -258,7 +306,11 @@ void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
             tclass = TYPE_CLASS(TEMPL_CLASS_INST(tclass)->templ);
         }
 
+#if MWCCPSP
+        CMangler_MangleType(TYPE(tclass), 0, FALSE);
+#else
         CMangler_MangleType(TYPE(tclass), 0);
+#endif
         AppendGListByte(&name_mangle_list, 0);
 
         baseName = lalloc(name_mangle_list.size + 1);
@@ -281,7 +333,11 @@ void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
 void CBrowse_AddClassMemberVar(ObjMemberVar* ivar, SInt32 startOffset, SInt32 endOffset) {
     short len;
 
+#if MWCCPSP
+    CError_ASSERT(372, ivar);
+#else
     CError_ASSERT(360, ivar);
+#endif
 
     if (gClassData.data && startOffset > 0 && endOffset >= startOffset) {
         if (tk == ';') {
@@ -305,7 +361,11 @@ void CBrowse_AddClassMemberFunction(Object* object, SInt32 startOffset, SInt32 e
     SInt32 id;
     TypeMemberFunc* tfunc;
 
+#if MWCCPSP
+    CError_ASSERT(392, object);
+#else
     CError_ASSERT(380, object);
+#endif
 
     if (IsTempName(object->name)) {
         return;
@@ -313,7 +373,11 @@ void CBrowse_AddClassMemberFunction(Object* object, SInt32 startOffset, SInt32 e
 
     if (gClassData.data && startOffset > 0 && endOffset >= startOffset) {
         flags = 0;
+#if MWCCPSP
+        CError_ASSERT(403, object->type && IS_TYPE_FUNC(object->type));
+#else
         CError_ASSERT(391, object->type && IS_TYPE_FUNC(object->type));
+#endif
         tfunc = TYPE_METHOD(object->type);
 
         if (!(tfunc->flags & FUNC_AUTO_GENERATED)) {
@@ -356,7 +420,11 @@ void CBrowse_AddClassMemberFunction(Object* object, SInt32 startOffset, SInt32 e
 void CBrowse_AddClassMemberData(Object* object, SInt32 startOffset, SInt32 endOffset) {
     short len;
 
+#if MWCCPSP
+    CError_ASSERT(447, object);
+#else
     CError_ASSERT(435, object);
+#endif
 
     if (gClassData.data &&
         startOffset > 0 &&
@@ -379,7 +447,11 @@ void CBrowse_AddClassMemberData(Object* object, SInt32 startOffset, SInt32 endOf
 }
 
 void CBrowse_EndClass(SInt32 offset, GList* gl) {
+#if MWCCPSP
+    CError_ASSERT(465, gl);
+#else
     CError_ASSERT(453, gl);
+#endif
 
     if (gClassData.data) {
         if (gClassData.size > 0) {
@@ -399,7 +471,11 @@ void CBrowse_EndClass(SInt32 offset, GList* gl) {
 void CBrowse_BeginStruct(DeclInfo* di, TypeStruct* tstruct, GList* gl) {
     HashNameNode* name;
 
+#if MWCCPSP
+    CError_ASSERT(492, di && gl);
+#else
     CError_ASSERT(480, di && gl);
+#endif
 
     *gl = gClassData;
 
@@ -424,7 +500,11 @@ void CBrowse_BeginStruct(DeclInfo* di, TypeStruct* tstruct, GList* gl) {
     AppendGListWord(&gClassData, di->file->fileID);
     AppendGListWord(&gClassData, di->file2->fileID);
     AppendGListLong(&gClassData, di->sourceoffset - 1);
+#if MWCCPSP
+    CError_ASSERT(533, gClassData.size == 9);
+#else
     CError_ASSERT(521, gClassData.size == 9);
+#endif
     AppendGListLong(&gClassData, di->sourceoffset - 1);
     AppendGListLong(&gClassData, 0);
     RecordName(&gClassData, name->name, name->id);
@@ -454,7 +534,11 @@ void CBrowse_AddStructMember(StructMember* member, SInt32 startOffset, SInt32 en
 }
 
 void CBrowse_EndStruct(SInt32 offset, GList* gl) {
+#if MWCCPSP
+    CError_ASSERT(570, gl);
+#else
     CError_ASSERT(558, gl);
+#endif
 
     if (gClassData.data) {
         if (offset > 0 && gClassData.size > 0) {
@@ -479,7 +563,11 @@ static void EmitStandardData(
     const char* str2,
     SInt32 id2
 ) {
+#if MWCCPSP
+    CError_ASSERT(596, str);
+#else
     CError_ASSERT(584, str);
+#endif
 
     AppendGListByte(&gBrowseData, item);
     AppendGListWord(&gBrowseData, fileID1);
@@ -504,7 +592,11 @@ void CBrowse_NewTypedef(
     SInt32 startOffset,
     SInt32 endOffset
 ) {
+#if MWCCPSP
+    CError_ASSERT(630, file1 && file1->recordbrowseinfo);
+#else
     CError_ASSERT(618, file1 && file1->recordbrowseinfo);
+#endif
 
     if (file2 && file2->fileID && startOffset > 0 && endOffset >= startOffset) {
         EmitStandardData(
@@ -529,7 +621,11 @@ void CBrowse_NewEnum(
     SInt32 startOffset,
     SInt32 endOffset
 ) {
+#if MWCCPSP
+    CError_ASSERT(644, file1 && file1->recordbrowseinfo);
+#else
     CError_ASSERT(632, file1 && file1->recordbrowseinfo);
+#endif
 
     if (file2 && file2->fileID && startOffset > 0 && endOffset >= startOffset) {
         EmitStandardData(
@@ -554,7 +650,11 @@ void CBrowse_NewEnumConstant(
     SInt32 startOffset,
     SInt32 endOffset
 ) {
+#if MWCCPSP
+    CError_ASSERT(658, file1 && file1->recordbrowseinfo);
+#else
     CError_ASSERT(646, file1 && file1->recordbrowseinfo);
+#endif
 
     if (tk == ',') {
         endOffset++;
@@ -710,7 +810,11 @@ static void RecordFunction(
 void CBrowse_NewFunction(
     Object* object, CPrepFileInfo* file1, CPrepFileInfo* file2, SInt32 startOffset, SInt32 endOffset
 ) {
+#if MWCCPSP
+    CError_ASSERT(952, file1 && file1->recordbrowseinfo);
+#else
     CError_ASSERT(890, file1 && file1->recordbrowseinfo);
+#endif
 
     if (file2 && file2->fileID && startOffset > 0 && (endOffset + 1) >= startOffset) {
         RecordFunction(object, file1->fileID, file2->fileID, startOffset, endOffset + 1);
@@ -726,8 +830,13 @@ void CBrowse_NewData(
     SInt32 linkid;
     SInt32 nameid;
 
+#if MWCCPSP
+    CError_ASSERT(974, file1 && file1->recordbrowseinfo);
+    CError_ASSERT(975, object);
+#else
     CError_ASSERT(912, file1 && file1->recordbrowseinfo);
     CError_ASSERT(913, object);
+#endif
 
     if (tk == ';') {
         endOffset++;
@@ -763,7 +872,11 @@ void CBrowse_NewData(
 }
 
 void CBrowse_NewMacro(Macro* macro, CPrepFileInfo* file, SInt32 startOffset, SInt32 endOffset) {
+#if MWCCPSP
+    CError_ASSERT(1013, !file || (file->recordbrowseinfo && !macro->is_special));
+#else
     CError_ASSERT(951, !file || (file->recordbrowseinfo && !macro->is_special));
+#endif
 
     if (file && file->fileID && startOffset > 0 && endOffset >= startOffset) {
         EmitStandardData(

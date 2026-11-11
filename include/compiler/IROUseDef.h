@@ -8,7 +8,12 @@
 extern "C" {
 #endif
 
+#if MWCCPSP
+// natively the pointers must stay aligned: 3.0.1's records (IROUse301) are
+#endif
+#if !MWCCPSP_NATIVE
 #pragma pack(push, 2)
+#endif
 struct IROUse {
     SInt32 index;
     IRONode* node;
@@ -32,9 +37,15 @@ struct IRODef {
     Boolean definite;
     Boolean removable;
 };
+#if !MWCCPSP_NATIVE
 #pragma pack(pop)
+#endif
 
+#if MWCCPSP
+extern ENodeType IRO_NonAssignmentOp[IRO_MAXEXPR];
+#else
 extern ENodeType IRO_NonAssignmentOp[MAXEXPR];
+#endif
 extern IROUse* IRO_FirstVarUse;
 extern IROUse* IRO_LastVarUse;
 

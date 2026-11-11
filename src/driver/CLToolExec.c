@@ -124,7 +124,11 @@ static int SetupLinkerCommandLine(SInt32 dropinflags, File* file, CWCommandLineA
             );
         }
     } else if (dropinflags & isPostLinker) {
+#if MWCCPSP
+        spec = gTarg->targetinfo->outfile;
+#else
         OS_FSSpec_To_OSSpec(&gTarg->targetinfo->outfile, &spec);
+#endif
         AppendArgumentList(
             &args->argc, &args->argv, OS_SpecToString(&spec, STSbuf, sizeof(STSbuf))
         );

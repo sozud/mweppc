@@ -21,6 +21,23 @@ enum {
     LinkModel_Overlay1 = 2
 };
 
+#if MWCCPSP
+// 3.0.1: the shell keeps its own target info (0x820 bytes, Target_New)
+typedef struct ShellTargetInfo {
+    UInt32 targetCPU;
+    UInt32 targetOS;
+    short outputType;
+    SInt16 linkType;
+    UInt8 canRun;
+    UInt8 canDebug;
+    OSSpec outfile; // +0x0E
+    OSSpec symfile; // +0x212
+    OSSpec runfile; // +0x416
+    OSSpec linkAgainstFile; // +0x61A
+} ShellTargetInfo;
+#define TARGET_INFO ShellTargetInfo
+
+#endif
 struct Target {
     struct BuildInfo {
         UInt32 linesCompiled;
@@ -28,7 +45,11 @@ struct Target {
         UInt32 iDataSize;
         UInt32 uDataSize;
     } info;
+#if MWCCPSP
+    TARGET_INFO* targetinfo;
+#else
     CWTargetInfo* targetinfo;
+#endif
     struct {
         Segments segs;
         Overlays overlays;

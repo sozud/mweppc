@@ -5,8 +5,18 @@
 extern "C" {
 #endif
 
+#if MWCCPSP
+#ifdef __LP64__
+typedef __SIZE_TYPE__ size_t;
+typedef __PTRDIFF_TYPE__ ptrdiff_t;
+#else
 typedef unsigned int size_t;
 typedef int ptrdiff_t;
+#endif
+#else
+typedef unsigned int size_t;
+typedef int ptrdiff_t;
+#endif
 #ifndef NULL
 #define NULL 0L
 #endif

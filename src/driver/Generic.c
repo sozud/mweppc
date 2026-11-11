@@ -151,7 +151,12 @@ int __stdcall OS_MakeSpec2(const char* path, const char* filename, OSSpec* spec)
 
     strncpy(bpath, path, pthlen);
     eptr = bpath + pthlen;
+#if MWCCPSP_NATIVE
+    // an empty path reads the byte before bpath, which is not a separator
+    if (!pthlen || eptr[-1] != OS_PATHSEP) {
+#else
     if (eptr[-1] != OS_PATHSEP) {
+#endif
         *(eptr++) = OS_PATHSEP;
     }
     strcpy(eptr, filename);
@@ -424,9 +429,11 @@ int __stdcall OS_FindProgram(const char* filename, OSSpec* spec) {
 
     strncpy(exename, filename, 260);
     exename[259] = 0;
+#if !MWCCPSP_NATIVE
     if (strlen(exename) < 4 || ustrcmp(exename + strlen(exename) - 4, ".exe")) {
         strcatn(exename, ".exe", 260);
     }
+#endif
 
     if (!strchr(exename, OS_PATHSEP)) {
         if (GetSystemDirectoryA(dir, 260)) {

@@ -1,4 +1,7 @@
 #include "compiler/CompilerTools.h"
+#if MWCCPSP
+#include "compiler/IroMalloc.h"
+#endif
 #include "compiler/CParser.h"
 #include "driver/CCompiler.h"
 #include "driver/COSToolsCLT.h"
@@ -45,7 +48,11 @@ HashNameNode** name_hash_nodes;
 void (*GListErrorProc)(void);
 
 void CompilerGetCString(short index, char* string) {
+#if MWCCPSP
+    COS_GetString(string, 10100, (SInt16)(int)index);
+#else
     COS_GetString(string, 10100, index);
+#endif
 }
 
 unsigned char* CTool_CtoPstr(char* cstr) {
@@ -811,7 +818,11 @@ void releaseoheap(void) {
 void* galloc(SInt32 size) {
     char* cp;
 
+#if MWCCPSP
+    size = (size + 7) & ~7;
+#else
     size = (size & ~7) + 8;
+#endif
     if (gheap.curfree < size) {
         MoreHeapSpace(&gheap, size);
     }
@@ -825,7 +836,11 @@ void* galloc(SInt32 size) {
 void* lalloc(SInt32 size) {
     char* cp;
 
+#if MWCCPSP
+    size = (size + 7) & ~7;
+#else
     size = (size & ~7) + 8;
+#endif
     if (lheap.curfree < size) {
         MoreHeapSpace(&lheap, size);
     }
@@ -839,7 +854,11 @@ void* lalloc(SInt32 size) {
 void* aalloc(SInt32 size) {
     char* cp;
 
+#if MWCCPSP
+    size = (size + 7) & ~7;
+#else
     size = (size & ~7) + 8;
+#endif
     if (aheap.curfree < size) {
         MoreHeapSpace(&aheap, size);
     }
@@ -853,7 +872,11 @@ void* aalloc(SInt32 size) {
 void* oalloc(SInt32 size) {
     char* cp;
 
+#if MWCCPSP
+    size = (size + 7) & ~7;
+#else
     size = (size & ~7) + 8;
+#endif
     if (oheap.curfree < size) {
         MoreHeapSpace(&oheap, size);
     }
@@ -867,7 +890,11 @@ void* oalloc(SInt32 size) {
 void* balloc(SInt32 size) {
     char* cp;
 
+#if MWCCPSP
+    size = (size + 7) & ~7;
+#else
     size = (size & ~7) + 8;
+#endif
     if (bheap.curfree < size) {
         MoreHeapSpace(&bheap, size);
     }
@@ -919,6 +946,25 @@ void freeaheap(void) {
     }
 }
 
+#if MWCCPSP
+// 3.0.1 also resets the optimizer's pools on oheap (0x446C10)
+void freeoheap(void) {
+    HeapBlock* blockp;
+
+    blockp = oheap.blocks;
+    oheap.curblock = blockp;
+    oheap.curfreep = ((char*)blockp) + sizeof(HeapBlock);
+    oheap.curfree = blockp->blocksize - sizeof(HeapBlock);
+
+    while (blockp) {
+        blockp->blockfree = blockp->blocksize - sizeof(HeapBlock);
+        blockp = blockp->next;
+    }
+
+    IRO_TerminateAllocator(oalloc);
+    IRO_InitializeAllocator(oalloc);
+}
+#else
 void freeoheap(void) {
     HeapBlock* blockp;
 
@@ -932,6 +978,7 @@ void freeoheap(void) {
         blockp = blockp->next;
     }
 }
+#endif
 
 #pragma sym reset
 void freebheap(void) {
@@ -1274,6 +1321,7 @@ UInt16 CTool_EndianConvertWord16(UInt16 theword) {
     return out.w;
 }
 
+#if !MWCCPSP // 3.0.1: an identity inline (CompilerTools.h)
 UInt32 CTool_EndianConvertWord32(UInt32 theword) {
     union {
         UInt32 w;
@@ -1289,6 +1337,7 @@ UInt32 CTool_EndianConvertWord32(UInt32 theword) {
     out.b[3] = in.b[0];
     return out.w;
 }
+#endif
 
 void CTool_EndianConvertMem(void* data, short len) {
     UInt8* front;
@@ -1336,11 +1385,21 @@ UInt32 CTool_EndianConvertInPlaceWord32Ptr(UInt32* x) {
 
 void CTool_EndianConvertVector128(void) {}
 
+#if MWCCPSP
+// 0x4468C0: 3.0.1 returns a copy of the path
+char* CTool_GetPathName(const struct CWFileSpec* fss, COSFileTime* moddateptr) {
+    char name[260];
+
+    COS_FileGetPathName(name, fss, moddateptr);
+    return strcpy(galloc(strlen(name) + 1), name);
+}
+#else
 HashNameNode* CTool_GetPathName(const struct FSSpec* fss, SInt32* moddateptr) {
     char name[256];
     COS_FileGetPathName(name, fss, moddateptr);
     return GetHashNameNodeExport(name);
 }
+#endif
 
 int strcat_safe(char* dest, const char* src, SInt32 len) {
     SInt32 dest_len;

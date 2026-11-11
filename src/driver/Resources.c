@@ -821,7 +821,11 @@ static MemRefList* FindResourceTypeAndID(OSType theType, SInt16 theID) {
     return NULL;
 }
 
+#if MWCCPSP
+void __stdcall OS_AddMacResourceForkRef(int ref, const OSSpec* spec) {
+#else
 void OS_AddMacResourceForkRef(int ref, const OSSpec* spec) {
+#endif
     ResRef* nw;
 
     nw = malloc(sizeof(ResRef));
@@ -838,7 +842,11 @@ void OS_AddMacResourceForkRef(int ref, const OSSpec* spec) {
     }
 }
 
+#if MWCCPSP
+void __stdcall OS_RemoveMacResourceForkRef(int ref) {
+#else
 void OS_RemoveMacResourceForkRef(int ref) {
+#endif
     ResRef* lst;
     ResRef* prev;
 
@@ -865,7 +873,11 @@ void OS_RemoveMacResourceForkRef(int ref) {
     }
 }
 
+#if MWCCPSP
+OSSpec* __stdcall OS_GetMacResourceForkFromRef(int ref) {
+#else
 OSSpec* OS_GetMacResourceForkFromRef(int ref) {
+#endif
     ResRef* lst;
 
     for (lst = resForkList; lst; lst = lst->next) {
@@ -877,7 +889,11 @@ OSSpec* OS_GetMacResourceForkFromRef(int ref) {
     return NULL;
 }
 
+#if MWCCPSP
+Boolean __stdcall OS_SearchMacResourceForkList(const OSSpec* rspec, int* ref) {
+#else
 Boolean OS_SearchMacResourceForkList(const OSSpec* rspec, int* ref) {
+#endif
     ResRef* lst;
 
     for (lst = resForkList; lst; lst = lst->next) {
@@ -890,7 +906,11 @@ Boolean OS_SearchMacResourceForkList(const OSSpec* rspec, int* ref) {
     return FALSE;
 }
 
+#if MWCCPSP
+int __stdcall OS_SetMacResourceForkCreatorAndType(int ref, OSType creator, OSType type) {
+#else
 int OS_SetMacResourceForkCreatorAndType(int ref, OSType creator, OSType type) {
+#endif
     int err;
     UInt32 buf[2];
     UInt32 sz;
@@ -929,7 +949,11 @@ int OS_SetMacResourceForkCreatorAndType(int ref, OSType creator, OSType type) {
     return 0;
 }
 
+#if MWCCPSP
+int __stdcall OS_GetMacResourceForkCreatorAndType(int ref, OSType* creator, OSType* type) {
+#else
 int OS_GetMacResourceForkCreatorAndType(int ref, OSType* creator, OSType* type) {
+#endif
     int err;
     UInt32 buf[2];
     UInt32 sz;
@@ -962,7 +986,11 @@ int OS_GetMacResourceForkCreatorAndType(int ref, OSType* creator, OSType* type) 
     return 0;
 }
 
+#if MWCCPSP
+void __stdcall OS_CleanupMacResourceForkDir(const OSPathSpec* dir) {
+#else
 void OS_CleanupMacResourceForkDir(const OSPathSpec* dir) {
+#endif
     OS_Rmdir(dir);
 }
 
@@ -1137,7 +1165,11 @@ SInt16 __stdcall FSpOpenResFile(const FSSpec* spec, SInt8 permission) {
     return ref;
 }
 
+#if MWCCPSP
+Handle __stdcall GetResource(OSType theType, SInt16 theID) {
+#else
 Handle GetResource(OSType theType, SInt16 theID) {
+#endif
     MemRefList* mref;
 
     mref = FindResourceTypeAndID(theType, theID);

@@ -9,7 +9,40 @@
 extern "C" {
 #endif
 
+#if !MWCCPSP
 #pragma pack(push, 2)
+#endif
+#if MWCCPSP
+// 3.0.1: 0x44 bytes, natural alignment (StartNode 0x577BC0 and
+// IRO_FreeFlowGraphNode 0x576A70); the loop depth moved up, 2.4.7's unused
+// word is gone, and a node holding an asm optimization barrier is marked.
+struct IRONode {
+    UInt16 index; // +0
+    UInt16 numsucc; // +2
+    UInt16* succ; // +4
+    UInt16 numpred; // +8
+    UInt16* pred; // +0xC
+    UInt16 loopdepth; // +0x10
+    IROLinear* first; // +0x14
+    IROLinear* last; // +0x18
+    BitVector* in; // +0x1C
+    BitVector* out; // +0x20
+    BitVector* gen; // +0x24
+    BitVector* kill; // +0x28
+    BitVector* copyOut; // +0x2C
+    BitVector* dom; // +0x30
+    IRONode* nextnode; // +0x34
+    struct ObjectSet* addressed; // +0x38
+    Boolean reachable; // +0x3C
+    Boolean visited; // +0x3D
+    Boolean mustreach; // +0x3E
+    Boolean unk3F; // new in 3.0.1
+    Boolean referenced; // +0x40 (IRO_ComputeSuccPred)
+    Boolean marked; // +0x41
+    Boolean mustreach1; // +0x42
+    Boolean hasAsmBarrier; // +0x43 (IRO_FindAsmBarriers 0x576550)
+};
+#else
 struct IRONode {
     UInt16 index;
     UInt16 numsucc;
@@ -35,13 +68,16 @@ struct IRONode {
     struct ObjectSet* addressed;
     Boolean mustreach1;
 };
+#endif
 
 typedef struct IRONodes {
     UInt16* indices;
     UInt16 num;
     UInt16 base;
 } IRONodes;
+#if !MWCCPSP
 #pragma pack(pop)
+#endif
 
 extern UInt16 IRO_NumNodes;
 extern IRONode* IRO_FirstNode;
@@ -54,6 +90,9 @@ extern BitVector* IRO_FuncKills;
 extern BitVector* IRO_ExprKills;
 
 extern void IRO_BuildFlowgraph(IROLinear* linear);
+#if MWCCPSP
+extern void IRO_RebuildNodeTable(void);
+#endif
 extern void IRO_ComputeDom(void);
 extern void IRO_ComputeSuccPred(void);
 extern IRONode* IRO_NewFlowGraphNode(void);

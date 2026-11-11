@@ -62,12 +62,22 @@ extern "C" {
 typedef int BOOL;
 typedef unsigned char BYTE;
 typedef unsigned short WORD;
+#if MWCCPSP_NATIVE
+// LP64: Win32's long types are 32 bits; ULONG_PTR holds a pointer
+typedef unsigned int DWORD;
+typedef unsigned int UINT;
+typedef short SHORT;
+typedef int LONG;
+typedef char CHAR;
+typedef unsigned long ULONG_PTR;
+#else
 typedef unsigned long DWORD;
 typedef unsigned int UINT;
 typedef short SHORT;
 typedef long LONG;
 typedef char CHAR;
 typedef unsigned long ULONG_PTR;
+#endif
 typedef ULONG_PTR SIZE_T;
 typedef void* LPVOID;
 typedef const void* LPCVOID;
@@ -87,9 +97,18 @@ struct HRSRC__ {
     int unused;
 };
 typedef struct HRSRC__* HRSRC;
+#if MWCCPSP
+#if MWCCPSP_NATIVE
+#include <stdarg.h> // the host's va_list
+#elif !defined(__va_list__)
+#define __va_list__
+typedef char* va_list;
+#endif
+#else
 #ifndef __va_list__
 #define __va_list__
 typedef char* va_list;
+#endif
 #endif
 
 typedef struct _FILETIME {
@@ -270,12 +289,21 @@ __declspec(dllimport) BOOL __stdcall GetFileTime(
 __declspec(dllimport) DWORD __stdcall GetFullPathNameA(
     LPCSTR lpFileName, DWORD nBufferLength, LPSTR lpBuffer, LPSTR* lpFilePart
 );
+#if MWCCPSP
+__declspec(dllimport) LPSTR __stdcall GetEnvironmentStrings(void);
+__declspec(dllimport) BOOL __stdcall FreeEnvironmentStringsA(LPSTR lpszEnvironmentBlock);
+#endif
 __declspec(dllimport) DWORD __stdcall GetLastError(void);
 __declspec(dllimport) HMODULE __stdcall GetModuleHandleA(LPCSTR lpModuleName);
 __declspec(dllimport) HANDLE __stdcall GetStdHandle(DWORD nStdHandle);
 __declspec(dllimport) UINT __stdcall GetSystemDirectoryA(LPSTR lpBuffer, UINT uSize);
 __declspec(dllimport) void __stdcall GetSystemTime(LPSYSTEMTIME lpSystemTime);
 __declspec(dllimport) DWORD __stdcall GetTickCount(void);
+#if MWCCPSP
+__declspec(dllimport) int __stdcall LoadStringA(
+    HINSTANCE hInstance, UINT uID, LPSTR lpBuffer, int cchBufferMax
+);
+#endif
 __declspec(dllimport) DWORD __stdcall GetTimeZoneInformation(
     struct _TIME_ZONE_INFORMATION* lpTimeZoneInformation
 );

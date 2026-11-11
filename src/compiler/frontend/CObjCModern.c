@@ -169,7 +169,11 @@ ENode* CObjC_New(TypeClass* tclass) {
 
     arg->name = GetHashNameNode("alloc");
 
+#if MWCCPSP
+    objexpr = create_objectrefnode(CLASS_OBJCINFO(tclass)->classobject);
+#else
     objexpr = create_objectrefnode(tclass->objcinfo->classobject);
+#endif
 
     return CObjC_MakeSendMsgExpr(objexpr, tclass, arg, NULL, 1, FALSE);
 }

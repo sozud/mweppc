@@ -16,6 +16,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if MWCCPSP
+// 3.0.1: the specs go to the plugin as they are
+int WriteObjectFile(File* file, OSType maccreator, OSType mactype) {
+    OS_ASSERT(19, file->objectdata && file->compiler);
+
+    if (optsCmdLine.verbose) {
+        CLReport(
+            CLStr16,
+            (file->tempOnDisk & CmdLineStageMask_Cg) ? "temporary " : "",
+            OS_SpecToStringRelative(&file->outfss, NULL, STSbuf, sizeof(STSbuf))
+        );
+    }
+
+    if (!Plugin_CL_WriteObjectFile(
+            file->compiler, &file->srcfss, &file->outfss, maccreator, mactype, file->objectdata
+        )) {
+        return FALSE;
+    } else {
+        return TRUE;
+    }
+}
+#else
 #ifdef __MWERKS__
 int WriteObjectFile(File* file, OSType maccreator, OSType mactype) {
     FSSpec srcfss;
@@ -72,6 +94,7 @@ int WriteObjectFile(File* file, OSType maccreator, OSType mactype) {
         return TRUE;
     }
 }
+#endif
 #endif
 
 int WriteBrowseData(File* file, OSType maccreator, OSType mactype) {

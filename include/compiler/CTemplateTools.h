@@ -10,8 +10,15 @@ extern "C" {
 
 extern short ctempl_instdepth;
 
+#if MWCCPSP
+extern SInt32 ctempl_maxinstdepth;
+extern TemplStack* CTemplTool_GetInstanceStack(void);
+extern TemplStack* CTemplTool_PushInstance(TypeClass* tmclass, Object* func);
+extern void CTemplTool_PopInstance(TemplStack* saved);
+#else
 extern void CTemplTool_PushInstance(TemplStack* stack, TypeClass* tmclass, Object* func);
 extern void CTemplTool_PopInstance(TemplStack* stack);
+#endif
 extern Boolean CTemplTool_InitDeduceInfo(
     DeduceInfo* info, TemplParam* params, TemplArg* args, Boolean checkUndeduced
 );
@@ -53,6 +60,13 @@ extern Type* CTemplTool_DeduceTypeCopy(TypeDeduce* deduce, Type* type, UInt32* r
 extern Type* CTemplTool_ResolveMemberSelfRefs(TemplClass* templ, Type* type, UInt32* resultQual);
 extern Boolean CTemplTool_IsSameTemplateType(Type* a, Type* b);
 
+#if MWCCPSP
+extern TemplClass* CTemplTool_GetTemplClass(TypeClass* tclass);
+extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
+#endif
+#if MWCCPSP
+
+#endif
 #ifdef __cplusplus
 }
 #endif

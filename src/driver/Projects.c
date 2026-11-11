@@ -1,4 +1,7 @@
 #include "driver/Projects.h"
+#if MWCCPSP
+#include "driver/PluginSpecs.h"
+#endif
 #include "driver/CWParserPluginsPrivate.h"
 #include "driver/CWPlugins.h"
 #include "driver/CWPluginsPrivate.h"
@@ -31,10 +34,41 @@ void SetFileOutputName(SInt32 position, SInt16 which, char* outfilename) {
         }
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+#endif
 
 int AddFileToProject(
     OSSpec* oss, SInt16 which, char* outfilename, Boolean exists, SInt32 position
 ) {
+#if MWCCPSP
+    OSSpec link;
+    CWFileSpec cws;
+    OSSpec spec;
+    CWNewProjectEntryInfo pei;
+    CWResult result;
+    int err;
+
+    // 3.0.1 follows links when the file must exist, and converts with
+    // func_004246F0, which only reports an error in that case
+    spec = *oss;
+    err = 0;
+    if (exists) {
+        while (err < 50 && !OS_ResolveLink(&spec, &link)) {
+            spec = link;
+            err++;
+        }
+        err = func_004246F0(2, &spec, &cws);
+        if (err) {
+            CLPOSAlert(CLPStr44, err, OS_SpecToStringRelative(&spec, 0, STSbuf, sizeof(STSbuf)));
+            return FALSE;
+        }
+    } else {
+        func_004246F0(2, &spec, &cws);
+    }
+#else
     CWFileSpec cws;
     CWNewProjectEntryInfo pei;
     CWResult result;
@@ -45,6 +79,7 @@ int AddFileToProject(
         CLPOSAlert(CLPStr44, err, OS_SpecToStringRelative(oss, 0, STSbuf, sizeof(STSbuf)));
         return FALSE;
     }
+#endif
 
     if (position == -2) {
         pei.position = 0;
@@ -79,7 +114,15 @@ Boolean GetFileInfo(SInt32 position, OSSpec* spec, char* plugin) {
         return FALSE;
     }
 
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+    func_004246A0(2, &pfi.filespec, spec);
+#else
     OS_FSSpec_To_OSSpec(&pfi.filespec, spec);
+#endif
+#else
+    OS_FSSpec_To_OSSpec(&pfi.filespec, spec);
+#endif
     strncpy(plugin, pfi.dropinname, 32);
     plugin[31] = 0;
     return TRUE;
@@ -93,7 +136,15 @@ int AddAccessPath(OSPathSpec* oss, SInt16 type, SInt32 position, Boolean recursi
     CWAccessPathListInfo apli;
 
     if ((err = OS_MakeSpecWithPath(oss, NULL, FALSE, &spec)) ||
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+        (err = func_004246F0(2, &spec, &api.pathSpec))) {
+#else
         (err = OS_OSSpec_To_FSSpec(&spec, &api.pathSpec))) {
+#endif
+#else
+        (err = OS_OSSpec_To_FSSpec(&spec, &api.pathSpec))) {
+#endif
         CLPOSAlert(CLPStr45, err, OS_PathSpecToString(&spec.path, STSbuf, sizeof(STSbuf)));
         return FALSE;
     }
@@ -162,7 +213,15 @@ void GetOutputFileDirectory(OSPathSpec* dir) {
         longjmp(exit_plugin, result);
     }
 
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+    func_004246A0(2, &idefss, &spec);
+#else
     OS_FSSpec_To_OSSpec(&idefss, &spec);
+#endif
+#else
+    OS_FSSpec_To_OSSpec(&idefss, &spec);
+#endif
     *dir = spec.path;
 }
 
@@ -172,7 +231,15 @@ void SetOutputFileDirectory(OSPathSpec* dir) {
     OSSpec spec;
 
     OS_MakeSpecWithPath(dir, NULL, FALSE, &spec);
+#if MWCCPSP
+#if CW_PLUGIN_PATHSPEC
+    func_004246F0(2, &spec, &idefss);
+#else
     OS_OSSpec_To_FSSpec(&spec, &idefss);
+#endif
+#else
+    OS_OSSpec_To_FSSpec(&spec, &idefss);
+#endif
 
     result = CWParserSetOutputFileDirectory(parseopts.context, &idefss);
     if (result) {
