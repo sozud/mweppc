@@ -350,7 +350,22 @@ char* __stdcall OS_SpecToStringRelative(
         cwd++;
     }
 
+#if MWCCPSP
+#if MWCCPSP_NATIVE
+    // The original runs under wibo, where both paths start with a drive
+    // ("Z:\"): the two drive characters count in the length test below, and
+    // the root separator after them is a common directory, so a file outside
+    // the cwd's tree still gets a "..\" path. Native paths start at the
+    // separator; DRIVE_LEN puts the drive back for both decisions.
+#define DRIVE_LEN 2
+#else
+#define DRIVE_LEN 0
+#endif
+    if ((size_t)(cwd - cwdbuf) + DRIVE_LEN < ((strlen(fullbuf) + DRIVE_LEN) / 2) &&
+        (strlen(cwd) > ((strlen(fullbuf) + DRIVE_LEN) / 2))) {
+#else
     if ((size_t)(cwd - cwdbuf) < (strlen(fullbuf) / 2) && (strlen(cwd) > (strlen(fullbuf) / 2))) {
+#endif
         memcpy(path, fullbuf, size - 1);
         path[size - 1] = 0;
         return path;
@@ -364,7 +379,11 @@ char* __stdcall OS_SpecToStringRelative(
         }
     }
 
+#if MWCCPSP
+    if (cwd == cwdbuf && !(DRIVE_LEN && *cwd == OS_PATHSEP)) {
+#else
     if (cwd == cwdbuf) {
+#endif
         strncpy(path, full, size - 1);
         path[size - 1] = 0;
     } else {
