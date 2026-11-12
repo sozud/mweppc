@@ -429,7 +429,11 @@ void CBrowse_AddClassMemberData(Object* object, SInt32 startOffset, SInt32 endOf
     if (gClassData.data &&
         startOffset > 0 &&
         endOffset >= startOffset &&
+#if MWCCPS2
+        CParser_IsDataObject(object)) {
+#else
         object->datatype == DDATA) {
+#endif
         if (tk == ';') {
             endOffset++;
         }
@@ -676,7 +680,12 @@ void CBrowse_NewEnumConstant(
 }
 
 static HashNameNode* CBrowse_GetLinkName(Object* object) {
+#if MWCCPS2
+    // b210: the export name of the object's display name
+    return GetHashNameNodeExport(CError_GetObjectName(object));
+#else
     return CMangler_GetLinkName(object);
+#endif
 }
 
 static void RecordFunction(

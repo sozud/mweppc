@@ -35,9 +35,16 @@ void func_004A46A0(void) {
 }
 
 // The integer result of a call.
+#if MWCCPS2
+// b210 (0x4B00E0): one 64-bit register even for long long
+VOperand func_004A46E0(Boolean pair) {
+    return func_0047FAA0(data_00625E48, 0, 0);
+}
+#else
 VOperand func_004A46E0(Boolean pair) {
     return func_0047FAA0(data_00625E48, 0, pair != 0);
 }
+#endif
 
 // Call a runtime routine.
 void func_004A4A20(Object* rtfunc) {
@@ -123,17 +130,50 @@ void func_004A5A60(VOperand* op, Type* type) {
 
 // Where a call's result of this type comes back: general registers (a pair
 // for a double) with the float library, else the float result register.
+#if MWCCPS2
+// b210 (0x4B0100): a float-library double comes back in one 64-bit register
+VOperand func_004A4710(Type* type) {
+    if (type->type != TYPEFLOAT || !IS_SOFTFLOAT(type)) {
+        return func_0047FAA0(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), 1, 0);
+    }
+    return func_0047FAA0(data_00625E48, 0, 0);
+}
+#else
 VOperand func_004A4710(Type* type) {
     Boolean pair = IS_DOUBLE(type);
 
     if (type->type != TYPEFLOAT || !IS_SOFTFLOAT(type)) {
-        return func_0047FAA0(IS_SINGLE(type) ? 0x5B1 : 0x5B2, 1, 0);
+        return func_0047FAA0(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), 1, 0);
     }
     return func_0047FAA0(data_00625E48, 0, pair != 0);
 }
+#endif
 
 // Move an argument into $a0 + n - 1; a double in two float registers goes
 // to a general register pair in the target's word order.
+#if MWCCPS2
+// b210 reads data_00624788 (0x635B78) here; one name so the native build
+// does not get a second, never-set copy
+extern SInt32 data_00624788;
+#define ps2_argarea_635B78 data_00624788
+// b210 (0x4B01B0): a 64-bit general register holds any integer argument;
+// without mips_long64 (copts+0x15) the outgoing area grows to 8-byte slots
+void func_004A47E0(VOperand* op, Boolean pair, int n) {
+    int reg;
+    SInt32 size;
+
+    reg = 4 + (n - 1);
+    emitpcode((SInt16)data_00625E48, reg, op->reg);
+    data_005F0E68[0] |= BIT32(reg);
+    if (!copts.mips_long64) {
+        size = ps2_argarea_635B78;
+        if (data_006242B4 > size) {
+            size = data_006242B4;
+        }
+        data_006242B4 = (size + 7) & ~7;
+    }
+}
+#else
 void func_004A47E0(VOperand* op, Boolean pair, int n) {
     int reg = 4;
 
@@ -153,9 +193,46 @@ void func_004A47E0(VOperand* op, Boolean pair, int n) {
         data_005F0E68[0] |= BIT32(reg);
     }
 }
+#endif
 
 // Pass an argument of this type in the n-th argument register: general
 // registers for integers and float-library floats, else $f12 + 2(n - 1).
+#if MWCCPS2
+// b210 (0x4B0220): a float-library float or double is one 64-bit general
+// register; without mips_long64 (copts+0x15) the outgoing area grows by the
+// registers used, in 8-byte slots (as func_004A47E0)
+void func_004A4890(VOperand* op, Type* type, int n) {
+    Boolean pair = IS_DOUBLE(type);
+    int reg;
+    int count;
+    SInt32 size;
+
+    if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
+        reg = 4 + (n - 1);
+        count = 1;
+        emitpcode((SInt16)data_00625E48, reg, op->reg);
+        data_005F0E68[0] |= BIT32(reg);
+    } else {
+        reg = 12 + (n - 1) * 2;
+        if (pair) {
+            count = 2;
+            emitpcode(MACRO_OP(0x9A), reg, op->reg);
+            data_005F0E68[1] |= 3 << reg;
+        } else {
+            count = 1;
+            emitpcode(MACRO_OP(0x99), reg, op->reg);
+            data_005F0E68[1] |= BIT32(reg);
+        }
+    }
+    if (!copts.mips_long64) {
+        size = count * ps2_argarea_635B78;
+        if (data_006242B4 > size) {
+            size = data_006242B4;
+        }
+        data_006242B4 = (size + 7) & ~7;
+    }
+}
+#else
 void func_004A4890(VOperand* op, Type* type, int n) {
     Boolean pair = IS_DOUBLE(type);
     int reg;
@@ -181,14 +258,15 @@ void func_004A4890(VOperand* op, Type* type, int n) {
         reg = 12;
         reg += (n - 1) * 2;
         if (pair) {
-            emitpcode(0x5B2, reg, op->reg);
+            emitpcode(MACRO_OP(0x9A), reg, op->reg);
             data_005F0E68[1] |= 3 << reg;
         } else {
-            emitpcode(0x5B1, reg, op->reg);
+            emitpcode(MACRO_OP(0x99), reg, op->reg);
             data_005F0E68[1] |= BIT32(reg);
         }
     }
 }
+#endif
 
 extern SInt32 data_00625A98[7]; // next virtual register, per class
 extern VOperand func_004C3B10(MOperand op);
@@ -199,6 +277,29 @@ extern VOperand func_0047F9A0(VOperand* src); // copy into a new register
 
 // Copy a value of this type into new virtual registers: a register pair for
 // long long and float-library doubles, a float register for hardware floats.
+#if MWCCPS2
+// b210: a 128-bit integer is one register (one quadword move,
+// data_00625E74); no soft-float pair
+extern SInt16 data_00625E74;
+VOperand func_004A7050(VOperand* src, Type* type) {
+    MPCode* pc;
+    VOperand v;
+
+    if ((type->type == TYPEINT || type->type == TYPEENUM) && type->size == 16) {
+        emitpcode(data_00625E74, data_00625A98[0]++, src->reg);
+        return func_004C3B10(data_006246B4->last->args[0]);
+    }
+    if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
+        pc = makepcode(
+            IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), data_00625A98[1]++, src->reg
+        );
+        v = func_004C3B10(pc->args[0]);
+        appendpcode(data_006246B4, pc);
+        return v;
+    }
+    return func_0047F9A0(src);
+}
+#else
 VOperand func_004A7050(VOperand* src, Type* type) {
     MPCode* pc;
     MPCode* pc2;
@@ -216,7 +317,9 @@ VOperand func_004A7050(VOperand* src, Type* type) {
         v = func_004C3B10(pc->args[0]);
         v.regHi = pc2->args[0].reg;
     } else if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
-        pc = makepcode(IS_SINGLE(type) ? 0x5B1 : 0x5B2, data_00625A98[1]++, src->reg);
+        pc = makepcode(
+            IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), data_00625A98[1]++, src->reg
+        );
         v = func_004C3B10(pc->args[0]);
         appendpcode(data_006246B4, pc);
     } else {
@@ -224,6 +327,7 @@ VOperand func_004A7050(VOperand* src, Type* type) {
     }
     return v;
 }
+#endif
 
 extern VOperand func_00479C30(UInt16 op, VOperand* src, SInt32 bits); // sign or zero extend
 extern VOperand func_0047EBB0(VOperand* src, SInt32 shift, Type* type); // src << shift
@@ -244,7 +348,7 @@ void func_004A5380(VOperand value, VOperand* word, TypeBitfield* bf) {
     VOperand m;
     int reg;
 
-    v = func_00479C30(0x59A, &value, width);
+    v = func_00479C30(MACRO_OP(0x82), &value, width);
     if (!copts.littleendian) {
         top = bf->bitfieldtype->size * 8 - bf->offset;
         shift = top - width;
@@ -320,7 +424,7 @@ void func_004A5730(VOperand word, TypeBitfield* bf, VOperand* out) {
         }
     } else {
         if (data_00624788 * 8 - width > 0) {
-            *out = func_00479C30(uns ? 0x59A : 0x599, &word, width);
+            *out = func_00479C30(uns ? MACRO_OP(0x82) : MACRO_OP(0x81), &word, width);
         } else {
             *out = word;
         }
@@ -392,6 +496,258 @@ static inline int emit_regmove(char dclass, int dst, char sclass, int src, int s
 // set): constants are loaded, addresses computed, memory read (a register
 // pair for 8-byte integers and doubles, the home register for a local that
 // lives in one, the field for a bitfield).
+#if MWCCPS2
+extern int ps2_regmove_gpr_4B2C50(
+    int dst, int src, char sclass, int size
+); // a move into a general register
+extern int ps2_regmove_fpr_4B2B60(
+    int dst, int src, char sclass, int size
+); // ... into an FP register
+extern Boolean func_004B8980(Object* obj);
+
+// b210 0x4B2C50: emit_regmove's general-register case, out of line; also
+// moves from a VU0 register (class 5) and from the special registers (6)
+__declspec(noinline) int ps2_regmove_gpr_4B2C50(int dst, int src, char sclass, int size) {
+    int reg;
+    int result;
+
+    if (sclass == 0 && (dst == src || dst < 0)) {
+        result = src;
+    } else {
+        if (dst < 0) {
+            reg = data_00625A98[0]++;
+        } else {
+            reg = dst;
+        }
+        result = reg;
+        switch (sclass) {
+            case 0: // dst >= 0 here
+                emitpcode(size == 16 ? data_00625E74 : (SInt16)data_00625E48, dst, src);
+                break;
+            case 1:
+                emitpcode(size == 8 ? 0x7F : 0xA5, reg, src);
+                break;
+            case 5:
+                emitpcode(0x264, reg, src);
+                break;
+            case 6:
+                if (src == 1) {
+                    emitpcode(0x1CF, reg, 0x15);
+                } else if (src == 2) {
+                    emitpcode(0x1CF, reg, 0x16);
+                } else if (src == 4) {
+                    emitpcode(0x1CF, reg, 0x14);
+                } else {
+                    CError_FATAL(180);
+                }
+                break;
+            default:
+                CError_FATAL(186);
+        }
+    }
+    return result;
+}
+
+// b210 0x4B2B60: the floating-point-register case; other classes go through
+// a general register
+__declspec(noinline) int ps2_regmove_fpr_4B2B60(int dst, int src, char sclass, int size) {
+    int result;
+
+    if (sclass == 1 && (dst == src || dst < 0)) {
+        result = src;
+    } else {
+        if (dst < 0) {
+            dst = data_00625A98[1]++;
+        }
+        result = dst;
+        switch (sclass) {
+            case 0:
+                emitpcode(size == 8 ? 0xB1 : 0xAD, src, dst);
+                break;
+            case 1:
+                emitpcode(size == 8 ? 0xF8 : 0xF9, dst, src);
+                break;
+            case 5:
+            case 6:
+                src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+                emitpcode(size == 8 ? 0xB1 : 0xAD, src, dst);
+                break;
+            default:
+                CError_FATAL(226);
+        }
+    }
+    return result;
+}
+
+// b210's emit_regmove (inlined): classes 0 and 1 through the out-of-line
+// helpers, 5 (VU0) and 6 (special registers) here; the new register
+static inline int ps2_emit_regmove(char dclass, int dst, char sclass, int src, int size) {
+    switch (dclass) {
+        case 0:
+            dst = ps2_regmove_gpr_4B2C50(dst, src, sclass, size);
+            break;
+        case 1:
+            dst = ps2_regmove_fpr_4B2B60(dst, src, sclass, size);
+            break;
+        case 5:
+            if (dst >= 0 && sclass == 5) {
+                if (dst != src) {
+                    emitpcode(0x2AF, 0xF, dst, src);
+                }
+            } else {
+                if (sclass) {
+                    src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+                }
+                if (dst < 0) {
+                    dst = data_00625A98[5]++;
+                }
+                emitpcode(0x266, src, dst);
+            }
+            break;
+        case 6:
+            if (sclass) {
+                src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+            }
+            if (dst == 1) {
+                emitpcode(0x1D0, 0x15, src);
+            } else if (dst == 2) {
+                emitpcode(0x1D0, 0x16, src);
+            } else if (dst == 4) {
+                emitpcode(0x1CF, 0x14, src);
+            } else {
+                CError_FATAL(283);
+            }
+            break;
+        default:
+            CError_FATAL(320);
+    }
+    return dst;
+}
+
+// b210 (0x4B20D0): a long long or double is one 64-bit register (no pair
+// paths); a coprocessor operand and a local func_004B8980 places in a
+// register are moved through emit_regmove; a 16-byte integer register local
+// copies with the quadword move
+void func_004A64C0(VOperand* op, Type* type, short copy) {
+    UInt32 pcflags = 0;
+    char rclass;
+    int reg;
+    VarInfo* vi;
+    MPCode* pc;
+    SInt32 fpr;
+    UInt16 opc;
+    VOperand v;
+
+    switch (op->kind) {
+        case 0:
+        case 1:
+            return;
+        case 5:
+            rclass = type->type == TYPEFLOAT ? 1 : 0;
+            reg = ps2_emit_regmove(rclass, -1, 5, op->reg, type->size);
+            *op = func_004C3BA0(reg, rclass);
+            return;
+        case 3:
+            *op = func_0047F9F0(op->imm, type);
+            if (copy) {
+                *op = func_004A7050(op, type);
+            }
+            return;
+        case 2:
+            if (op->offset == 0 && op->reg >= data_00624744[0]) {
+                *op = func_004C3B10(func_004C3E70(op->reg, 0, 1));
+            } else {
+                *op = func_0047F2D0(op);
+            }
+            return;
+
+        case 4:
+            vi = NULL;
+            if (!op->object) {
+                pcflags |= 0x20;
+            }
+            if (op->object && is_volatile_object((Object*)op->object)) {
+                pcflags |= 0x80;
+            }
+            pcflags |= op->flags;
+            if (op->object && !(((Object*)op->object)->qual & 0x10000)) {
+                if (func_004B8980((Object*)op->object)) {
+                    vi = Registers_GetVarInfo((Object*)op->object);
+                    if (vi) {
+                        rclass = type->type == TYPEFLOAT ? 1 : 0;
+                        reg = ps2_emit_regmove(rclass, -1, vi->unk24[2], vi->reg, type->size);
+                        *op = func_004C3BA0(reg, rclass);
+                        return;
+                    }
+                    CError_FATAL(399);
+                }
+                if (((Object*)op->object)->datatype == DLOCAL) {
+                    vi = Registers_GetVarInfo((Object*)op->object);
+                }
+            }
+            if (vi && vi->reg) {
+                if ((int)vi->rclass == 1) {
+                    if (copy) {
+                        pc = makepcode(
+                            IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A),
+                            data_00625A98[1]++,
+                            vi->reg
+                        );
+                        *op = func_004C3B10(pc->args[0]);
+                        appendpcode(data_006246B4, pc);
+                    } else {
+                        *op = func_004C3BA0(vi->reg, 1);
+                    }
+                } else {
+                    if (copy) {
+                        if ((type->type == TYPEINT || type->type == TYPEENUM) && type->size == 16) {
+                            pc = makepcode(data_00625E74, data_00625A98[0]++, vi->reg);
+                        } else {
+                            pc = makepcode(data_00625E48, data_00625A98[0]++, vi->reg);
+                        }
+                        *op = func_004C3B10(pc->args[0]);
+                        appendpcode(data_006246B4, pc);
+                    } else {
+                        *op = func_004C3BA0(vi->reg, 0);
+                    }
+                }
+                return;
+            }
+
+            opc = func_0047FD20(type, &fpr);
+            pc = func_00480420(opc, 3);
+            pc->args[0] = func_004C3DD0(fpr);
+            if (opc ==
+                ((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B)
+                                                                 : MACRO_OP(0x48))) {
+                pc->args[0].flags |= 0x8000;
+                if (copts.mips_option1A) {
+                    pc->args[0].flags |= 0x20;
+                }
+            }
+            pc->args[1] = func_004C3C60(op);
+            pc->args[2] = func_004C3E70(op->reg, 0, 1);
+            if (op->object) {
+                pc->alias = func_0053BD10(op, pc);
+            }
+
+            v = func_004C3B10(pc->args[0]);
+            pc->flags |= pcflags;
+            appendpcode(data_006246B4, pc);
+            if (op->unk18) {
+                func_004A5730(v, (TypeBitfield*)op->unk18, op);
+            } else {
+                *op = v;
+            }
+            if (!pc->alias) {
+                pc->flags |= 0x20;
+            }
+            break;
+        default:
+            CError_FATAL(534);
+    }
+}
+#else
 void func_004A64C0(VOperand* op, Type* type, short copy) {
     UInt32 pcflags = 0;
     MPCode* pc2 = NULL;
@@ -456,8 +812,11 @@ void func_004A64C0(VOperand* op, Type* type, short copy) {
             if (vi && vi->reg) {
                 if ((int)vi->rclass == 1) {
                     if (copy) {
-                        pc =
-                            makepcode(IS_SINGLE(type) ? 0x5B1 : 0x5B2, data_00625A98[1]++, vi->reg);
+                        pc = makepcode(
+                            IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A),
+                            data_00625A98[1]++,
+                            vi->reg
+                        );
                         *op = func_004C3B10(pc->args[0]);
                         appendpcode(data_006246B4, pc);
                     } else {
@@ -513,7 +872,9 @@ void func_004A64C0(VOperand* op, Type* type, short copy) {
             } else {
                 pc = func_00480420(opc, 3);
                 pc->args[0] = func_004C3DD0(fpr);
-                if (opc == ((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x563 : 0x560)) {
+                if (opc ==
+                    ((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B)
+                                                                     : MACRO_OP(0x48))) {
                     pc->args[0].flags |= 0x8000;
                     if (copts.mips_option1A) {
                         pc->args[0].flags |= 0x20;
@@ -551,6 +912,7 @@ void func_004A64C0(VOperand* op, Type* type, short copy) {
             CError_FATAL(226);
     }
 }
+#endif
 
 extern UInt16 func_0047FFD0(Type* type); // store opcode for the type
 extern void func_00479710(UInt16 op, VOperand* reg, VOperand* mem); // store reg to mem
@@ -578,6 +940,211 @@ static inline VOperand high_half(VOperand* v) {
 // Store src (of type) to dst: into the home register of a local that lives
 // in one, else to memory (two stores for 8-byte integers and float-library
 // doubles).
+#if MWCCPS2
+extern int ps2_regmove_gpr_4B2C50(
+    int dst, int src, char sclass, int size
+); // a move into a general register
+extern int ps2_regmove_fpr_4B2B60(
+    int dst, int src, char sclass, int size
+); // ... into an FP register
+extern Boolean func_004B8980(Object* obj);
+
+// b210's register move for the store paths: classes 0 and 1 through the
+// out-of-line helpers, 5 (VU0) and 6 (special registers) here
+static inline void ps2_store_regmove(char dclass, int dst, char sclass, int src, int size) {
+    switch (dclass) {
+        case 0:
+            ps2_regmove_gpr_4B2C50(dst, src, sclass, size);
+            break;
+        case 1:
+            ps2_regmove_fpr_4B2B60(dst, src, sclass, size);
+            break;
+        case 5:
+            if (dst >= 0 && sclass == 5) {
+                if (dst != src) {
+                    emitpcode(0x2AF, 0xF, dst, src);
+                }
+            } else {
+                if (sclass) {
+                    src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+                }
+                if (dst < 0) {
+                    dst = data_00625A98[5]++;
+                }
+                emitpcode(0x266, src, dst);
+            }
+            break;
+        case 6:
+            if (sclass) {
+                src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+            }
+            if (dst == 1) {
+                emitpcode(0x1D0, 0x15, src);
+            } else if (dst == 2) {
+                emitpcode(0x1D0, 0x16, src);
+            } else if (dst == 4) {
+                emitpcode(0x1CF, 0x14, src);
+            } else {
+                CError_FATAL(283);
+            }
+            break;
+        default:
+            CError_FATAL(320);
+    }
+}
+
+// Store src (of type) to dst. b210: a long long is one 128-bit register, so
+// there is no register-pair path; a register local (or one func_004B8980
+// says lives in a register) gets a move, everything else a store (a struct
+// returned in a register by its single member's opcode with 64-bit longs).
+void func_004A5A90(VOperand src, VOperand* dst, Type* type) {
+    UInt32 pcflags = 0;
+    VarInfo* vi;
+    VarInfo* svi;
+    UInt16 opc;
+    Type* t;
+    VOperand v;
+    char sclass;
+
+    if (dst->object && ((Object*)dst->object)->datatype == DLOCAL) {
+        vi = Registers_GetVarInfo((Object*)dst->object);
+    } else {
+        vi = NULL;
+    }
+    if (src.object && ((Object*)src.object)->datatype == DLOCAL) {
+        svi = Registers_GetVarInfo((Object*)src.object);
+    }
+    if (dst->object && is_volatile_object((Object*)dst->object)) {
+        pcflags |= 0x80;
+    }
+
+    switch (dst->kind) {
+        case 2:
+        case 4:
+            if (vi && vi->reg) {
+                if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
+                    emitpcode(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), vi->reg, src.reg);
+                    return;
+                }
+                switch (func_0047FFD0(type)) {
+                    case MACRO_OP(0x6F):
+                    case MACRO_OP(0x77):
+                    case MACRO_OP(0x7F):
+                        v = src;
+                        break;
+                    case MACRO_OP(0x75):
+                        if (src.reg == 0 || type->type == TYPEENUM) {
+                            v = src;
+                        } else {
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 8
+                            );
+                        }
+                        break;
+                    case MACRO_OP(0x76):
+                        if (src.reg == 0 || type->type == TYPEENUM) {
+                            v = src;
+                        } else {
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 16
+                            );
+                        }
+                        break;
+                    default:
+                        CError_FATAL(653);
+                }
+                switch (v.kind) {
+                    case 0:
+                        sclass = 0;
+                        break;
+                    case 1:
+                        sclass = 1;
+                        break;
+                    case 5:
+                        sclass = 5;
+                        break;
+                    default:
+                        CError_FATAL(668);
+                        return;
+                }
+                ps2_store_regmove(vi->rclass, vi->reg, sclass, v.reg, type->size);
+                return;
+            }
+
+            if (func_004B8980((Object*)dst->object)) {
+                vi = Registers_GetVarInfo((Object*)dst->object);
+                if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
+                    emitpcode(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), vi->reg, src.reg);
+                    return;
+                }
+                switch (func_0047FFD0(type)) {
+                    case MACRO_OP(0x6F):
+                    case MACRO_OP(0x77):
+                    case MACRO_OP(0x7F):
+                        v = src;
+                        break;
+                    case MACRO_OP(0x75):
+                        if (src.reg == 0 || type->type == TYPEENUM) {
+                            v = src;
+                        } else {
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 8
+                            );
+                        }
+                        break;
+                    case MACRO_OP(0x76):
+                        if (src.reg == 0 || type->type == TYPEENUM) {
+                            v = src;
+                        } else {
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 16
+                            );
+                        }
+                        break;
+                    default:
+                        CError_FATAL(753);
+                }
+                switch (v.kind) {
+                    case 0:
+                        sclass = 0;
+                        break;
+                    case 1:
+                        sclass = 1;
+                        break;
+                    case 5:
+                        sclass = 5;
+                        break;
+                    default:
+                        CError_FATAL(767);
+                        return;
+                }
+                ps2_store_regmove(vi->rclass, vi->reg, sclass, v.reg, type->size);
+                return;
+            }
+
+            if (copts.mips_long64 && (type->type == TYPESTRUCT || type->type == TYPECLASS)) {
+                if ((t = func_00464B40(type))) {
+                    opc = func_0047FFD0(t);
+                } else if ((t = func_00464BE0(type))) {
+                    opc = func_0047FFD0(t);
+                } else {
+                    opc = func_0047FFD0(type);
+                }
+            } else {
+                opc = func_0047FFD0(type);
+            }
+            break;
+        default:
+            CError_FATAL(791);
+    }
+
+    if (opc == MACRO_OP(0x7F) && src.kind == 5) {
+        func_00479710(0x268, &src, dst);
+    } else {
+        func_00479710(opc, &src, dst);
+    }
+}
+#else
 void func_004A5A90(VOperand src, VOperand* dst, Type* type) {
     UInt32 pcflags = 0;
     VarInfo* vi;
@@ -612,7 +1179,7 @@ void func_004A5A90(VOperand src, VOperand* dst, Type* type) {
         case 4:
             if (vi && vi->reg) {
                 if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
-                    emitpcode(IS_SINGLE(type) ? 0x5B1 : 0x5B2, vi->reg, src.reg);
+                    emitpcode(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), vi->reg, src.reg);
                     return;
                 }
                 if (IS_LONGLONG(type) || (type->type == TYPEFLOAT && IS_DOUBLE(type))) {
@@ -633,23 +1200,27 @@ void func_004A5A90(VOperand src, VOperand* dst, Type* type) {
 
                 opc = func_0047FFD0(type);
                 switch (opc) {
-                    case 0x587:
-                    case 0x58F:
-                    case 0x597:
+                    case MACRO_OP(0x6F):
+                    case MACRO_OP(0x77):
+                    case MACRO_OP(0x7F):
                         v = src;
                         break;
-                    case 0x58D:
+                    case MACRO_OP(0x75):
                         if (src.reg == 0 || type->type == TYPEENUM) {
                             v = src;
                         } else {
-                            v = func_00479C30(is_unsigned(type) ? 0x59A : 0x599, &src, 8);
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 8
+                            );
                         }
                         break;
-                    case 0x58E:
+                    case MACRO_OP(0x76):
                         if (src.reg == 0 || type->type == TYPEENUM) {
                             v = src;
                         } else {
-                            v = func_00479C30(is_unsigned(type) ? 0x59A : 0x599, &src, 16);
+                            v = func_00479C30(
+                                is_unsigned(type) ? MACRO_OP(0x82) : MACRO_OP(0x81), &src, 16
+                            );
                         }
                         break;
                     default:
@@ -721,3 +1292,4 @@ void func_004A5A90(VOperand src, VOperand* dst, Type* type) {
         func_00479710(opc, &src, dst);
     }
 }
+#endif

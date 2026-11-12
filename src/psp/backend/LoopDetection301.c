@@ -214,6 +214,13 @@ void func_0054AAB0(void) {
     func_0054AD10(looppressure);
 }
 
+#if MWCCPS2
+// compiler/optimizer/LoopDetection.c defines these names too; unique names
+// let config/replace.txt (base names) list this unit's copies
+#define computedominators computedominators301
+#define findloopheaders findloopheaders301
+#define addlooptolist addlooptolist301
+#endif
 // 0x54B5B0: computedominators
 static void computedominators(void) {
     SInt32 n;
@@ -278,6 +285,11 @@ static BlockList301* findloopheaders(void) {
     return data_00607674;
 }
 
+#if MWCCPS2
+// compiler/optimizer/LoopDetection.c has a findnaturalloop too; a unique
+// name lets config/replace.txt (base names) list this one
+#define findnaturalloop findnaturalloop301
+#endif
 // 0x54B2E0: findnaturalloop
 static void findnaturalloop(Loop301* loop) {
     int sp;

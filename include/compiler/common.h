@@ -334,8 +334,17 @@ typedef enum RegClass {
 } RegClass;
 
 struct CInt64 {
+#if MWCCPS2
+    // mwccps2 b210: 128-bit constants (R5900); word 0 is the most
+    // significant, the low word is at +0xC (CInt64_ConvertInt32 tests its
+    // sign there and fills words 0..2; CInt64_IsZero loops over 4 words)
+    SInt32 hi;
+    UInt32 mid[2];
+    UInt32 lo;
+#else
     SInt32 hi;
     UInt32 lo;
+#endif
 };
 union FloatStorage {
     int words[2];

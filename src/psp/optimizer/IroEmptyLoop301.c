@@ -100,7 +100,13 @@ Boolean func_00584020(IRONaturalLoop* loop, IROLoopInd301* ind, Boolean withCond
         if (!CInt64_Equal(loop->count, cint64_negone)) {
             if (uns ? CInt64_LessU(loop->count, cint64_zero)
                     : CInt64_Less(loop->count, cint64_zero)) {
-                CError_Internal("IroLoop.c", 0x1256);
+                {
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -4 // b145 asserts
+                    CError_Internal("IroLoop.c", CError_B145_LINE(0x1256));
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+                }
             }
             if (IRO_IsIntConstant(init) && !CInt64_IsZero(&d)) {
                 initVal = init->u.node->data.intval;
@@ -185,7 +191,11 @@ Boolean func_00584020(IRONaturalLoop* loop, IROLoopInd301* ind, Boolean withCond
             } else if (cond->type == IROLinearOp1Arg) {
                 bound = cond->u.monadic;
             } else {
-                CError_Internal("IroLoop.c", 0x870);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 2 // b145 asserts
+                CError_Internal("IroLoop.c", CError_B145_LINE(0x870));
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
             }
             if (bound &&
                 (IRO_IsVariable(bound) ||

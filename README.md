@@ -196,6 +196,78 @@ Everything the [Castlevania: Symphony of the Night](https://github.com/Xeeynamo/
 decompiled and gives identical objects at every optimization level. Code it never reaches (much of C++, some
 diagnostics) is not all written yet: the program stops with "not implemented" at the first function without source.
 
+## PlayStation 2 3.0.1 (`mwccps2.exe`)
+
+The PS2 compiler (3.0.1 build 210, 2006-03-08, the one Persona 4 was built with) is nine builds older than the PSP one
+and shares most of its source, so it is built from the same files with `MWCCPS2` set as well as `MWCCPSP`: its
+differences (a 128-bit `CInt64`, its compiler options, the R5900 opcode table and instruction set, assert line numbers,
+...) are `#if MWCCPS2` blocks there, and `MWCCPS2_BUILD` (default 210) names the build. The native build takes the same
+tools with `--ps2`:
+
+```sh
+python3 tools/mwccps2/get_orig.py      # orig/PS2_3_0_1/mwccps2.exe, from decomp.me's public image, checked by digest
+python3 tools/mwccpsp/native_build.py --ps2 -o build/PS2_3_0_1/mwccps2
+```
+
+or in Docker:
+
+```sh
+docker build -f tools/mwccps2/Dockerfile -t mwccps2 .
+docker run --rm -v "$PWD/build:/out" mwccps2
+```
+
+`tools/mwccps2/native_ps2.py` regenerates the PS2 data tables in `src/native/ps2/` from `mwccps2.exe` before building;
+CI checks that they come out as committed. The sources name PSP addresses, so the PS2 build looks names up in
+`config/PS2_3_0_1/symbols.txt` (every name the sources use, at its b210 address) and moves the remaining PSP addresses
+through `config/PS2_3_0_1/addrmap.csv` (`tools/mwccps2/ps2_map.py`). Both are generated from the sotn-decomp tree,
+where the PS2 functions are matched against `mwccps2.exe` (see below).
+
+```sh
+python3 tools/mwccpsp/test.py --ps2 --cc build/PS2_3_0_1/mwccps2 --orig "wibo orig/PS2_3_0_1/mwccps2.exe"
+```
+
+Pushing a tag named `mwccps2-*` attaches `mwccps2-native64-<os>-<arch>.tar.gz` to a release
+(`.github/workflows/mwccps2-release.yml`).
+
+Every unit of the Persona 4 decompilation (1,008 C files, RenderWare at `-O4,p`) gives identical objects except
+`g_data.c`, which the original itself doesn't reproduce from its captured inputs. C++ the corpus never reaches stops
+with "not implemented" or an internal error.
+
+## Where the PSP and PS2 compilers come from
+
+Both are developed in the [Castlevania: Symphony of the Night decompilation](https://github.com/Xeeynamo/sotn-decomp),
+which matches them function by function against the original executables (branches `mwccpsp-decomp` and
+`mwccps2-decomp`, under `tools/mwccpsp/` and `tools/mwccps2/`). That tree started from this repository at `919828d` and
+edits its sources in place. `tools/mwccpsp/sync_sotn.py` brings it over: every change to a file this repository already
+has goes behind `#if MWCCPSP` with the `919828d` lines in the `#else` (so the GameCube builds read exactly what they did),
+new files are copied, and the result is clang-formatted.
+
+| sotn-decomp `tools/mwccpsp/`                                        | here                                          |
+| ------------------------------------------------------------------- | --------------------------------------------- |
+| `src/**`, `include/**`                                              | `src/**`, `include/**` (guarded as above)     |
+| `re/symbols.txt`, `re/symbols.manual.txt`, `config/psp-exclude.txt` | `config/PSP_3_0_1/`                           |
+| `harness/{native,native_build,native_glue,pe,lint64}.py`            | `tools/mwccpsp/` (paths rewritten)            |
+| `re/gen_{cc_psp,native_data,native_strings,opcode_table,parser_psp}.py` | `tools/mwccpsp/`                          |
+| `../mwccps2/harness/native_ps2.py`                                  | `tools/mwccps2/native_ps2.py`                 |
+| `../mwccps2/re/addrmap.csv`                                         | `config/PS2_3_0_1/addrmap.csv`                |
+| the hybrid build's name map (`build_ps2.ps2_address_map`)           | `config/PS2_3_0_1/symbols.txt` (generated)    |
+
+Left out: the matching harness (hybrid builds, corpus capture, coverage), the trace instrumentation and
+`src/PROVENANCE.md`. `tools/mwccpsp/{units,test,difftest}.py`, the tests and the Dockerfiles are this repository's own.
+
+```sh
+python3 tools/mwccpsp/sync_sotn.py ../sotn-decomp --rev <commit> [--ps2]
+```
+
+| Commit here                    | sotn-decomp commit                               |
+| ------------------------------ | ------------------------------------------------ |
+| `606a465` (PSP snapshot)       | `4f5dba132` (`mwccpsp-decomp`); `sync_sotn.py` reproduces it exactly |
+| PSP refresh                    | `5da42df11` (`mwccpsp-decomp`, as merged into `mwccps2-decomp`) |
+| PS2 addition                   | `db94925b5` (`mwccps2-decomp`)                   |
+| PSP fix on top                 | not in sotn-decomp yet: `MIPS_Peephole.c`'s native `LIVE_BITS` only for PS2 |
+
+See [docs/mwccps2-regression.md](docs/mwccps2-regression.md) for how the PSP compiler was checked across both.
+
 ## Contributing
 
 - Format C with `clang-format -i`, and Python with `ruff format` and `ruff check` (the venv's pinned versions); CI

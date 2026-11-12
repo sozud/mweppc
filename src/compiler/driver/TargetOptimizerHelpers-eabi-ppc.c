@@ -15,18 +15,27 @@ int TargetSetOptFlags(short val, Boolean set) {
     switch (val) {
         case 'In':
             data_005B0A78.inline_intrinsics = set;
-            return TRUE;
+            break;
         default:
             return FALSE;
     }
+    return TRUE;
 }
 
 void TargetDisplayOptimizationOptions(Handle txt) {
+#if MWCCPS2
+    if (data_005B0A78.inline_intrinsics) {
+        HPrintF(
+            txt, "\t- inline intrinsics %s\n", (data_005B0A78.inline_intrinsics == 1) ? "on" : "off"
+        );
+    }
+#else
     UInt8 intrinsics;
 
     if ((intrinsics = data_005B0A78.inline_intrinsics)) {
         HPrintF(txt, "\t- inline intrinsics %s\n", (intrinsics == 1) ? "on" : "off");
     }
+#endif
 }
 #else
 int TargetSetOptFlags(short val, Boolean set) {

@@ -71,7 +71,11 @@ static inline Boolean IsCheapNeg(IROLinear* nd) {
 static inline void Push(FactorCons* list, void* x) {
     FactorCons* cell;
 
+#if MWCCPS2
+    if (list->head != NULL) {
+#else
     if (list->head) {
+#endif
         cell = IRO_malloc(sizeof(FactorCons));
         cell->head = NULL;
         cell->tail = NULL;
@@ -336,6 +340,14 @@ void func_0056C6C0(FactorCons* items, FactorCons* terms, IROLinear* nd, Boolean 
     SplitOperand(items, terms, nd->u.diadic.right, (nd->nodetype == ESUB) ^ negate);
 }
 
+#if MWCCPS2
+// b210 inlines the test here (CW 9.2's inline depth stops short of it)
+#define IsIntAddSub(nd) \
+    ((nd)->type == IROLinearOp2Arg && \
+     ((nd)->nodetype == EADD || (nd)->nodetype == ESUB) && \
+     (nd)->rtype->type == TYPEINT && \
+     TYPE_INTEGRAL((nd)->rtype)->integral < IT_17)
+#endif
 static inline void SplitOperand(
     FactorCons* items, FactorCons* terms, IROLinear* nd, Boolean negate
 ) {
@@ -360,6 +372,9 @@ static inline void SplitOperand(
         func_0056C970(items, terms, nd, negate);
     }
 }
+#if MWCCPS2
+#undef IsIntAddSub
+#endif
 
 // 0x56C9E0: forget an addend in the terms of its multipliers; a term (and its
 // partner) dividing nothing more goes
@@ -524,6 +539,9 @@ void func_0056D130(FactorCons* terms, FactorTerm* term) {
 }
 
 // 0x56D2A0: remove an addend
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0056CAC0, func_0056D130)
+#endif
 void func_0056D2A0(FactorCons* list, FactorItem* item) {
     FactorCons* prev = NULL;
     FactorCons* c;
@@ -537,6 +555,9 @@ void func_0056D2A0(FactorCons* list, FactorItem* item) {
 }
 
 // 0x56D390: remove an addend and free it
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0056BCC0)
+#endif
 void func_0056D390(FactorCons* list, FactorItem* item) {
     FactorCons* prev = NULL;
     FactorCons* c;

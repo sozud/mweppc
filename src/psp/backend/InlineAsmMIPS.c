@@ -1,6 +1,7 @@
 // mwccpsp 3.0.1 InlineAsmMIPS.c (0x482000..0x48B000): the MIPS inline
 // assembler.
 #include "compiler/common.h"
+#include "psp/BE.h" // BE_NUM_OPCODES
 #if MWCCPSP_NATIVE
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,6 +229,13 @@ static AsmRegName asm_regnames[] = {
 };
 
 // before any inline assembly in a function
+#if MWCCPS2
+// b210 tests the opcode loop's bound before the first pass and indexes the
+// table by op*0x30 each pass: built without constant propagation
+#pragma push
+#pragma opt_propagation off
+#pragma opt_strength_reduction off
+#endif
 void func_00483F30(void) {
     UInt16 op;
     int i;
@@ -240,7 +248,18 @@ void func_00483F30(void) {
     data_00624C3C = 0;
 
     func_0053EB40();
-    for (op = 0; op < 0x5C5; op++) {
+#if MWCCPS2
+    for (op = 0; op < MACRO_OP(0xAD); op++) {
+        char* name = data_006115F8[op].name;
+        if (name && name[0] != '_') {
+            func_0053E9C0(name, op);
+            if (data_006115F8[op].alias) {
+                func_0053E9C0(data_006115F8[op].alias, op);
+            }
+        }
+    }
+#else
+    for (op = 0; op < MACRO_OP(0xAD); op++) {
         if (data_006115F8[op].name && data_006115F8[op].name[0] != '_') {
             func_0053E9C0(data_006115F8[op].name, op);
             if (data_006115F8[op].alias) {
@@ -248,8 +267,408 @@ void func_00483F30(void) {
             }
         }
     }
+#endif
 
     func_0053EC50();
+#if MWCCPS2
+    // b210 registers its names one call each (the R5900 set: no VFPU, the
+    // a4-a7 aliases only with 64-bit longs)
+    func_0053EC00("r0", 0, 0, NULL);
+    func_0053EC00("r1", 0, 1, NULL);
+    func_0053EC00("r2", 0, 2, NULL);
+    func_0053EC00("r3", 0, 3, NULL);
+    func_0053EC00("r4", 0, 4, NULL);
+    func_0053EC00("r5", 0, 5, NULL);
+    func_0053EC00("r6", 0, 6, NULL);
+    func_0053EC00("r7", 0, 7, NULL);
+    func_0053EC00("r8", 0, 8, NULL);
+    func_0053EC00("r9", 0, 9, NULL);
+    func_0053EC00("r10", 0, 10, NULL);
+    func_0053EC00("r11", 0, 11, NULL);
+    func_0053EC00("r12", 0, 12, NULL);
+    func_0053EC00("r13", 0, 13, NULL);
+    func_0053EC00("r14", 0, 14, NULL);
+    func_0053EC00("r15", 0, 15, NULL);
+    func_0053EC00("r16", 0, 16, NULL);
+    func_0053EC00("r17", 0, 17, NULL);
+    func_0053EC00("r18", 0, 18, NULL);
+    func_0053EC00("r19", 0, 19, NULL);
+    func_0053EC00("r20", 0, 20, NULL);
+    func_0053EC00("r21", 0, 21, NULL);
+    func_0053EC00("r22", 0, 22, NULL);
+    func_0053EC00("r23", 0, 23, NULL);
+    func_0053EC00("r24", 0, 24, NULL);
+    func_0053EC00("r25", 0, 25, NULL);
+    func_0053EC00("r26", 0, 26, NULL);
+    func_0053EC00("r27", 0, 27, NULL);
+    func_0053EC00("r28", 0, 28, NULL);
+    func_0053EC00("r29", 0, 29, NULL);
+    func_0053EC00("r30", 0, 30, NULL);
+    func_0053EC00("r31", 0, 31, NULL);
+    func_0053EC00("zero", 0, 0, NULL);
+    func_0053EC00("at", 0, 1, NULL);
+    func_0053EC00("AT", 0, 1, NULL);
+    func_0053EC00("v0", 0, 2, NULL);
+    func_0053EC00("v1", 0, 3, NULL);
+    func_0053EC00("a0", 0, 4, NULL);
+    func_0053EC00("a1", 0, 5, NULL);
+    func_0053EC00("a2", 0, 6, NULL);
+    func_0053EC00("a3", 0, 7, NULL);
+    if (copts.mips_long64) {
+        func_0053EC00("a4", 0, 8, NULL);
+        func_0053EC00("a5", 0, 9, NULL);
+        func_0053EC00("a6", 0, 10, NULL);
+        func_0053EC00("a7", 0, 11, NULL);
+    }
+    func_0053EC00("t0", 0, 8, NULL);
+    func_0053EC00("t1", 0, 9, NULL);
+    func_0053EC00("t2", 0, 10, NULL);
+    func_0053EC00("t3", 0, 11, NULL);
+    func_0053EC00("t4", 0, 12, NULL);
+    func_0053EC00("t5", 0, 13, NULL);
+    func_0053EC00("t6", 0, 14, NULL);
+    func_0053EC00("t7", 0, 15, NULL);
+    func_0053EC00("s0", 0, 16, NULL);
+    func_0053EC00("s1", 0, 17, NULL);
+    func_0053EC00("s2", 0, 18, NULL);
+    func_0053EC00("s3", 0, 19, NULL);
+    func_0053EC00("s4", 0, 20, NULL);
+    func_0053EC00("s5", 0, 21, NULL);
+    func_0053EC00("s6", 0, 22, NULL);
+    func_0053EC00("s7", 0, 23, NULL);
+    func_0053EC00("t8", 0, 24, NULL);
+    func_0053EC00("t9", 0, 25, NULL);
+    func_0053EC00("kt0", 0, 26, NULL);
+    func_0053EC00("k0", 0, 26, NULL);
+    func_0053EC00("kt1", 0, 27, NULL);
+    func_0053EC00("k1", 0, 27, NULL);
+    func_0053EC00("gp", 0, 28, NULL);
+    func_0053EC00("sp", 0, 29, NULL);
+    func_0053EC00("s8", 0, 30, NULL);
+    func_0053EC00("fp", 0, 30, NULL);
+    func_0053EC00("ra", 0, 31, NULL);
+    func_0053EC00("f0", 1, 0, NULL);
+    func_0053EC00("f1", 1, 1, NULL);
+    func_0053EC00("f2", 1, 2, NULL);
+    func_0053EC00("f3", 1, 3, NULL);
+    func_0053EC00("f4", 1, 4, NULL);
+    func_0053EC00("f5", 1, 5, NULL);
+    func_0053EC00("f6", 1, 6, NULL);
+    func_0053EC00("f7", 1, 7, NULL);
+    func_0053EC00("f8", 1, 8, NULL);
+    func_0053EC00("f9", 1, 9, NULL);
+    func_0053EC00("f10", 1, 10, NULL);
+    func_0053EC00("f11", 1, 11, NULL);
+    func_0053EC00("f12", 1, 12, NULL);
+    func_0053EC00("f13", 1, 13, NULL);
+    func_0053EC00("f14", 1, 14, NULL);
+    func_0053EC00("f15", 1, 15, NULL);
+    func_0053EC00("f16", 1, 16, NULL);
+    func_0053EC00("f17", 1, 17, NULL);
+    func_0053EC00("f18", 1, 18, NULL);
+    func_0053EC00("f19", 1, 19, NULL);
+    func_0053EC00("f20", 1, 20, NULL);
+    func_0053EC00("f21", 1, 21, NULL);
+    func_0053EC00("f22", 1, 22, NULL);
+    func_0053EC00("f23", 1, 23, NULL);
+    func_0053EC00("f24", 1, 24, NULL);
+    func_0053EC00("f25", 1, 25, NULL);
+    func_0053EC00("f26", 1, 26, NULL);
+    func_0053EC00("f27", 1, 27, NULL);
+    func_0053EC00("f28", 1, 28, NULL);
+    func_0053EC00("f29", 1, 29, NULL);
+    func_0053EC00("f30", 1, 30, NULL);
+    func_0053EC00("f31", 1, 31, NULL);
+    func_0053EC00("d0", 1, 0, NULL);
+    func_0053EC00("d1", 1, 1, NULL);
+    func_0053EC00("d2", 1, 2, NULL);
+    func_0053EC00("d3", 1, 3, NULL);
+    func_0053EC00("d4", 1, 4, NULL);
+    func_0053EC00("d5", 1, 5, NULL);
+    func_0053EC00("d6", 1, 6, NULL);
+    func_0053EC00("d7", 1, 7, NULL);
+    func_0053EC00("d8", 1, 8, NULL);
+    func_0053EC00("d9", 1, 9, NULL);
+    func_0053EC00("d10", 1, 10, NULL);
+    func_0053EC00("d11", 1, 11, NULL);
+    func_0053EC00("d12", 1, 12, NULL);
+    func_0053EC00("d13", 1, 13, NULL);
+    func_0053EC00("d14", 1, 14, NULL);
+    func_0053EC00("d15", 1, 15, NULL);
+    func_0053EC00("d16", 1, 16, NULL);
+    func_0053EC00("d17", 1, 17, NULL);
+    func_0053EC00("d18", 1, 18, NULL);
+    func_0053EC00("d19", 1, 19, NULL);
+    func_0053EC00("d20", 1, 20, NULL);
+    func_0053EC00("d21", 1, 21, NULL);
+    func_0053EC00("d22", 1, 22, NULL);
+    func_0053EC00("d23", 1, 23, NULL);
+    func_0053EC00("d24", 1, 24, NULL);
+    func_0053EC00("d25", 1, 25, NULL);
+    func_0053EC00("d26", 1, 26, NULL);
+    func_0053EC00("d27", 1, 27, NULL);
+    func_0053EC00("d28", 1, 28, NULL);
+    func_0053EC00("d29", 1, 29, NULL);
+    func_0053EC00("d30", 1, 30, NULL);
+    func_0053EC00("d31", 1, 31, NULL);
+    func_0053EC00("vi0", 3, 0, NULL);
+    func_0053EC00("vi1", 3, 1, NULL);
+    func_0053EC00("vi2", 3, 2, NULL);
+    func_0053EC00("vi3", 3, 3, NULL);
+    func_0053EC00("vi4", 3, 4, NULL);
+    func_0053EC00("vi5", 3, 5, NULL);
+    func_0053EC00("vi6", 3, 6, NULL);
+    func_0053EC00("vi7", 3, 7, NULL);
+    func_0053EC00("vi8", 3, 8, NULL);
+    func_0053EC00("vi9", 3, 9, NULL);
+    func_0053EC00("vi00", 3, 0, NULL);
+    func_0053EC00("vi01", 3, 1, NULL);
+    func_0053EC00("vi02", 3, 2, NULL);
+    func_0053EC00("vi03", 3, 3, NULL);
+    func_0053EC00("vi04", 3, 4, NULL);
+    func_0053EC00("vi05", 3, 5, NULL);
+    func_0053EC00("vi06", 3, 6, NULL);
+    func_0053EC00("vi07", 3, 7, NULL);
+    func_0053EC00("vi08", 3, 8, NULL);
+    func_0053EC00("vi09", 3, 9, NULL);
+    func_0053EC00("vi10", 3, 10, NULL);
+    func_0053EC00("vi11", 3, 11, NULL);
+    func_0053EC00("vi12", 3, 12, NULL);
+    func_0053EC00("vi13", 3, 13, NULL);
+    func_0053EC00("vi14", 3, 14, NULL);
+    func_0053EC00("vi15", 3, 15, NULL);
+    func_0053EC00("vi16", 4, 16, NULL);
+    func_0053EC00("vi17", 4, 17, NULL);
+    func_0053EC00("vi18", 4, 18, NULL);
+    func_0053EC00("vi19", 4, 19, NULL);
+    func_0053EC00("vi20", 4, 20, NULL);
+    func_0053EC00("vi21", 4, 21, NULL);
+    func_0053EC00("vi22", 4, 22, NULL);
+    func_0053EC00("vi23", 4, 23, NULL);
+    func_0053EC00("vi24", 4, 24, NULL);
+    func_0053EC00("vi25", 4, 25, NULL);
+    func_0053EC00("vi26", 4, 26, NULL);
+    func_0053EC00("vi27", 4, 27, NULL);
+    func_0053EC00("vi28", 4, 28, NULL);
+    func_0053EC00("vi29", 4, 29, NULL);
+    func_0053EC00("vi30", 4, 30, NULL);
+    func_0053EC00("vi31", 4, 31, NULL);
+    func_0053EC00("vf0", 5, 0, NULL);
+    func_0053EC00("vf1", 5, 1, NULL);
+    func_0053EC00("vf2", 5, 2, NULL);
+    func_0053EC00("vf3", 5, 3, NULL);
+    func_0053EC00("vf4", 5, 4, NULL);
+    func_0053EC00("vf5", 5, 5, NULL);
+    func_0053EC00("vf6", 5, 6, NULL);
+    func_0053EC00("vf7", 5, 7, NULL);
+    func_0053EC00("vf8", 5, 8, NULL);
+    func_0053EC00("vf9", 5, 9, NULL);
+    func_0053EC00("vf00", 5, 0, NULL);
+    func_0053EC00("vf01", 5, 1, NULL);
+    func_0053EC00("vf02", 5, 2, NULL);
+    func_0053EC00("vf03", 5, 3, NULL);
+    func_0053EC00("vf04", 5, 4, NULL);
+    func_0053EC00("vf05", 5, 5, NULL);
+    func_0053EC00("vf06", 5, 6, NULL);
+    func_0053EC00("vf07", 5, 7, NULL);
+    func_0053EC00("vf08", 5, 8, NULL);
+    func_0053EC00("vf09", 5, 9, NULL);
+    func_0053EC00("vf10", 5, 10, NULL);
+    func_0053EC00("vf11", 5, 11, NULL);
+    func_0053EC00("vf12", 5, 12, NULL);
+    func_0053EC00("vf13", 5, 13, NULL);
+    func_0053EC00("vf14", 5, 14, NULL);
+    func_0053EC00("vf15", 5, 15, NULL);
+    func_0053EC00("vf16", 5, 16, NULL);
+    func_0053EC00("vf17", 5, 17, NULL);
+    func_0053EC00("vf18", 5, 18, NULL);
+    func_0053EC00("vf19", 5, 19, NULL);
+    func_0053EC00("vf20", 5, 20, NULL);
+    func_0053EC00("vf21", 5, 21, NULL);
+    func_0053EC00("vf22", 5, 22, NULL);
+    func_0053EC00("vf23", 5, 23, NULL);
+    func_0053EC00("vf24", 5, 24, NULL);
+    func_0053EC00("vf25", 5, 25, NULL);
+    func_0053EC00("vf26", 5, 26, NULL);
+    func_0053EC00("vf27", 5, 27, NULL);
+    func_0053EC00("vf28", 5, 28, NULL);
+    func_0053EC00("vf29", 5, 29, NULL);
+    func_0053EC00("vf30", 5, 30, NULL);
+    func_0053EC00("vf31", 5, 31, NULL);
+    func_0053EC00("vf0x", 5, 16416, NULL);
+    func_0053EC00("vf1x", 5, 16417, NULL);
+    func_0053EC00("vf2x", 5, 16418, NULL);
+    func_0053EC00("vf3x", 5, 16419, NULL);
+    func_0053EC00("vf4x", 5, 16420, NULL);
+    func_0053EC00("vf5x", 5, 16421, NULL);
+    func_0053EC00("vf6x", 5, 16422, NULL);
+    func_0053EC00("vf7x", 5, 16423, NULL);
+    func_0053EC00("vf8x", 5, 16424, NULL);
+    func_0053EC00("vf9x", 5, 16425, NULL);
+    func_0053EC00("vf00x", 5, 16416, NULL);
+    func_0053EC00("vf01x", 5, 16417, NULL);
+    func_0053EC00("vf02x", 5, 16418, NULL);
+    func_0053EC00("vf03x", 5, 16419, NULL);
+    func_0053EC00("vf04x", 5, 16420, NULL);
+    func_0053EC00("vf05x", 5, 16421, NULL);
+    func_0053EC00("vf06x", 5, 16422, NULL);
+    func_0053EC00("vf07x", 5, 16423, NULL);
+    func_0053EC00("vf08x", 5, 16424, NULL);
+    func_0053EC00("vf09x", 5, 16425, NULL);
+    func_0053EC00("vf10x", 5, 16426, NULL);
+    func_0053EC00("vf11x", 5, 16427, NULL);
+    func_0053EC00("vf12x", 5, 16428, NULL);
+    func_0053EC00("vf13x", 5, 16429, NULL);
+    func_0053EC00("vf14x", 5, 16430, NULL);
+    func_0053EC00("vf15x", 5, 16431, NULL);
+    func_0053EC00("vf16x", 5, 16432, NULL);
+    func_0053EC00("vf17x", 5, 16433, NULL);
+    func_0053EC00("vf18x", 5, 16434, NULL);
+    func_0053EC00("vf19x", 5, 16435, NULL);
+    func_0053EC00("vf20x", 5, 16436, NULL);
+    func_0053EC00("vf21x", 5, 16437, NULL);
+    func_0053EC00("vf22x", 5, 16438, NULL);
+    func_0053EC00("vf23x", 5, 16439, NULL);
+    func_0053EC00("vf24x", 5, 16440, NULL);
+    func_0053EC00("vf25x", 5, 16441, NULL);
+    func_0053EC00("vf26x", 5, 16442, NULL);
+    func_0053EC00("vf27x", 5, 16443, NULL);
+    func_0053EC00("vf28x", 5, 16444, NULL);
+    func_0053EC00("vf29x", 5, 16445, NULL);
+    func_0053EC00("vf30x", 5, 16446, NULL);
+    func_0053EC00("vf31x", 5, 16447, NULL);
+    func_0053EC00("vf0y", 5, 16448, NULL);
+    func_0053EC00("vf1y", 5, 16449, NULL);
+    func_0053EC00("vf2y", 5, 16450, NULL);
+    func_0053EC00("vf3y", 5, 16451, NULL);
+    func_0053EC00("vf4y", 5, 16452, NULL);
+    func_0053EC00("vf5y", 5, 16453, NULL);
+    func_0053EC00("vf6y", 5, 16454, NULL);
+    func_0053EC00("vf7y", 5, 16455, NULL);
+    func_0053EC00("vf8y", 5, 16456, NULL);
+    func_0053EC00("vf9y", 5, 16457, NULL);
+    func_0053EC00("vf00y", 5, 16448, NULL);
+    func_0053EC00("vf01y", 5, 16449, NULL);
+    func_0053EC00("vf02y", 5, 16450, NULL);
+    func_0053EC00("vf03y", 5, 16451, NULL);
+    func_0053EC00("vf04y", 5, 16452, NULL);
+    func_0053EC00("vf05y", 5, 16453, NULL);
+    func_0053EC00("vf06y", 5, 16454, NULL);
+    func_0053EC00("vf07y", 5, 16455, NULL);
+    func_0053EC00("vf08y", 5, 16456, NULL);
+    func_0053EC00("vf09y", 5, 16457, NULL);
+    func_0053EC00("vf10y", 5, 16458, NULL);
+    func_0053EC00("vf11y", 5, 16459, NULL);
+    func_0053EC00("vf12y", 5, 16460, NULL);
+    func_0053EC00("vf13y", 5, 16461, NULL);
+    func_0053EC00("vf14y", 5, 16462, NULL);
+    func_0053EC00("vf15y", 5, 16463, NULL);
+    func_0053EC00("vf16y", 5, 16464, NULL);
+    func_0053EC00("vf17y", 5, 16465, NULL);
+    func_0053EC00("vf18y", 5, 16466, NULL);
+    func_0053EC00("vf19y", 5, 16467, NULL);
+    func_0053EC00("vf20y", 5, 16468, NULL);
+    func_0053EC00("vf21y", 5, 16469, NULL);
+    func_0053EC00("vf22y", 5, 16470, NULL);
+    func_0053EC00("vf23y", 5, 16471, NULL);
+    func_0053EC00("vf24y", 5, 16472, NULL);
+    func_0053EC00("vf25y", 5, 16473, NULL);
+    func_0053EC00("vf26y", 5, 16474, NULL);
+    func_0053EC00("vf27y", 5, 16475, NULL);
+    func_0053EC00("vf28y", 5, 16476, NULL);
+    func_0053EC00("vf29y", 5, 16477, NULL);
+    func_0053EC00("vf30y", 5, 16478, NULL);
+    func_0053EC00("vf31y", 5, 16479, NULL);
+    func_0053EC00("vf0z", 5, 16512, NULL);
+    func_0053EC00("vf1z", 5, 16513, NULL);
+    func_0053EC00("vf2z", 5, 16514, NULL);
+    func_0053EC00("vf3z", 5, 16515, NULL);
+    func_0053EC00("vf4z", 5, 16516, NULL);
+    func_0053EC00("vf5z", 5, 16517, NULL);
+    func_0053EC00("vf6z", 5, 16518, NULL);
+    func_0053EC00("vf7z", 5, 16519, NULL);
+    func_0053EC00("vf8z", 5, 16520, NULL);
+    func_0053EC00("vf9z", 5, 16521, NULL);
+    func_0053EC00("vf00z", 5, 16512, NULL);
+    func_0053EC00("vf01z", 5, 16513, NULL);
+    func_0053EC00("vf02z", 5, 16514, NULL);
+    func_0053EC00("vf03z", 5, 16515, NULL);
+    func_0053EC00("vf04z", 5, 16516, NULL);
+    func_0053EC00("vf05z", 5, 16517, NULL);
+    func_0053EC00("vf06z", 5, 16518, NULL);
+    func_0053EC00("vf07z", 5, 16519, NULL);
+    func_0053EC00("vf08z", 5, 16520, NULL);
+    func_0053EC00("vf09z", 5, 16521, NULL);
+    func_0053EC00("vf10z", 5, 16522, NULL);
+    func_0053EC00("vf11z", 5, 16523, NULL);
+    func_0053EC00("vf12z", 5, 16524, NULL);
+    func_0053EC00("vf13z", 5, 16525, NULL);
+    func_0053EC00("vf14z", 5, 16526, NULL);
+    func_0053EC00("vf15z", 5, 16527, NULL);
+    func_0053EC00("vf16z", 5, 16528, NULL);
+    func_0053EC00("vf17z", 5, 16529, NULL);
+    func_0053EC00("vf18z", 5, 16530, NULL);
+    func_0053EC00("vf19z", 5, 16531, NULL);
+    func_0053EC00("vf20z", 5, 16532, NULL);
+    func_0053EC00("vf21z", 5, 16533, NULL);
+    func_0053EC00("vf22z", 5, 16534, NULL);
+    func_0053EC00("vf23z", 5, 16535, NULL);
+    func_0053EC00("vf24z", 5, 16536, NULL);
+    func_0053EC00("vf25z", 5, 16537, NULL);
+    func_0053EC00("vf26z", 5, 16538, NULL);
+    func_0053EC00("vf27z", 5, 16539, NULL);
+    func_0053EC00("vf28z", 5, 16540, NULL);
+    func_0053EC00("vf29z", 5, 16541, NULL);
+    func_0053EC00("vf30z", 5, 16542, NULL);
+    func_0053EC00("vf31z", 5, 16543, NULL);
+    func_0053EC00("vf0w", 5, 16544, NULL);
+    func_0053EC00("vf1w", 5, 16545, NULL);
+    func_0053EC00("vf2w", 5, 16546, NULL);
+    func_0053EC00("vf3w", 5, 16547, NULL);
+    func_0053EC00("vf4w", 5, 16548, NULL);
+    func_0053EC00("vf5w", 5, 16549, NULL);
+    func_0053EC00("vf6w", 5, 16550, NULL);
+    func_0053EC00("vf7w", 5, 16551, NULL);
+    func_0053EC00("vf8w", 5, 16552, NULL);
+    func_0053EC00("vf9w", 5, 16553, NULL);
+    func_0053EC00("vf00w", 5, 16544, NULL);
+    func_0053EC00("vf01w", 5, 16545, NULL);
+    func_0053EC00("vf02w", 5, 16546, NULL);
+    func_0053EC00("vf03w", 5, 16547, NULL);
+    func_0053EC00("vf04w", 5, 16548, NULL);
+    func_0053EC00("vf05w", 5, 16549, NULL);
+    func_0053EC00("vf06w", 5, 16550, NULL);
+    func_0053EC00("vf07w", 5, 16551, NULL);
+    func_0053EC00("vf08w", 5, 16552, NULL);
+    func_0053EC00("vf09w", 5, 16553, NULL);
+    func_0053EC00("vf10w", 5, 16554, NULL);
+    func_0053EC00("vf11w", 5, 16555, NULL);
+    func_0053EC00("vf12w", 5, 16556, NULL);
+    func_0053EC00("vf13w", 5, 16557, NULL);
+    func_0053EC00("vf14w", 5, 16558, NULL);
+    func_0053EC00("vf15w", 5, 16559, NULL);
+    func_0053EC00("vf16w", 5, 16560, NULL);
+    func_0053EC00("vf17w", 5, 16561, NULL);
+    func_0053EC00("vf18w", 5, 16562, NULL);
+    func_0053EC00("vf19w", 5, 16563, NULL);
+    func_0053EC00("vf20w", 5, 16564, NULL);
+    func_0053EC00("vf21w", 5, 16565, NULL);
+    func_0053EC00("vf22w", 5, 16566, NULL);
+    func_0053EC00("vf23w", 5, 16567, NULL);
+    func_0053EC00("vf24w", 5, 16568, NULL);
+    func_0053EC00("vf25w", 5, 16569, NULL);
+    func_0053EC00("vf26w", 5, 16570, NULL);
+    func_0053EC00("vf27w", 5, 16571, NULL);
+    func_0053EC00("vf28w", 5, 16572, NULL);
+    func_0053EC00("vf29w", 5, 16573, NULL);
+    func_0053EC00("vf30w", 5, 16574, NULL);
+    func_0053EC00("vf31w", 5, 16575, NULL);
+    func_0053EC00("I", 6, 1, NULL);
+    func_0053EC00("Q", 6, 2, NULL);
+    func_0053EC00("R", 6, 4, NULL);
+    func_0053EC00("ACC", 6, 3, NULL);
+    func_0053EC00("acc", 6, 3, NULL);
+#else
     for (i = 0; i < sizeof(asm_regnames) / sizeof(asm_regnames[0]); i++) {
         func_0053EC00(
             asm_regnames[i].name,
@@ -258,7 +677,11 @@ void func_00483F30(void) {
             (void*)asm_regnames[i].extra
         );
     }
+#endif
 }
+#if MWCCPS2
+#pragma pop
+#endif
 
 #include "compiler/CError.h"
 #include "compiler/CFunc.h"
@@ -318,7 +741,9 @@ void func_00483B20(void) {
     backtracking = tries + 1 < m->count;
     tk = lex();
     stmt->expr = func_00488180(m->opcodes[tries++]);
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210
     func_00488D60(stmt);
+#endif // b145 does not convert other-class register variables here
 }
 
 #include <ctype.h>
@@ -351,6 +776,24 @@ void func_00487F60(char* buf) {
         if (tk != TK_IDENTIFIER) {
             CError_Error(8);
         }
+#if MWCCPS2
+        // b210 (0x4945A0): an unknown letter is reported without advancing
+        for (p = tkidentifier->name; *p;) {
+            if (*p == 'x') {
+                data_00625EA1 |= 8;
+            } else if (*p == 'y') {
+                data_00625EA1 |= 4;
+            } else if (*p == 'z') {
+                data_00625EA1 |= 2;
+            } else if (*p == 'w') {
+                data_00625EA1 |= 1;
+            } else {
+                CError_Error(8);
+                continue;
+            }
+            p++;
+        }
+#else
         for (p = tkidentifier->name; *p; p++) {
             if (*p == 'x') {
                 data_00625EA1 |= 8;
@@ -364,6 +807,7 @@ void func_00487F60(char* buf) {
                 CError_Error(8);
             }
         }
+#endif
         return;
     }
 
@@ -423,7 +867,7 @@ void func_00483C40(void) {
     rec = lalloc(sizeof(AsmSetRecord));
     memclrw(rec, sizeof(AsmSetRecord));
     stmt->expr = (ENode*)rec;
-    rec->opcode = 0x5C4;
+    rec->opcode = MACRO_OP(0xAC);
 
     InlineAsm_SkipComment();
     tk = lex();
@@ -447,6 +891,7 @@ void func_00483C40(void) {
         data_00625E7F = 1;
     } else if (!strcmp(name, "macro")) {
         data_00625E7F = 0;
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no .set push/pop
     } else if (!strcmp(name, "push")) {
         if ((st = lalloc(sizeof(AsmSetState)))) {
             st->next = data_005F0BC8;
@@ -457,7 +902,11 @@ void func_00483C40(void) {
             st->unk8 = data_00625E5A;
             data_005F0BC8 = st;
         } else {
+#if MWCCPS2
+            CError_FATAL(3544);
+#else
             CError_FATAL(3586);
+#endif
         }
     } else if (!strcmp(name, "pop") && data_005F0BC8) {
         st = data_005F0BC8;
@@ -467,6 +916,7 @@ void func_00483C40(void) {
         data_00625E7F = st->nomacro;
         data_00625E98 = st->noat;
         data_00625E5A = st->unk8;
+#endif
     } else {
         CError_Error(0x2D);
     }
@@ -497,6 +947,357 @@ extern void func_004897C0(MAsmOperand* op);
 extern void func_00489DE0(MAsmOperand* op);
 
 // 0x488180: the operands, as the opcode's format string spells them
+#if MWCCPS2
+// b210 (0x4947C0): the R5900 operand letters; "2+" picks VU0's other
+// register class for x/d/s/t, no VFPU constants or write-back forms
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+#define ASM_LINE(line, b145) (b145)
+#else
+#define ASM_LINE(line, b145) (line)
+#endif
+void* func_00488180(UInt16 opcode) {
+    OpcodeDef* def;
+    MAsmInstruction* rec;
+    MAsmOperand* operand;
+    char* fmt;
+    SInt16 mode;
+    char vfpupair;
+    char pairplus;
+    char flag7;
+    UInt32 i;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    union {
+        float f;
+        SInt32 i;
+    } u;
+#endif
+
+    def = &data_006115F8[opcode];
+    if (opcode >= 0x37E && opcode <= 0x3E5) {
+        InlineAsm_SyntaxError(0xA2);
+    }
+    if (data_00625E7F && opcode >= BE_NUM_OPCODES) {
+        func_004C5890(1);
+    }
+    if (data_00625E98 == 0) {
+        if ((def->flags & 0x400000) && copts.warn_inlineasm) {
+            func_004C5890(3);
+        }
+    } else if (data_00625E98 == 1 && (def->flags & 0x400000) && copts.warn_inlineasm) {
+        func_004C5940(2);
+    }
+
+    rec = lalloc(def->nargs * sizeof(MAsmOperand) + 8);
+    rec->opcode = opcode;
+    rec->flags = (volatileasm | data_00625EAC) ? 4 : 0;
+    rec->nops = 0;
+    data_00624810 = 0;
+    fmt = def->format;
+    operand = rec->ops;
+
+    if (*fmt) {
+        do {
+            InlineAsm_SkipComment();
+            vfpupair = 0;
+            pairplus = 0;
+            flag7 = 0;
+            if (*fmt == ',') {
+                if (tk != ',') {
+                    InlineAsm_SyntaxError(0x11);
+                }
+                if (InlineAsm_gccmode && fmt[1] == 'p') {
+                    InlineAsm_labelref = 1;
+                    tk = lex();
+                    InlineAsm_labelref = 0;
+                } else {
+                    tk = lex();
+                }
+                fmt++;
+            }
+
+            mode = 1;
+            if (*fmt == '=') {
+                fmt++;
+                mode = 2;
+            } else if (*fmt == '+') {
+                mode = 3;
+                fmt++;
+            }
+            if (*fmt == '!') {
+                mode |= 0x8000;
+                fmt++;
+                if (copts.mips_option1A) {
+                    mode |= 0x20;
+                }
+            }
+            if (*fmt == '$') {
+                mode |= 0x2000;
+                fmt++;
+            }
+            if (*fmt == '2') {
+                fmt++;
+                vfpupair = 1;
+                if (*fmt == '+') {
+                    pairplus = 1;
+                    fmt++;
+                }
+            }
+            if (*fmt == '\'') {
+                fmt++;
+                flag7 = 1;
+            } else if (*fmt == ';') {
+                break;
+            }
+
+            switch (*fmt) {
+                case '-':
+                    if (tk != TK_DECREMENT) {
+                        InlineAsm_SyntaxError(0x2D);
+                    }
+                    tk = lex();
+                    break;
+                case '|':
+                    if (tk != TK_INCREMENT) {
+                        InlineAsm_SyntaxError(0x2D);
+                    }
+                    tk = lex();
+                    break;
+                case '&':
+                    operand->type = 0;
+                    CInt64_SetLong(&operand->u.imm, (signed char)data_00625EA1);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '(':
+                    if (tk != '(') {
+                        InlineAsm_SyntaxError(0xF);
+                    }
+                    tk = lex();
+                    break;
+                case ')':
+                    if (tk != ')') {
+                        InlineAsm_SyntaxError(0x10);
+                    }
+                    tk = lex();
+                    break;
+                case '>':
+                    if (opcode == 0x3EE || opcode == 0x3EF) {
+                        func_0048AA50(operand, 0, 0x1F);
+                    } else {
+                        func_0048AA50(operand, -0x10, 0xF);
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '<':
+                case 'k':
+                    func_0048AA50(operand, 0, 0x1F);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '@':
+                    func_0048AA50(operand, 1, 0x20);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'l':
+                    func_00488EB0(operand, 0);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'c':
+                    func_0048AA50(operand, 0, 0x3FF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'i':
+                    func_0048AA50(operand, 0, vfpupair ? 0x3FFFF : 0xFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'X':
+                    func_0048AA50(operand, 0, 0x1F);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'B':
+                    func_0048AA50(operand, 0, 0xFFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'C':
+                    func_0048AA50(operand, 0, 0x1FFFFFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'f':
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                    // b145: a float constant only, no sign or integer
+                    if (tk != TK_FLOATCONST) {
+                        CError_Error(0x2D);
+                    }
+                    u.f = tkfloatconst.data.value;
+                    operand->type = 0;
+                    CInt64_SetLong(&operand->u.imm, u.i);
+                    tk = lex();
+#else
+                    func_004896F0(operand);
+#endif
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'I':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 1, mode);
+                    } else {
+                        operand->type = 0;
+                        operand->u.imm = InlineAsm_Int64Expression();
+                    }
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'Q':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 2, mode);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'R':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 4, mode);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'j':
+                    func_0048AA50(operand, -0x8000, 0x7FFF);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'p':
+                    func_00488EB0(operand, 0);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'x':
+                    CError_ASSERT(ASM_LINE(2061, 1038), vfpupair);
+                case 'd':
+                case 's':
+                case 't':
+                    func_004890B0(operand, vfpupair ? (pairplus ? 4 : 3) : 0, -1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'P':
+                    func_004890B0(operand, 0, -2, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case '9':
+                    func_004890B0(operand, 4, 0x1B, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'D':
+                case 'E':
+                case 'S':
+                case 'T':
+                case 'V':
+                case 'W':
+                    func_004890B0(operand, vfpupair ? 5 : 1, flag7 ? -1 : -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'N':
+                    i = def->unk10 & 3;
+                    if (i == 0) {
+                        data_00625ECD |= 8;
+                    } else if (i == 1) {
+                        data_00625ECD |= 4;
+                    } else if (i == 2) {
+                        data_00625ECD |= 2;
+                    } else if (i == 3) {
+                        data_00625ECD |= 1;
+                    }
+                    func_004890B0(operand, vfpupair ? 5 : 1, flag7 ? -1 : -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'A':
+                    if (vfpupair) {
+                        func_004890B0(operand, 6, 3, mode);
+                        rec->nops++;
+                        operand++;
+                    } else {
+                        func_00489410(operand, 0, mode);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'U':
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                    func_00489410(operand, 1, mode); // b145: as 'o'
+#else
+                    func_00489410(operand, 0, mode);
+#endif
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'b':
+                    if (!vfpupair) {
+                        CError_FATAL(ASM_LINE(2144, 1121));
+                    } else {
+                        func_00488EB0(operand, 1);
+                        rec->nops++;
+                        operand++;
+                    }
+                    break;
+                case 'a':
+                case 'q':
+                    func_00488EB0(operand, 1);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'G':
+                    func_004890B0(operand, 0, -1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'o':
+                    func_00489410(operand, 1, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'v':
+                    func_0048AA50(operand, 0, 0x10);
+                    rec->nops++;
+                    operand++;
+                    break;
+                case 'J':
+                case 'L':
+                    func_004890B0(operand, 6, -3, mode);
+                    rec->nops++;
+                    operand++;
+                    break;
+                default:
+                    CError_FATAL(ASM_LINE(2186, 1158));
+                    break;
+            }
+            fmt++;
+        } while (*fmt);
+    }
+
+    if (tk == ',') {
+        InlineAsm_SyntaxError(0xA2);
+    }
+    if (data_00624810) {
+        rec->flags |= 8;
+    }
+    return rec;
+}
+#undef ASM_LINE
+#else
 void* func_00488180(UInt16 opcode) {
     OpcodeDef* def;
     MAsmInstruction* rec;
@@ -512,7 +1313,7 @@ void* func_00488180(UInt16 opcode) {
     if (opcode >= 0x37E && opcode <= 0x3E5) {
         InlineAsm_SyntaxError(0xA2);
     }
-    if (data_00625E7F && opcode >= 0x518) {
+    if (data_00625E7F && opcode >= BE_NUM_OPCODES) {
         func_004C5890(1);
     }
     if (data_00625E98 == 0) {
@@ -625,7 +1426,8 @@ void* func_00488180(UInt16 opcode) {
                             name = tkidentifier->name;
                             if (!strcmp(name, "w") || !strcmp(name, "wb")) {
                                 tk = lex();
-                                rec->opcode = (rec->opcode == 0x5B6) ? 0x5B9 : 0x4CE;
+                                rec->opcode =
+                                    (rec->opcode == MACRO_OP(0x9E)) ? MACRO_OP(0xA1) : 0x4CE;
                             }
                         } else {
                             InlineAsm_SyntaxError(0xA2);
@@ -892,9 +1694,9 @@ vfpu_cc_done:
         } while (*fmt);
     }
 
-    if (tk == ',' && (rec->opcode == 0x4CD || rec->opcode == 0x5B6)) {
+    if (tk == ',' && (rec->opcode == 0x4CD || rec->opcode == MACRO_OP(0x9E))) {
         if (lookahead() == TK_IDENTIFIER && !strcmp(tkidentifier->name, "wb")) {
-            rec->opcode = (rec->opcode == 0x4CD) ? 0x4CE : 0x5B9;
+            rec->opcode = (rec->opcode == 0x4CD) ? 0x4CE : MACRO_OP(0xA1);
             tk = lex();
             tk = lex();
         }
@@ -907,14 +1709,17 @@ vfpu_cc_done:
     }
     return rec;
 }
+#endif
 
 // 0x48AA50: an immediate operand in [min, max]; in a GCC asm statement also
 // ?N, %N and %hi()/%lo()
 void func_0048AA50(MAsmOperand* op, SInt32 min, SInt32 max) {
     MLookupResult result;
     CInt64 value;
+#if !MWCCPS2
     CInt64 qconst;
     CInt64 intconst;
+#endif
     char* name;
     SInt32 v = 0;
     SInt32 n;
@@ -922,8 +1727,13 @@ void func_0048AA50(MAsmOperand* op, SInt32 min, SInt32 max) {
     if (InlineAsm_gccmode && tk == '?') {
         tk = lex();
         if (tk == TK_INTCONST) {
+#if MWCCPS2
+            value = tkintconst; // b210 copies token constants through the one CInt64 local
+            n = value.lo;
+#else
             qconst = tkintconst;
             n = qconst.lo;
+#endif
             if (n < 0) {
                 InlineAsm_SyntaxError(0x2D);
             }
@@ -984,8 +1794,13 @@ void func_0048AA50(MAsmOperand* op, SInt32 min, SInt32 max) {
                 }
             }
         } else if (tk == TK_INTCONST) {
+#if MWCCPS2
+            value = tkintconst; // b210 copies token constants through the one CInt64 local
+            n = value.lo;
+#else
             intconst = tkintconst;
             n = intconst.lo;
+#endif
             if (n < 0) {
                 CError_Error(0x2D);
             }
@@ -1217,6 +2032,176 @@ extern Boolean func_0050CCC0(Object** obj, CInt64* offset); // a variable operan
 
 // 0x4890B0: a register operand of class rclass: $N, a name, a GCC %N, or a
 // variable (kept in a register)
+#if MWCCPS2
+
+// b210 (0x495320): VU0 registers take x/y/z/w field suffixes (stripped
+// from the name, checked against the instruction's mask), %N takes one too
+void func_004890B0(MAsmOperand* op, char rclass, SInt32 sub, SInt16 mode) {
+    CInt64 c;
+    CInt64 c2;
+    CInt64 c3;
+    Object* obj;
+    CInt64 offset;
+    char name[0x100];
+    AsmRegRec* reg;
+    char* p;
+    SInt32 n;
+    Boolean numeric;
+    Boolean fields;
+
+    offset = cint64_zero;
+    numeric = FALSE;
+    fields = FALSE;
+    obj = NULL;
+    if (sub == -2) {
+        numeric = TRUE;
+    } else if (sub == 3 && rclass == 6) {
+        fields = TRUE;
+    } else if (sub == -3 && rclass == 5) {
+        fields = TRUE;
+    }
+
+    if (tk == '$') {
+        numeric = TRUE;
+        tk = lex();
+        if (!data_00625E98 &&
+            (!strcmp("at", tkidentifier->name) || !strcmp("AT", tkidentifier->name))) {
+            func_004C5890(3);
+        }
+    } else if (tk == '%' && InlineAsm_gccmode) {
+        tk = lex();
+        if (tk == TK_INTCONST) {
+            c = tkintconst;
+            n = c.lo;
+            if (n < 0) {
+                CError_Error(0x2D);
+            }
+        } else {
+            CError_Error(0x2D);
+        }
+        data_00624810 = 1;
+        op->type = MOpnd_GCCReg;
+        op->u.gcc.num = n;
+        op->u.gcc.effect = mode;
+        op->u.gcc.rclass = rclass;
+        op->u.gcc.xyzw = 0;
+        tk = lex();
+        if (tk == TK_IDENTIFIER) {
+            if (tkidentifier->name[0] == 'x') {
+                op->u.gcc.xyzw |= 1;
+            } else if (tkidentifier->name[0] == 'y') {
+                op->u.gcc.xyzw |= 2;
+            } else if (tkidentifier->name[0] == 'z') {
+                op->u.gcc.xyzw |= 4;
+            } else if (tkidentifier->name[0] == 'w') {
+                op->u.gcc.xyzw |= 8;
+            } else {
+                CError_Error(0x2D);
+            }
+            if (op->u.gcc.xyzw) {
+                tk = lex();
+            }
+        }
+        return;
+    }
+
+    if (tk == TK_IDENTIFIER) {
+        strcpy(name, tkidentifier->name);
+        if (fields) {
+            for (p = name; *p; p++) {}
+            p--;
+            while (p > name) {
+                if (!data_00625ECD) {
+                    if (!data_00625EA1) {
+                        if ((UInt8)(*p - 'w') <= 3) {
+                            *p-- = 0;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        if (*p == 'x' && ((signed char)data_00625EA1 & 8)) {
+                            *p-- = 0;
+                        } else if (*p == 'y' && ((signed char)data_00625EA1 & 4)) {
+                            *p-- = 0;
+                        } else if (*p == 'z' && ((signed char)data_00625EA1 & 2)) {
+                            *p-- = 0;
+                        } else if (*p == 'w' && ((signed char)data_00625EA1 & 1)) {
+                            *p-- = 0;
+                        } else {
+                            if ((UInt8)(*p - 'w') <= 3) {
+                                CError_Error(0x2D);
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    if (*p == 'x' && ((signed char)data_00625ECD & 8)) {
+                        *p-- = 0;
+                    } else if (*p == 'y' && ((signed char)data_00625ECD & 4)) {
+                        *p-- = 0;
+                    } else if (*p == 'z' && ((signed char)data_00625ECD & 2)) {
+                        *p-- = 0;
+                    } else if (*p == 'w' && ((signed char)data_00625ECD & 1)) {
+                        *p-- = 0;
+                    } else {
+                        if ((UInt8)(*p - 'w') <= 3) {
+                            CError_Error(0x2D);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (tk == TK_IDENTIFIER && (reg = func_0053EBB0(name)) && reg->rclass == rclass) {
+        op->type = MOpnd_Reg;
+        op->u.reg.object = reg->object;
+        op->u.reg.num = reg->num;
+        op->effect = mode;
+        op->rclass = rclass;
+        op->xyzw = 0;
+        if (reg->object) {
+            reg->object->flags |= 1;
+        }
+        tk = lex();
+    } else if (tk == TK_INTCONST) {
+        c2 = tkintconst;
+        n = c2.lo;
+        tk = lex();
+        if (n == 0 && tk == TK_INTCONST) {
+            c3 = tkintconst;
+            n = c3.lo;
+            tk = lex();
+        }
+        if (numeric && n < data_00624744[rclass]) {
+            op->type = MOpnd_Reg;
+            op->u.reg.object = NULL;
+            op->u.reg.num = n;
+            op->effect = mode;
+            op->rclass = rclass;
+        } else {
+            InlineAsm_SyntaxError(0x2D);
+        }
+    } else if (tk == TK_IDENTIFIER && func_0053EBB0(name)) {
+        InlineAsm_SyntaxError(0x2D);
+    } else if (func_0050CCC0(&obj, &offset)) {
+        if (obj) {
+            data_00624810 = 1;
+            op->type = MOpnd_Reg;
+            op->u.reg.object = obj;
+            op->u.reg.num = 0;
+            op->effect = mode;
+            op->rclass = rclass;
+            op->xyzw = 0;
+            obj->flags |= 1;
+        } else {
+            InlineAsm_SyntaxError(0x2D);
+        }
+    } else {
+        InlineAsm_SyntaxError(0x2D);
+    }
+}
+#else
 void func_004890B0(MAsmOperand* op, char rclass, SInt32 sub, SInt16 mode) {
     CInt64 c;
     CInt64 offset;
@@ -1311,6 +2296,7 @@ void func_004890B0(MAsmOperand* op, char rclass, SInt32 sub, SInt16 mode) {
         InlineAsm_SyntaxError(0x2D);
     }
 }
+#endif
 
 #include "compiler/RegisterInfo.h"
 
@@ -1319,6 +2305,80 @@ extern SInt32 InlineAsm_ConstantExpression(void);
 
 // 0x489410: a memory operand (a variable, with .member and +/- offsets), a
 // label, a GCC %N, or an offset (kind 1); in optional parentheses
+#if MWCCPS2
+// b210 (0x495980): no parenthesized form
+void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode) {
+    MLookupResult result;
+    CInt64 c;
+    SInt32 n;
+
+    if (tk == TK_IDENTIFIER && InlineAsm_LookupSymbolMIPS(tkidentifier, &result)) {
+        if (result.object) {
+            if (result.object->datatype == DLOCAL) {
+                op->type = MOpnd_LocalObj;
+                Registers_GetVarInfo(result.object)->noregister = TRUE;
+                Registers_GetVarInfo(result.object)->used = TRUE;
+            } else {
+                op->type = MOpnd_GlobalObj;
+                op->effect = mode;
+                op->rclass = 0;
+            }
+            result.object->u.var.offset = 0;
+            op->u.obj.obj = result.object;
+            op->u.obj.offset = 0;
+            result.object->flags |= 1;
+            tk = lex();
+            if (tk == '.') {
+                op->u.obj.offset += InlineAsm_StructMemberOffset(result.object->type);
+            }
+            if (tk == '+') {
+                tk = lex();
+                op->u.obj.offset += InlineAsm_ConstantExpression();
+            } else if (tk == '-') {
+                tk = lex();
+                op->u.obj.offset -= InlineAsm_ConstantExpression();
+            }
+            return;
+        }
+        if (result.label) {
+            tk = lex();
+            op->type = MOpnd_Lab;
+            op->u.lab.label = result.label;
+            return;
+        }
+    } else if (tk == '%' && InlineAsm_gccmode) {
+        tk = lex();
+        if (tk == TK_INTCONST) {
+            c = tkintconst;
+            n = c.lo;
+            if (n < 0) {
+                CError_Error(0x2D);
+            }
+        } else {
+            CError_Error(0x2D);
+        }
+        op->type = MOpnd_GCCReg;
+        op->u.gcc.num = n;
+        op->u.gcc.effect = mode;
+        op->u.gcc.rclass = -1;
+        tk = lex();
+        return;
+    }
+
+    if (kind) {
+        func_0048AA50(op, -0x8000, 0x7FFF);
+    } else {
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+        InlineAsm_SyntaxError(0x2D); // b145 declares no label here
+#else
+        tk = lex();
+        result.label = InlineAsm_DeclareLabel(tkidentifier);
+        op->type = MOpnd_Lab;
+        op->u.lab.label = result.label;
+#endif
+    }
+}
+#else
 void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode) {
     MLookupResult result;
     CInt64 c;
@@ -1421,6 +2481,7 @@ void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode) {
         }
     }
 }
+#endif
 
 // 0x4896F0: a single-precision immediate, as its bits
 void func_004896F0(MAsmOperand* op) {
@@ -2230,7 +3291,7 @@ extern SInt16 data_00625E56; // the current block's flags (.set reorder/noreorde
 extern Boolean data_00625E7E;
 extern MPCodeBlock* data_00624C18;
 extern SInt32 data_006241E0[7]; // registers in each class
-extern SInt32 data_0060E038[7][128]; // the registers of each class
+extern SInt32 data_0060E038[7][BE_MAX_CLASS_REGS]; // the registers of each class
 extern SInt32 func_004B8990(void);
 extern SInt32 func_00461F50(void);
 extern void func_0046FA50(void);
@@ -2249,7 +3310,7 @@ void func_00482000(Statement* stmt) {
 
     mi = (MAsmInstruction*)stmt->expr;
     nargs = data_006115F8[mi->opcode].nargs;
-    if (mi->opcode == 0x5C4) {
+    if (mi->opcode == MACRO_OP(0xAC)) {
         // .set
         if (((AsmSetRecord*)mi)->mode & 4) {
             volatileasm = 1;
@@ -2279,6 +3340,13 @@ void func_00482000(Statement* stmt) {
     pc = func_00482330(mi, nargs);
     pc->flags |= 0x200000;
     appendpcode(data_006246B4, pc);
+#if MWCCPS2
+    // vcallms/vcallmsr (0x278..0x27A) mark the block as starting a VU0
+    // micro program
+    if ((UInt16)(pc->op - 0x278) <= 2) {
+        data_006246B4->flags2E |= 0x80;
+    }
+#endif
 
     if (pc->flags & 1) {
         if (data_006115F8[pc->op].flags & 8) {
@@ -2298,7 +3366,7 @@ void func_00482000(Statement* stmt) {
                 }
             }
         }
-        if (pc->op < 0x518) {
+        if (pc->op < MACRO_OP(0x00)) {
             data_00624C3C = pc;
         }
         if (pc->flags & 0x10000000) {
@@ -2325,7 +3393,10 @@ void func_00482000(Statement* stmt) {
             func_0046FA50();
         }
     } else {
-        if (data_00624C3C && (data_00625E56 & 0x4000) && pc->op < 0x518 && !data_00625E7E) {
+        if (data_00624C3C &&
+            (data_00625E56 & 0x4000) &&
+            pc->op < MACRO_OP(0x00) &&
+            !data_00625E7E) {
             // noreorder: fill the delay slot of the branch before
             deletepcode(pc);
             insertpcodebefore(data_00624C3C, pc);
@@ -2501,7 +3572,7 @@ int func_004833E0(MOperand* src, int index, UInt16 opcode, MOperand* out) {
     }
 
     if (size == 0) {
-        if ((opcode >= 0x41A && opcode <= 0x451) || opcode == 0x5BA) {
+        if ((opcode >= 0x41A && opcode <= 0x451) || opcode == MACRO_OP(0xA2)) {
             size = 1;
         } else if (opcode >= 0x452 && opcode <= 0x492) {
             size = 2;
@@ -2690,6 +3761,647 @@ static SInt16 asm_var_reg(Object* obj) {
 
 // 0x482330: an asm instruction's PCode, its operands converted by the
 // opcode's format; VFPU vector operands also get one operand per element
+#if MWCCPS2
+extern Boolean ps2_IsQuadwordClassLocal(Object* obj);
+
+// b210 (0x4913A0): no VFPU element operands; VU0 registers (class 5) take
+// field suffixes and the vi/vf special numbers 0x4020..0x40BF.
+// b145 (0x4911C0): volatile asm keeps an instruction marked 0x20 movable and
+// mi->flags & 4 does not pin it; 'l' is 'p' (no relocation kind) and 'U'
+// takes no label; its asserts sit 1054..1078 lines earlier, unevenly
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+#define ASM_LINE(line, b145) (b145)
+#else
+#define ASM_LINE(line, b145) (line)
+#endif
+MPCode* func_00482330(MAsmInstruction* mi, int nargs) {
+    OpcodeDef* def;
+    MPCode* pc;
+    MAsmOperand* op;
+    MOperand* arg;
+    MOperand* a;
+    char* fmt;
+    ObjAddress addr;
+    SInt32 mode;
+    int size;
+    int isreg;
+    Boolean vfpupair;
+    Boolean pairplus;
+    Boolean flag7;
+
+    def = &data_006115F8[mi->opcode];
+    fmt = def->format;
+    vfpupair = FALSE;
+    flag7 = FALSE;
+    pairplus = FALSE;
+    if (*fmt == '#') {
+        CError_FATAL(ASM_LINE(4115, 3061));
+    }
+
+    size = PCODE_SIZE(nargs);
+    pc = lalloc(size);
+    memset(pc, 0, size);
+    pc->argcount = nargs;
+    pc->op = mi->opcode;
+    pc->unk20 = data_00624D84;
+    pc->flags |= def->flags;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    if ((volatileasm && !(mi->flags & 0x20)) || data_00625EAC) {
+        pc->flags |= 0x100;
+        pc->flags &= ~0x4010;
+    }
+#else
+    if (volatileasm || data_00625EAC || (mi->flags & 4)) {
+        if (!(mi->flags & 0x20)) {
+            pc->flags |= 0x100;
+            pc->flags &= ~0x4010;
+        }
+    }
+#endif
+
+    op = mi->ops;
+    arg = pc->args;
+    if (*fmt) {
+        do {
+            if (*fmt == ';') {
+                fmt++;
+            }
+            if (*fmt == ',') {
+                fmt++;
+            }
+            if (*fmt == '(' || *fmt == '[') {
+                fmt++;
+            }
+            mode = 1;
+            if (*fmt == '=') {
+                fmt++;
+                mode = 2;
+            } else if (*fmt == '+') {
+                mode = 3;
+                fmt++;
+            }
+            if (*fmt == '!') {
+                mode |= 0xFFFF8000;
+                fmt++;
+                if (copts.mips_option1A) {
+                    mode |= 0x20;
+                }
+            }
+            if (*fmt == '$') {
+                mode |= 0x2000;
+                fmt++;
+            }
+            if (*fmt == '2') {
+                fmt++;
+                vfpupair = TRUE;
+                if (*fmt == '+') {
+                    pairplus = TRUE;
+                    fmt++;
+                }
+            }
+            if (*fmt == '\'') {
+                fmt++;
+                flag7 = TRUE;
+            }
+
+            switch (*fmt) {
+                case '&':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    if (arg->value < 15) {
+                        pc->flags &= ~0x4010;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case '<':
+                case '>':
+                case '@':
+                case 'X':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'i':
+                case 'j':
+                case 'k':
+                    arg->kind = 3;
+                    *(CInt64*)&arg->value = op->u.imm;
+                    op++;
+                    arg++;
+                    break;
+                case 'B':
+                case 'C':
+                case 'M':
+                case 'c':
+                case 'v':
+                    arg->kind = 2;
+                    arg->value = op->u.imm.lo;
+                    op++;
+                    arg++;
+                    break;
+                case 'h':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 0;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'H':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 1;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'Y':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 6;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'Z':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 2;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case '1':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 3;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case 'r':
+                    arg->kind = 0;
+                    arg->rclass = 0;
+                    arg->reg = 31;
+                    arg->flags = mode;
+                    pc->flags |= 0x100;
+                    op++;
+                    arg++;
+                    break;
+                case '0':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = 4;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'Q':
+                case 'R':
+                    if (vfpupair) {
+                        arg->kind = 0;
+                        arg->rclass = 6;
+                        arg->reg = op->u.reg.num;
+                        arg->flags = mode;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'I':
+                    if (vfpupair) {
+                        arg->kind = 0;
+                        arg->rclass = 6;
+                        arg->reg = op->u.reg.num;
+                        arg->flags = mode;
+                    } else {
+                        arg->kind = 3;
+                        *(CInt64*)&arg->value = op->u.imm;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'K':
+                    // the condition register an FP compare/branch uses
+                    switch (pc->op) {
+                        case 0x68:
+                        case 0x69:
+                        case 0x6A:
+                        case 0x6B:
+                        case 0x1CD:
+                        case 0x1CE:
+                        case 0x1CF:
+                        case 0x1D0:
+                            arg->kind = 0;
+                            if (pc->args[1].reg == 0x14) {
+                                arg->rclass = 6;
+                                arg->reg = 4;
+                                arg->flags = mode;
+                            } else if (pc->args[1].reg == 0x15) {
+                                arg->rclass = 6;
+                                arg->reg = 1;
+                                arg->flags = mode;
+                            } else if (pc->args[1].reg == 0x16) {
+                                arg->rclass = 6;
+                                arg->reg = 2;
+                                arg->flags = mode;
+                            } else {
+                                arg->kind = 7;
+                            }
+                            break;
+                        case 0x26C:
+                        case 0x273:
+                        case 0x27C:
+                        case 0x296:
+                        case 0x29D:
+                        case 0x2B3:
+                        case 0x2BA:
+                        case 0x2C2:
+                        case 0x2C9:
+                        case 0x2D4:
+                        case 0x2D8:
+                        case 0x2DB:
+                        case 0x2E2:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x16;
+                            arg->flags = mode;
+                            break;
+                        case 0x26B:
+                        case 0x272:
+                        case 0x295:
+                        case 0x29C:
+                        case 0x2A3:
+                        case 0x2B2:
+                        case 0x2B9:
+                        case 0x2C1:
+                        case 0x2C8:
+                        case 0x2DA:
+                        case 0x2E1:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x15;
+                            arg->flags = mode;
+                            break;
+                        case 0x2D1:
+                        case 0x2D3:
+                        case 0x2D5:
+                            arg->kind = 0;
+                            arg->rclass = 4;
+                            arg->reg = 0x14;
+                            arg->flags = mode;
+                            break;
+                        default:
+                            CError_FATAL(ASM_LINE(4481, 3422));
+                            break;
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'f':
+                    arg->kind = 3;
+                    *(CInt64*)&arg->value = op->u.imm;
+                    op++;
+                    arg++;
+                    break;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                case 'l':
+                case 'p':
+                    arg->kind = 6;
+                    MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    if (!arg->value) {
+                        CError_FATAL(3441);
+                    }
+                    op++;
+                    arg++;
+                    break;
+#else
+                case 'p':
+                    arg->kind = 6;
+                    MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    if (!arg->value) {
+                        CError_FATAL(4499);
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'l':
+                    pc->unk38 = 2;
+                    arg->kind = 6;
+                    MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    if (!arg->value) {
+                        CError_FATAL(4509);
+                    }
+                    op++;
+                    arg++;
+                    break;
+#endif
+                case 'b':
+                    if (vfpupair) {
+                        pc->unk38 = 0x77;
+                        if (op->type == MOpnd_Lab) {
+                            arg->kind = 6;
+                            MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                            op++;
+                            arg++;
+                            break;
+                        } else {
+                            arg->kind = 4;
+                            MOP_SETOBJ(*arg, op->u.obj.obj);
+                            arg->value = op->u.obj.offset + op->u.obj.obj->u.var.offset;
+                            pc->relobj = (Object*)MOP_OBJ(*arg);
+                            if (pc->flags & 6) {
+                                pc->alias = make_alias(
+                                    (Object*)MOP_OBJ(*arg),
+                                    arg->value - op->u.obj.obj->u.var.offset,
+                                    func_0048FBE0(pc->op)
+                                );
+                                if (is_volatile_object((Object*)MOP_OBJ(*arg))) {
+                                    pc->flags |= 0x80;
+                                }
+                                if (is_const_object((Object*)MOP_OBJ(*arg))) {
+                                    pc->flags |= 0x40;
+                                }
+                            }
+                        }
+                        op++;
+                        arg++;
+                        break;
+                    }
+                case 'a':
+                    pc->unk38 = 4;
+                    if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                        op++;
+                        arg++;
+                        break;
+                    }
+                    goto memory;
+                case 'q':
+                    pc->unk38 = 0xA;
+                case 'A':
+                case 'o':
+memory:
+                    if (vfpupair) {
+                        arg->kind = 0;
+                        arg->rclass = 6;
+                        arg->reg = 3;
+                        arg->flags = mode;
+                        pc->flags |= 0x100;
+                    } else if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                        pc->unk38 = 0;
+                    } else if (op->type == MOpnd_Imm) {
+                        arg->kind = 4;
+                        arg->value2 = 0;
+                        arg->value = op->u.imm.lo;
+                        pc->unk38 = 0;
+                    } else if (op->type == MOpnd_Reg) {
+                        // through the register a variable is in
+                        arg->kind = 4;
+                        arg->value2 = 0;
+                        arg->value = 0;
+                        arg++;
+                        arg->kind = 0;
+                        arg->rclass = 0;
+                        if (op->u.reg.object &&
+                            Registers_GetVarInfo(op->u.reg.object) &&
+                            Registers_GetVarInfo(op->u.reg.object)->reg) {
+                            arg->reg = Registers_GetVarInfo(op->u.reg.object)->reg;
+                        }
+                        arg->flags = 1;
+                    } else {
+                        arg->kind = 4;
+                        MOP_SETOBJ(*arg, op->u.obj.obj);
+                        arg->value = op->u.obj.offset + op->u.obj.obj->u.var.offset;
+                        pc->relobj = (Object*)MOP_OBJ(*arg);
+                        if (pc->flags & 6) {
+                            pc->alias = make_alias(
+                                (Object*)MOP_OBJ(*arg),
+                                arg->value - op->u.obj.obj->u.var.offset,
+                                func_0048FBE0(pc->op)
+                            );
+                            if (is_volatile_object((Object*)MOP_OBJ(*arg))) {
+                                pc->flags |= 0x80;
+                            }
+                            if (is_const_object((Object*)MOP_OBJ(*arg))) {
+                                pc->flags |= 0x40;
+                            }
+                        }
+                        ObjGen_GetObjectAddress(op->u.obj.obj, &addr);
+                        if (*fmt == 'A') {
+                            arg++;
+                            arg->kind = 0;
+                            arg->rclass = 0;
+                            arg->reg = addr.basereg;
+                            arg->flags = 1;
+                        } else if (*fmt != 'a') {
+                            op[1].u.reg.num = addr.basereg;
+                        }
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'U':
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                {
+#else
+                    if (op->type == MOpnd_Lab) {
+                        arg->kind = 6;
+                        MOP_SETLABEL(*arg, op->u.lab.label->pclabel);
+                    } else {
+#endif
+                    arg->kind = 4;
+                    MOP_SETOBJ(*arg, op->u.obj.obj);
+                    arg->value = op->u.obj.offset;
+                    pc->relobj = (Object*)MOP_OBJ(*arg);
+                    if (pc->flags & 6) {
+                        pc->alias = make_alias(
+                            (Object*)MOP_OBJ(*arg),
+                            arg->value - op->u.obj.obj->u.var.offset,
+                            func_0048FBE0(pc->op)
+                        );
+                    }
+                }
+                    op++;
+                    arg++;
+                    pc->unk38 = 2;
+                    break;
+                case 'd':
+                case 's':
+                case 't':
+                case 'x':
+                    if (op->u.reg.object) {
+                        op->u.reg.num = asm_var_reg(op->u.reg.object);
+                        if (!op->u.reg.num) {
+                            CError_Error(0xA4, op->u.reg.object->name->name);
+                        }
+                    }
+                    arg->kind = 0;
+                    arg->rclass = vfpupair ? (pairplus ? 4 : 3) : 0;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'P':
+                    arg->kind = 0;
+                    arg->rclass = 0;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case '9':
+                    arg->kind = 0;
+                    arg->rclass = 3;
+                    arg->reg = 0x1B;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'D':
+                case 'S':
+                    if (op->u.reg.object &&
+                        op->u.reg.object->type->type != TYPEFLOAT &&
+                        !vfpupair) {
+                        op->u.reg.num = 0;
+                        CError_Error(0x2D);
+                    }
+                case 'E':
+                case 'N':
+                case 'T':
+                case 'V':
+                case 'W':
+                    isreg = TRUE;
+                    if (op->u.reg.object) {
+                        op->u.reg.num = asm_var_reg(op->u.reg.object);
+                        isreg = FALSE;
+                        if (ps2_IsQuadwordClassLocal(op->u.reg.object) && !op->u.reg.num) {
+                            func_004C5940(0xA, op->u.reg.object->name->name);
+                        } else if (!op->u.reg.num) {
+                            CError_Error(0xA4, op->u.reg.object->name->name);
+                        }
+                    }
+                    arg->kind = 0;
+                    arg->rclass = vfpupair ? 5 : 1;
+                    arg->reg = op->u.reg.num;
+                    if ((mode & 2) && !(op->effect & 1) && (mode & 1)) {
+                        mode &= ~1;
+                    }
+                    arg->flags = mode;
+                    if (vfpupair) {
+                        if ((arg->flags & 2) && data_006115F8[pc->op].format[0] == '&') {
+                            mode = 0;
+                            a = arg;
+                            while (a->kind != 2) {
+                                if (++mode >= 5) {
+                                    CError_FATAL(ASM_LINE(4803, 3725));
+                                }
+                                a--;
+                            }
+                            if (a->value != 15) {
+                                pc->flags &= ~0x4010;
+                                arg->flags |= 3;
+                            }
+                        }
+                        if (op->xyzw && flag7) {
+                            if (op->xyzw & 1) {
+                                arg->flags |= 0x800;
+                            }
+                            if (op->xyzw & 2) {
+                                arg->flags |= 0x400;
+                            }
+                            if (op->xyzw & 4) {
+                                arg->flags |= 0x200;
+                            }
+                            if (op->xyzw & 8) {
+                                arg->flags |= 0x100;
+                            }
+                        }
+                        if (arg->reg >= 0x4020 && arg->reg < 0x4040) {
+                            if (flag7) {
+                                arg->flags |= 0x800;
+                            }
+                            if (isreg) {
+                                arg->reg -= 0x4020;
+                            }
+                        } else if (arg->reg >= 0x4040 && arg->reg < 0x4060) {
+                            if (flag7) {
+                                arg->flags |= 0x400;
+                            }
+                            if (isreg) {
+                                arg->reg -= 0x4040;
+                            }
+                        } else if (arg->reg >= 0x4080 && arg->reg < 0x40A0) {
+                            if (flag7) {
+                                arg->flags |= 0x200;
+                            }
+                            if (isreg) {
+                                arg->reg -= 0x4080;
+                            }
+                        } else if (arg->reg >= 0x40A0 && arg->reg < 0x40C0) {
+                            if (flag7) {
+                                arg->flags |= 0x100;
+                            }
+                            if (isreg) {
+                                arg->reg -= 0x40A0;
+                            }
+                        }
+                    }
+                    op++;
+                    arg++;
+                    break;
+                case 'G':
+                    arg->kind = 0;
+                    arg->rclass = 2;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case 'J':
+                case 'L':
+                    arg->kind = 0;
+                    arg->rclass = 6;
+                    arg->reg = op->u.reg.num;
+                    arg->flags = mode;
+                    op++;
+                    arg++;
+                    break;
+                case '-':
+                case '|':
+                    break;
+                default:
+                    CError_FATAL(ASM_LINE(4960, 3882));
+                    break;
+            }
+
+            fmt++;
+            vfpupair = FALSE;
+            pairplus = FALSE;
+            flag7 = FALSE;
+            if (*fmt == ')' || *fmt == ']') {
+                fmt++;
+            }
+        } while (*fmt);
+    }
+
+    if ((pc->flags & 6) && !pc->alias) {
+        pc->flags |= 0x20;
+    }
+    return pc;
+}
+#undef ASM_LINE
+#else
 MPCode* func_00482330(MAsmInstruction* mi, int nargs) {
     OpcodeDef* def;
     MPCode* pc;
@@ -2722,7 +4434,7 @@ MPCode* func_00482330(MAsmInstruction* mi, int nargs) {
     if (mi->opcode >= 0x40A && mi->opcode <= 0x517) {
         // VFPU: room for the elements of its vector operands
         k = 0;
-        if ((mi->opcode >= 0x41A && mi->opcode <= 0x451) || mi->opcode == 0x5BA) {
+        if ((mi->opcode >= 0x41A && mi->opcode <= 0x451) || mi->opcode == MACRO_OP(0xA2)) {
             k = 1;
         } else if (mi->opcode >= 0x452 && mi->opcode <= 0x492) {
             k = 2;
@@ -3306,3 +5018,4 @@ memory:
     }
     return pc;
 }
+#endif

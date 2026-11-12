@@ -35,7 +35,7 @@ VOperand func_004C3B10(MOperand op) {
             v.kind = 5;
             break;
         default:
-            CError_Internal("VReg.c", 165);
+            CError_Internal("VReg.c", CError_B145_LINE(165));
     }
     v.reg = op.reg;
     return v;
@@ -99,7 +99,7 @@ MOperand func_004C3C60(VOperand* v) {
             op.flags = 1;
             break;
         default:
-            CError_Internal("VReg.c", 122);
+            CError_Internal("VReg.c", CError_B145_LINE(122));
     }
     return op;
 }
@@ -138,7 +138,7 @@ MOperand func_004C3DD0(UInt8 rclass) {
             op.reg = data_00625A98[5]++;
             break;
         default:
-            CError_Internal("VReg.c", 60);
+            CError_Internal("VReg.c", CError_B145_LINE(60));
     }
     return op;
 }

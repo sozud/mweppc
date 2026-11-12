@@ -55,6 +55,32 @@ enum {
 };
 
 #if MWCCPSP
+/* mwccps2 b145 (Yakuza) has no late_conditional_move, debug_1..debug_5,
+   int_multiply_add (b210 0x02d) or mwabi_bitfields (its compileroptions
+   table, re/pragmas.py, and the copts slots of its functions): every later
+   field sits 1 (from 0x01e), 7 (from 0x02e) or 8 (from 0x050) bytes lower
+   than b210's. no_branch_likely stays (0x026 in b145) without its pragma. COPTS_FIELD(name, value) reads such a field, and
+   is `value` in a build without it. */
+#if MWCCPS2 && !defined(MWCCPS2_BUILD)
+#define MWCCPS2_BUILD 210
+#endif
+#define COPTS_B210_FIELDS (!MWCCPS2 || MWCCPS2_BUILD >= 210)
+/* COPTS_B210_OPTION (a compileroptions entry) and COPTS_B210_SET (a store)
+   vanish in such a build; they keep the line numbers asserts encode. */
+/* b145's processor setup sets conditional_move where b210's sets
+   late_conditional_move: copts.COPTS_LATE_CONDITIONAL_MOVE = 1 */
+#if COPTS_B210_FIELDS
+#define COPTS_LATE_CONDITIONAL_MOVE late_conditional_move
+#define COPTS_FIELD(f, absent) (copts.f)
+#define COPTS_B210_OPTION(name, f) name, OPT_OFFSET(f),
+#define COPTS_B210_SET(f, v) (copts.f = (v))
+#else
+#define COPTS_LATE_CONDITIONAL_MOVE conditional_move
+#define COPTS_FIELD(f, absent) (absent)
+#define COPTS_B210_OPTION(name, f)
+#define COPTS_B210_SET(f, v) ((void)0)
+#endif
+
 struct CompilerLinkerOptions {
     // mwccpsp 3.0.1 layout, 0x144 bytes, from the compileroptions table in
     // mwccpsp.exe (#pragma name -> offset) and initialize_compiler_options
@@ -85,7 +111,9 @@ struct CompilerLinkerOptions {
     UInt8 mips_option1A; // 0x01a Coloring
     UInt8 warn_inlineasm; // 0x01b #pragma warn_inlineasm
     UInt8 conditional_move; // 0x01c #pragma conditional_move
+#if COPTS_B210_FIELDS
     UInt8 late_conditional_move; // 0x01d #pragma late_conditional_move
+#endif
     UInt8 gencvtcheck; // 0x01e #pragma gencvtcheck
     UInt8 far_call; // 0x01f #pragma far_call
     UInt8 prefetch; // 0x020 #pragma prefetch
@@ -95,13 +123,15 @@ struct CompilerLinkerOptions {
     UInt8 floatsp32; // 0x024 #pragma floatsp32
     UInt8 mips_option25; // 0x025 processor setup (0x435300)
     UInt8 mips_option26; // 0x026 processor setup (0x435300)
-    UInt8 no_branch_likely; // 0x027 #pragma no_branch_likely
+    UInt8 no_branch_likely; // 0x027 #pragma no_branch_likely (b145: no pragma, still read)
+#if COPTS_B210_FIELDS
     UInt8 debug_1; // 0x028 #pragma debug_1
     UInt8 debug_2; // 0x029 #pragma debug_2
     UInt8 debug_3; // 0x02a #pragma debug_3
     UInt8 debug_4; // 0x02b #pragma debug_4
     UInt8 debug_5; // 0x02c #pragma debug_5
     UInt8 int_multiply_add; // 0x02d #pragma int_multiply_add
+#endif
     UInt8 no_load_delay_nops; // 0x02e BE nop pass: when set, loads get no delay nop
     UInt8 mips_option2F; // 0x02f processor setup (0x435300)
     UInt8 mips_option30; // 0x030 processor setup (0x435300)
@@ -115,6 +145,46 @@ struct CompilerLinkerOptions {
     UInt8 nomacro; // 0x038 #pragma nomacro
     UInt8 mips_option39; // 0x039 from the PSP MIPS CodeGen panel (2)
     UInt8 mips_option3A; // 0x03a set without optimize_for_size
+#if MWCCPS2
+    // mwccps2 3.0.1 b210: the compileroptions table in mwccps2.exe
+    // (tools/mwccps2/re/pragmas.py) puts the PS2 options here; offsets from
+    // 0x05c (PSP) on move by 8. Names without a pragma are unverified; the
+    // PSP-only fields sit in unknown slots so the PSP back end compiles (a
+    // wrong slot only costs matches: the compare and equivalence checks catch it).
+    UInt8 cse_hard_reg_gpr; // 0x03b #pragma cse_hard_reg_gpr
+    UInt8 cse_hard_reg_fpr; // 0x03c #pragma cse_hard_reg_fpr
+    UInt8 cse_hard_reg_special; // 0x03d #pragma cse_hard_reg_special
+    UInt8 dividefix; // 0x03e #pragma dividefix
+    UInt8 usefloatacc; // 0x03f #pragma usefloatacc
+    UInt8 padloop; // 0x040 #pragma padloop
+    // b210 usage of 0x041/0x047/0x048 (names kept so PSP-layout objects do not change):
+    //   0x041: 16-byte alignment/quadword option (PSP's function_align16 role): ObjGen_EmitCode,
+    //          func_0048FFA0, func_004A7400, CMachine and StructMoves test it; processor setup sets it
+    //   0x047: data objects in registers (func_004B8980, CodeGen_UpdateObject, RegClasses' VU0
+    //          pass); the PS2 panel code clears it
+    //   0x048: a count (the PS2 panel code sets 0x19), the VU0 register limit in RegClasses
+    UInt8 mips_option41; // 0x041 unverified (PSP 0x041)
+    UInt8 fast_fptosi; // 0x042 #pragma fast_fptosi
+    UInt8 irocseglobaladdresses; // 0x043 #pragma irocseglobaladdresses
+    UInt8 enable_vu0_registers; // 0x044 #pragma enable_vu0_registers
+    UInt8 fastmath; // 0x045 #pragma fastmath
+    UInt8 vu0_register_number; // 0x046 #pragma vu0_register_number
+    UInt8 mips_option43; // 0x047 placement unverified (PSP 0x043)
+    UInt8 function_align16; // 0x048 placement unverified (PSP 0x03e)
+    UInt8 cse_hard_reg_vu0; // 0x049 #pragma cse_hard_reg_vu0
+    UInt8 cse_vector_type; // 0x04a #pragma cse_vector_type
+    UInt8 volatileasm; // 0x04b #pragma volatileasm
+    UInt8 memoryrewrite; // 0x04c #pragma memoryrewrite
+    UInt8 mips_option3B; // 0x04d placement unverified (PSP 0x03b)
+    UInt8 mips_option47; // 0x04e (PSP 0x047) unverified
+#if COPTS_B210_FIELDS
+    UInt8 mwabi_bitfields; // 0x04f #pragma mwabi_bitfields
+#endif
+    Boolean asmsemicolcomment; // 0x050 #pragma asmsemicolcomment
+    Boolean asmpoundcomment; // 0x051 #pragma asmpoundcomment
+    UInt8 mips_option3C; // 0x052 placement unverified (PSP 0x03c)
+    UInt8 mips_option3D; // 0x053 placement unverified (PSP 0x03d)
+#else
     UInt8 mips_option3B; // 0x03b from the PSP MIPS CodeGen panel
     UInt8 mips_option3C; // 0x03c processor setup (0x435300)
     UInt8 mips_option3D; // 0x03d from the PSP MIPS CodeGen panel
@@ -131,6 +201,7 @@ struct CompilerLinkerOptions {
     Boolean asmsemicolcomment; // 0x049 #pragma asmsemicolcomment
     Boolean asmpoundcomment; // 0x04a #pragma asmpoundcomment
     UInt8 unknown4B[1]; // 0x04b unknown (1 bytes)
+#endif
     StringPtr oldprefixname; // 0x04c initialize_compiler_options
     SInt16 inlinelevel; // 0x050 initialize_compiler_options
     SInt16 unknown52; // 0x052 set to 15 at startup

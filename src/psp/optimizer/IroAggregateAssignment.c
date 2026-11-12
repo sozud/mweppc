@@ -27,6 +27,9 @@
 #include "compiler/IROUseDef301.h"
 #include "compiler/objects.h"
 #include "compiler/types.h"
+#if MWCCPS2
+#include <string.h> // b210 expands memset inline
+#endif
 
 extern void IRO_UpdateFlagsOnInts(IROLinear* linear);
 
@@ -40,6 +43,9 @@ typedef struct MemberIter {
 // --- IroType.c ------------------------------------------------------------
 
 // 0x55A650: the type of an offset added to an address
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0057DC90)
+#endif
 Type* func_0055A650(Type* type) {
     return TYPE(&stunsignedint);
 }
@@ -91,7 +97,19 @@ static inline void IterNext(MemberIter* iter) {
 
 // 0x57F9E0: the current member's type, NULL at the end
 Type* func_0057F9E0(MemberIter* iter) {
-    return IterType(iter);
+    if (iter->type->type == TYPESTRUCT) {
+        if (iter->member) {
+            return ((StructMember*)iter->member)->type;
+        }
+        return NULL;
+    }
+    if (iter->base) {
+        return TYPE(iter->base->base);
+    }
+    if (iter->member) {
+        return ((ObjMemberVar*)iter->member)->type;
+    }
+    return NULL;
 }
 
 // 0x57FA10
@@ -170,15 +188,24 @@ static IROLinear* NewOp(IROLinearType kind, ENodeType op, Type* type) {
 }
 
 // *(addr + offset), as a bitfield when the member is one
-static IROLinear* MemberRef(
-    IROLinear* addr,
-    SInt32 offset,
-    Type* mtype,
-    Type* atype,
-    Boolean bitfield,
-    UInt32 flags,
-    IROList* list
-) {
+#if MWCCPS2
+// b210 inlines MemberRef and NewOp into func_0057BD10; CW's inline depth stops at NewOp
+#define NewOp(kind, op, type) \
+    (nd = IRO_NewLinear(kind), nd->nodetype = (op), nd->rtype = IRO_UnqualifiedType(type), nd)
+#pragma always_inline on
+static inline
+#else
+static
+#endif
+    IROLinear* MemberRef(
+        IROLinear* addr,
+        SInt32 offset,
+        Type* mtype,
+        Type* atype,
+        Boolean bitfield,
+        UInt32 flags,
+        IROList* list
+    ) {
     IROLinear* constant;
     IROLinear* nd;
     CInt64 value;
@@ -243,6 +270,10 @@ void func_0057BD10(
     nd->stmt = stmt;
     IRO_AddToList(nd, list);
 }
+#if MWCCPS2
+#pragma always_inline reset
+#undef NewOp
+#endif
 
 // 0x57B8F0: replace the struct copy nd by copies of its members
 void func_0057B8F0(IROLinear* nd, IROLinear* dst, IROLinear* src, Type* type) {
@@ -362,7 +393,14 @@ void func_0057C360(BitVector* a, BitVector* b, IROLinear* linear, IRONode* node,
 void func_0057D220(void);
 
 // the node's predecessors (and theirs) up to the loop header join loop i
+#if MWCCPS2
+// b210 has no separate helper: 0x57D020's own body recurses (0x592CE0)
+void func_0057D020(IRONode* node, BitVector* nodes, UInt16 i);
+#define AddLoopPreds301 func_0057D020
+void func_0057D020(IRONode* node, BitVector* nodes, UInt16 i) {
+#else
 static void AddLoopPreds301(IRONode* node, BitVector* nodes, UInt16 i) {
+#endif
     IRONode* pred;
     UInt16 k;
 
@@ -376,10 +414,12 @@ static void AddLoopPreds301(IRONode* node, BitVector* nodes, UInt16 i) {
     }
 }
 
+#if !MWCCPS2
 // 0x57D020
 void func_0057D020(IRONode* node, BitVector* nodes, UInt16 i) {
     AddLoopPreds301(node, nodes, i);
 }
+#endif
 
 // 0x57CE20: the nodes of loop i (2.4.7's ComputeLoopBody), each marked as in
 // loop i
@@ -810,9 +850,14 @@ void func_0057EF00(IROAggCand* cand) {
 #define MAX_COPY_BITS (copts.has8bytebitfields ? 64 : 32)
 
 // a run of only part of the variable too wide for one access is cut to bytes
+#if MWCCPS2 // a macro: CW stops inlining it inside the other inlines (func_0057D2A0)
+#define CandTrimmed(cand) \
+    ((cand)->count != (cand)->var->object->type->size * 8 && (cand)->count > MAX_COPY_BITS)
+#else
 static inline Boolean CandTrimmed(IROAggCand* cand) {
     return cand->count != cand->var->object->type->size * 8 && cand->count > MAX_COPY_BITS;
 }
+#endif
 
 static inline double CandCost(IROAggCand* cand) {
     if (!cand->costDone) {
@@ -871,20 +916,32 @@ static inline SInt32 CandMisalign(IROAggCand* cand) {
 // loops the use is in, less those its definitions are in
 static inline double CandGain(IROAggCand* cand) {
     double cost = CandCost(cand);
+#if MWCCPS2 // b210 converts the loop count as signed
+    return (double)(SInt32)func_0059B130(data_00608C68[cand->node->index]) - cost;
+#else
     return (double)func_0059B130(data_00608C68[cand->node->index]) - cost;
+#endif
 }
 
 // 0x57E050: the qsort order of the candidates
+#if MWCCPS2 // b210 inlines CandCost inside every CandGain; CW's inline depth stops short
+#define CandGain(cand) \
+    (gaincost = CandCost(cand), \
+     (double)(SInt32)func_0059B130(data_00608C68[(cand)->node->index]) - gaincost)
+#endif
 int func_0057E050(const void* pa, const void* pb) {
     IROAggCand* a = *(IROAggCand**)pa;
     IROAggCand* b = *(IROAggCand**)pb;
     double gainB;
     double gainA;
     double diff;
+#if MWCCPS2
+    double gaincost;
+#endif
 
     gainB = CandGain(b);
     diff = gainB - CandGain(a);
-    if ((diff < 0.0 ? -diff : diff) > 0.1) {
+    if ((diff < 0.0 ? -diff : diff) > 0.1) { // b210: fabs (no x87 intrinsic in CW 9.2)
         gainA = CandGain(a);
         return (int)((gainA - CandGain(b)) * 10.0);
     }
@@ -905,6 +962,9 @@ int func_0057E050(const void* pa, const void* pb) {
     }
     return 0;
 }
+#if MWCCPS2
+#undef CandGain
+#endif
 
 // a new linear of the copy, appended to list
 static inline IROLinear* AddLinear301(
@@ -1063,13 +1123,24 @@ void func_0057D2A0(IROAggCand* cand) {
     SInt32 count;
     SInt32 hi;
     Boolean seen;
+#if MWCCPS2
+    double gainCost;
+#endif
 
+#if MWCCPS2
+    // b210 takes the cost first and converts the loop count as signed
+    gainCost = CandCost(cand);
+    if ((double)(SInt32)func_0059B130(data_00608C68[cand->node->index]) - gainCost > 0.0) {
+        return;
+    }
+#else
     if (!cand->costDone) {
         func_0057F1F0(cand);
     }
     if ((double)func_0059B130(data_00608C68[cand->node->index]) - CandCost(cand) > 0.0) {
         return;
     }
+#endif
     reaching = cand->reaching;
     var = cand->var;
     src = cand->src;

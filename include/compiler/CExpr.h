@@ -176,7 +176,11 @@ extern ENode* CExpr_FuncCallSix(
 );
 extern ENode* funccallexpr(Object* func, ENode* arg1, ENode* arg2, ENode* arg3, ENode* arg4);
 extern ENode* CExpr_AdjustFunctionCall(ENode* expr);
+#if MWCCPS2
+extern Boolean CExpr_IsTempConstruction(ENode* expr, Type* type, ENode** resultexpr);
+#else
 extern ENode* CExpr_IsTempConstruction(ENode* expr, Type* type, ENode** resultexpr);
+#endif
 extern ENode* create_objectnode2(Object* obj);
 extern ENode* create_objectrefnode(Object* obj);
 extern ENode* CExpr_MakeObjRefNode(Object* obj, Boolean markUsed);

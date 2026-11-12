@@ -105,9 +105,11 @@ int func_004A3930(char* name) {
     if (copts.fastmath && !strcmp(name, "sqrtf")) {
         return 0x10;
     }
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no fabsf intrinsic
     if (copts.fastmath && !strcmp(name, "fabsf")) {
         return 0xC;
     }
+#endif
     if (!strcmp(name, "__clear")) {
         return 0x12;
     }
@@ -224,10 +226,12 @@ void func_004A25E0(Statement* stmt) {
                 if (((PspInlineAsm*)scan->expr)->flags & 8) {
                     data_00624810 = 1;
                 }
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no data_0062525C
                 if (((PspInlineAsm*)scan->expr)->opcode == 0x3B ||
                     ((PspInlineAsm*)scan->expr)->opcode == 0x3D) {
                     data_0062525C = 1;
                 }
+#endif
                 break;
             case ST_EXPRESSION:
                 func_004A2810(scan->expr, 0, 1);
@@ -702,12 +706,13 @@ assignop:
             } else if (copts.fastmath && IS_SINGLE(type) && sub->rtype->type == TYPEFLOAT) {
                 if (sub->type == EFUNCCALL) {
                     func_004A2810(sub, type, tt == TYPEVOID);
-                } else if (sub->type == EDIV &&
-                           sub->data.diadic.right->type == EFUNCCALL &&
-                           func_004A3930(CMangler_GetLinkName(sub->data.diadic.right->data.funccall
-                                                                  .funcref->data.objref)
-                                             ->name) == 0x10 &&
-                           copts.mips_option23) {
+                } else if (sub->type == EDIV && sub->data.diadic.right->type == EFUNCCALL &&
+                           func_004A3930(CMangler_GetLinkName(sub->data.diadic.right->data.funccall.funcref->data.objref)->name) ==
+                               0x10
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not test the option
+                           && copts.mips_option23
+#endif
+                           ) {
                     // x / sqrt(y) as one reciprocal square root
                     list = lalloc(sizeof(ENodeList));
                     list->next = sub->data.diadic.right->data.funccall.args;

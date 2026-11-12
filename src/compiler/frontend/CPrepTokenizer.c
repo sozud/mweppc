@@ -550,7 +550,11 @@ loop:
                     }
                 }
             }
+#if MWCCPS2 // b210: // comments in strict C99 too
+            if (p[0] == '/' && (!copts.ANSIstrict || copts.cplusplus || copts.c9x)) {
+#else
             if (p[0] == '/' && (!copts.ANSIstrict || copts.cplusplus)) {
+#endif
                 spaceskip = TRUE;
                 pos = (char*)CPrep_SkipNewComment(p + 1);
                 return CPrep_SkipNewCommentChar;
@@ -616,7 +620,11 @@ backslash:
             pos = (char*)p;
             return c;
         case '%':
+#if MWCCPS2 // b210: the %: digraph in C99 too
+            if (*p == ':' && (copts.cplusplus || copts.c9x)) {
+#else
             if (*p == ':' && copts.cplusplus) {
+#endif
                 pos = (char*)p + 1;
                 return '#';
             }
@@ -1102,15 +1110,51 @@ static short intsuffix(Boolean allowUnsigned) {
         case 'B':
         case 'f':
         case 'F':
+#if MWCCPS2 // b210 (0x46BF20): also the VU0 field letters
+        case 'w':
+        case 'W':
+        case 'x':
+        case 'X':
+        case 'y':
+        case 'Y':
+        case 'z':
+        case 'Z':
+#endif
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            if (InlineAsm_gccmode) {
+#else
             if (preprocessing_only || InlineAsm_gccmode) {
+#endif
                 return ATOM_INT;
             }
             break;
     }
 
+#if MWCCPS2
+    // b210: a trailing letter is only reported when preprocessing, and not
+    // for the field/label letters
+    if ((t >= 'a' && t <= 'z') || (t >= 'A' && t <= 'Z') || (t == '_') || (t >= '0' && t <= '9')) {
+        if (preprocessing_only &&
+            t != 'x' &&
+            t != 'X' &&
+            t != 'y' &&
+            t != 'Y' &&
+            t != 'z' &&
+            t != 'Z' &&
+            t != 'w' &&
+            t != 'W' &&
+            t != 'b' &&
+            t != 'B' &&
+            t != 'f' &&
+            t != 'F') {
+            CPrep_Error(ERR_ILLEGAL_TOKEN);
+        }
+    }
+#else
     if ((t >= 'a' && t <= 'z') || (t >= 'A' && t <= 'Z') || (t == '_') || (t >= '0' && t <= '9')) {
         CPrep_Error(ERR_ILLEGAL_TOKEN);
     }
+#endif
 
     if (!is_longlong && !is_long) {
         if (!is_unsigned && CInt64_IsInRange(tkintconst, stsignedint.size)) {
@@ -1449,6 +1493,7 @@ static SInt32 nextchar(StringPtr str) {
                     CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
                 }
                 break;
+#if !MWCCPS2 // b210 has no universal character names
             case 'u':
                 chr_max = 0xFFFF;
                 chr = tohex(prepnextstringchar(str, TRUE));
@@ -1487,6 +1532,7 @@ static SInt32 nextchar(StringPtr str) {
                     CError_Error(ERR_ILLEGAL_CHARACTER_CONSTANT);
                 }
                 break;
+#endif
             default:
                 if (t >= '0' && t <= '7') {
                     out_of_bounds = FALSE;
@@ -1867,6 +1913,10 @@ static short tcret(void) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -2 // b145 asserts
+#endif
 static short tapos(short _t) {
     SInt32 t;
     int t2;
@@ -1903,10 +1953,12 @@ static short tapos(short _t) {
                     tksize = IT_UINT;
                     break;
                 default:
-#if MWCCPSP
+#if MWCCPS2
+                    CError_FATAL(1488);
+#elif MWCCPSP
                     CError_FATAL(1516);
 #else
-                    CError_FATAL(1393);
+                        CError_FATAL(1393);
 #endif
             }
         } else {
@@ -1935,10 +1987,12 @@ static short tapos(short _t) {
                     bytecount = 4;
                     break;
                 default:
-#if MWCCPSP
+#if MWCCPS2
+                    CError_FATAL(1526);
+#elif MWCCPSP
                     CError_FATAL(1554);
 #else
-                    CError_FATAL(1431);
+                        CError_FATAL(1431);
 #endif
             }
         } else {
@@ -1982,14 +2036,16 @@ static short tapos(short _t) {
 
     return TK_INTCONST;
 }
-
 #if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 #endif
+
 static short tquot(short t) {
     Type* type;
     char* string_ptr;
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2 // b210 keeps the character in a short
     SInt32 c;
 #else
     short c;
@@ -2507,10 +2563,18 @@ static short tzero(short t) {
     if (t == 'x' || t == 'X') {
         SKIP_PEEKED(t);
         p = CInt64_ScanHexString(&tkintconst, pos, &failed);
+#if MWCCPS2 // b210 (0x46A3D0): no error while only preprocessing or in GCC inline asm
+        if (!preprocessing_only && !InlineAsm_gccmode && pos == p) {
+#else
         if (pos == p) {
+#endif
             CError_Error(ERR_ILLEGAL_TOKEN);
         }
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 does not look past the 'b'
+    } else if (!copts.ANSIstrict && (t == 'b' || t == 'B')) {
+#else
     } else if (!copts.ANSIstrict && (t == 'b' || t == 'B') && (unsigned int)(pos[1] - '0') < 2) {
+#endif
         SKIP_PEEKED(t);
         p = CInt64_ScanBinString(&tkintconst, pos, &failed);
         if (pos == p && !in_assembler) {
@@ -2727,7 +2791,14 @@ static short tchrL(short t) {
         t = tapos(t);
         widestring = FALSE;
 
+#if MWCCPS2
+        // b210 (0x46A080): L'x' is an int unless #pragma ushort_wchar_t
+        tksize = (copts.wchar_type && copts.cplusplus)
+            ? IT_WCHAR_T
+            : (copts.ushort_wchar_t ? IT_USHORT : IT_INT);
+#else
         tksize = (copts.wchar_type && copts.cplusplus) ? IT_WCHAR_T : IT_USHORT;
+#endif
         return t;
     }
 
@@ -3356,6 +3427,15 @@ static short tchr_(void) {
             return TK_U_IMAGINARY;
         }
     }
+#if MWCCPS2
+    // b210: no TX_VEC_S; __fixed__8x8 is its first custom type token
+    if (!strcmp("__fixed__8x8", tkidentifier->name)) {
+        return TK_CUSTOM_TYPE_113;
+    }
+    if (!strcmp("__int128", tkidentifier->name)) {
+        return TK_CUSTOM_TYPE_114;
+    }
+#else
     if (!strcmp("TX_VEC_S", tkidentifier->name)) {
         return TK_CUSTOM_TYPE_113;
     }
@@ -3365,6 +3445,7 @@ static short tchr_(void) {
     if (!strcmp("__fixed__8x8", tkidentifier->name)) {
         return TK_UU_FIXED_8X8_UU;
     }
+#endif
     return TK_IDENTIFIER;
 }
 #else
@@ -3622,17 +3703,30 @@ static void CPrep_StringConCat(Boolean isWide) {
             chunk->offset++;
         }
 
+#if MWCCPS2 // b210 drops the whole wide terminator (stwchar.size bytes)
+        if (ch == TK_STRING_WIDE) {
+            chunk->size = chunk->size + 1 - stwchar.size;
+        }
+        if (isWide) {
+            chunk->offset = chunk->offset + 1 - stwchar.size;
+        }
+#else
         if (ch == TK_STRING_WIDE) {
             chunk->size--;
         }
         if (isWide) {
             chunk->offset--;
         }
+#endif
 
         offset += chunk->size;
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -88 // b145 asserts
+#endif
 short lex(void) {
     short t;
 
@@ -3756,6 +3850,10 @@ skipped:
         }
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 short plex(void) {
     short t;

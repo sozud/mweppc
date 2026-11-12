@@ -17,7 +17,7 @@ struct Alias* func_0053BD10(VOperand* mem, MPCode* pc) {
     alias = NULL;
     obj = (Object*)mem->object;
     if (!obj) {
-        CError_Internal("AliasPropagation.c", 37);
+        CError_Internal("AliasPropagation.c", CError_B145_LINE(37));
     }
     if (obj->datatype == DLOCAL && mem->reg != data_00625E3E) {
         alias = make_alias(obj, 0, 0);
@@ -29,11 +29,17 @@ struct Alias* func_0053BD10(VOperand* mem, MPCode* pc) {
         );
     } else if (obj->datatype == DDATA) {
         alias = make_alias(obj, pc->args[1].value, func_0048FBE0(pc->op));
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 has no function case
+    } else {
+        CError_Internal("AliasPropagation.c", 53);
+    }
+#else
     } else if (obj->datatype == DFUNC) {
         alias = make_alias(obj, pc->args[1].value, func_0048FBE0(pc->op));
     } else {
-        CError_Internal("AliasPropagation.c", 57);
+        CError_Internal("AliasPropagation.c", CError_B145_LINE(57));
     }
+#endif
     return alias;
 }
 
@@ -91,13 +97,33 @@ int func_0053BDF0(MPCode* candidate, int defID, int reg, MPCode* use, UInt32* de
 }
 
 // 0x53BC90: the alias a definition's address computation makes
+#if MWCCPS2
+__declspec(noinline) // b210 calls it from func_0053B500/func_0053B7D0
+#endif
 Alias* func_0053BC90(MPCode* pc) {
+#if MWCCPS2
+    SInt32 offset;
+    Object* obj;
+    Alias* alias;
+
+    if (pc->argcount > 2 &&
+        pc->args[1].kind == 4 &&
+        (obj = (Object*)MOP_OBJ(pc->args[1])) != NULL) {
+        alias = pc->alias;
+        offset = pc->args[1].value;
+        alias = alias ? alias : (pc->alias = make_alias(obj, offset, 1));
+    } else {
+        alias = pc->alias;
+    }
+    return alias;
+#else
     if (pc->argcount > 2 && pc->args[1].kind == 4 && MOP_OBJ(pc->args[1])) {
         if (!pc->alias) {
             pc->alias = make_alias((Object*)MOP_OBJ(pc->args[1]), pc->args[1].value, 1);
         }
     }
     return pc->alias;
+#endif
 }
 
 // 0x53B500: the alias of operand index of pc (2.4.7's operand_alias); *pdef
@@ -144,7 +170,7 @@ void func_0053B620(MPCode* pc, MPCode* def) {
     if (!pc || !def) {
         return;
     }
-    if (def->op != 0x55C || !(pc->flags & 6) || !(pc->flags & 0x20)) {
+    if (def->op != MACRO_OP(0x44) || !(pc->flags & 6) || !(pc->flags & 0x20)) {
         return;
     }
     if (pc->args[1].kind != 4) {
@@ -169,7 +195,7 @@ void func_0053B620(MPCode* pc, MPCode* def) {
         return;
     }
     off = pc->args[1].value + alias->offset;
-    if (pc->op <= 0x518) {
+    if (pc->op <= BE_NUM_OPCODES) {
         return;
     }
     if (copts.debuglisting) {
@@ -179,14 +205,16 @@ void func_0053B620(MPCode* pc, MPCode* def) {
     if (obj2) {
         pc->args[1].value = off + obj2->u.var.offset;
     }
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 stops at the local offset
     obj2 = def->alias->object;
     if (obj2->datatype == DLOCAL) {
         pc->args[1].value = off + obj2->u.var.offset;
     } else if (obj2->datatype == DDATA) {
         pc->args[1].value = off;
     } else {
-        CError_Internal("AliasPropagation.c", 586);
+        CError_Internal("AliasPropagation.c", CError_B145_LINE(586));
     }
+#endif
     MOP_SETOBJ(pc->args[1], MOP_OBJ(def->args[1]));
     pc->args[2].reg = breg;
     pc->flags &= ~0x20;
@@ -241,6 +269,36 @@ extern Object* data_00625078; // gFunction
 extern Alias* worst_case_func;
 
 extern void Alias_GatherMembervecs301(void);
+#if MWCCPS2
+// b210 inlines Alias.c's member-vector tail into gather_alias_info; these are
+// Alias.c's statics (aliases, n_aliases, n_gathered_aliases)
+extern Alias* ps2_alias_aliases;
+extern int ps2_alias_n_aliases;
+extern int ps2_alias_n_gathered;
+extern void* lalloc(SInt32 size);
+#define PS2_GATHER_MEMBERVECS() \
+    do { \
+        Alias* alias_; \
+        AliasMember* member_; \
+        AliasMember* member2_; \
+        if (ps2_alias_n_gathered != ps2_alias_n_aliases) { \
+            for (alias_ = ps2_alias_aliases; alias_; alias_ = alias_->next) { \
+                if (alias_->type == AliasType_Set) { \
+                    alias_->membervec = lalloc(4 * ((ps2_alias_n_aliases + 31) >> 5)); \
+                    bitvectorinitialize(alias_->membervec, ps2_alias_n_aliases, 0); \
+                    for (member_ = alias_->parents; member_; member_ = member_->nextParent) { \
+                        bitvectorsetbit(member_->child->index, alias_->membervec); \
+                        for (member2_ = member_->child->parents; member2_; \
+                             member2_ = member2_->nextParent) { \
+                            bitvectorsetbit(member2_->child->index, alias_->membervec); \
+                        } \
+                    } \
+                } \
+            } \
+            ps2_alias_n_gathered = ps2_alias_n_aliases; \
+        } \
+    } while (0)
+#endif
 void func_0053B790(Object* proc); // propagatealiasinfo (below)
 extern void bitvectorcopy(UInt32* dst, UInt32* src, SInt32 len);
 extern void* oalloc(SInt32 size);
@@ -293,7 +351,11 @@ void gather_alias_info(void) {
             }
         }
     }
+#if MWCCPS2
+    PS2_GATHER_MEMBERVECS();
+#else
     Alias_GatherMembervecs301();
+#endif
 }
 
 // --- alias propagation (propagatealiasinfo) --------------------------------
@@ -326,6 +388,13 @@ extern void add_aliased_locals_to_worst_case(Alias* alias);
 extern void func_005452C0(Object* proc, Propagation301* config, int passCount, Boolean localflag);
 
 // 0x53B8B0: propagate_alias_to_use
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 asserts
+#define B145_ALP_M4 -4
+#define B145_ALP_M7 -7
+#else
+#define B145_ALP_M4
+#define B145_ALP_M7
+#endif
 void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
     SInt32 size = 1;
     SInt32 offset = 0;
@@ -336,16 +405,21 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
     if (use->flags & 6) {
         size = func_0048FBE0(use->op);
     }
+#if MWCCPS2
+    // b210: qmove/vmove (0x1CC/0x2AF) are moves too
+    if (use->op != data_00625E48 && use->op != 0x1CC && use->op != 0x2AF) {
+#else
     if (use->op != data_00625E48) {
+#endif
         if (use->argcount < 3) {
             return;
         }
-        if (use->op == 0x55C) {
+        if (use->op == MACRO_OP(0x44)) {
             if (use->args[1].kind == 4 && MOP_OBJ(use->args[1])) {
                 if (MOP_OBJ(use->args[1]) == (void*)alias->object) {
                     return;
                 }
-                CError_Internal("AliasPropagation.c", 175);
+                CError_Internal("AliasPropagation.c", CError_B145_LINE(175) B145_ALP_M4);
             } else {
                 offset = use->args[1].value;
             }
@@ -368,6 +442,9 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
                     if (MOP_OBJ(use->args[1])) {
                         return;
                     }
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 has no frame-relative local case
+                    offset = use->args[1].value;
+#else
                     obj = alias->object;
                     if (obj && obj->datatype == DLOCAL && reg != data_00625E3E) {
                         size = 0;
@@ -375,11 +452,12 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
                     } else {
                         offset = use->args[1].value;
                     }
+#endif
                     break;
                 case 6:
                     return;
                 default:
-                    CError_Internal("AliasPropagation.c", 241);
+                    CError_Internal("AliasPropagation.c", CError_B145_LINE(241) B145_ALP_M7);
                     break;
             }
         } else if (use->args[2].kind == 2) {
@@ -399,7 +477,11 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
                 return;
             }
             if (use->op == 3) {
+#if MWCCPS2
+                offset = use->args[2].value_mid[0]; // the 128-bit constant's low word
+#else
                 offset = use->args[2].value2;
+#endif
             } else {
                 add_alias_member(worst_case_ptr, alias);
                 return;
@@ -420,7 +502,15 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
         alias = Alias_MakeDisplAlias301(alias, offset, size);
     }
     if (!use->alias) {
+#if MWCCPS2
+        if (use->op == 3 ||
+            use->op == 4 ||
+            use->op == data_00625E48 ||
+            use->op == 0x1CC ||
+            use->op == 0x2AF) {
+#else
         if (use->op == 3 || use->op == 4 || use->op == data_00625E48) {
+#endif
             data_00625020 = TRUE;
         }
         use->alias = alias;
@@ -490,7 +580,7 @@ int func_0053BCD0(MPCode* pcode) {
         case 0x79:
         case 0xAA:
         case 0xAB:
-        case 0x55C:
+        case MACRO_OP(0x44):
             return TRUE;
     }
     return FALSE;

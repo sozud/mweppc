@@ -1,3 +1,4 @@
+#if !MWCCPS2 // mwccps2: OpcodeTablePS2.c (tools/mwccps2/tools/mwccpsp/gen_opcode_table_ps2.py)
 #include "compiler/common.h"
 #include <string.h>
 #include "compiler/CParser.h"
@@ -779,7 +780,7 @@ L33e4:
     if (copts.conditional_move != 0) {
         goto L8960;
     }
-    if (copts.late_conditional_move != 0) {
+    if (COPTS_FIELD(late_conditional_move, 0) != 0) {
         goto L8960;
     }
 L5c3f:
@@ -1219,3 +1220,4 @@ L8e49:
     func_00478ED0(0x37d, "rsqrt.d", "+!D", 0x46200016, 0, 0, 0x4003, 0x79);
     goto L5c67;
 }
+#endif

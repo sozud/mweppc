@@ -62,7 +62,157 @@ Boolean CTempl_CanDeduceFunc(Object* object, TypeFunc* tfunc, TemplArg* args) {
 
     return FALSE;
 }
+#if MWCCPSP
 
+#if MWCCPS2
+extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
+// the last argument of b210's CTempl_GetCreateFuncInstance
+#define GCFI_ARG(x) , x
+#else
+#define GCFI_ARG(x)
+#endif
+#endif
+
+#if MWCCPS2
+// b210's type deduce state as CTempl_GetCreateFuncInstance fills it (0x20
+// bytes; the shared TypeDeduce has the older layout)
+typedef struct TypeDeduce301 {
+    TemplFuncInstance* funcinst; // +0x00
+    void* unk04[5];
+    UInt8 unk18[3];
+    UInt8 flag1B; // +0x1B the caller's last argument
+    Boolean failed; // +0x1C
+    UInt8 unk1D[3];
+} TypeDeduce301;
+
+static TemplFuncInstance* CTempl_GetCreateFuncInstance(
+    Object* funcobj, TemplArg* args, Object* object2, Boolean flag
+) {
+    TemplFuncInstance* inst;
+    TemplateFunction* templ;
+    Object* instobj;
+    TemplParam* param;
+    TemplArg* arg;
+    TemplArg* last;
+    short paramCount;
+    short i;
+    TypeDeduce301 deduce;
+
+    templ = CTemplTool_GetFuncTempl(funcobj);
+
+    paramCount = 0;
+    param = templ->params;
+    while (param) {
+        paramCount++;
+        param = param->next;
+    }
+
+    for (i = 1, arg = args; i < paramCount; i++, arg++) {
+        arg->next = arg + 1;
+    }
+    arg->next = NULL;
+
+    for (inst = templ->instances; inst; inst = inst->next) {
+        if (CTemplTool_EqualArgs(inst->args, args)) {
+            if (!inst->unk04 ||
+                inst->unk04 ==
+                    (char*)CTemplTool_GetTemplClassInst(funcobj->nspace->theclass) + 0x30) {
+                if (object2) {
+                    inst->object = object2;
+                }
+                return inst;
+            }
+        }
+    }
+
+    inst = galloc(sizeof(TemplFuncInstance));
+    memclrw(inst, sizeof(TemplFuncInstance));
+
+    for (i = 0, arg = NULL; i < paramCount; i++) {
+        if (arg) {
+            last->next = galloc(sizeof(TemplArg));
+            last = last->next;
+        } else {
+            last = galloc(sizeof(TemplArg));
+            arg = last;
+        }
+
+        *last = *args;
+        args++;
+        last->next = NULL;
+
+        if (last->pid.type == TPT_NONTYPE) {
+            CError_ASSERT(111, last->data.paramdecl.expr != NULL);
+            last->data.paramdecl.expr =
+                CInline_CopyExpression(last->data.paramdecl.expr, CopyModeGlobal);
+        }
+    }
+
+    inst->templ = templ;
+    inst->args = arg;
+    inst->instStack = CTemplTool_GetInstanceStack();
+    if (inst->templ->original != NULL) {
+        CError_ASSERT(
+            123,
+            funcobj->nspace->theclass != NULL &&
+                (funcobj->nspace->theclass->flags & CLASS_IS_TEMPL_INST)
+        );
+        inst->unk04 = (char*)CTemplTool_GetTemplClassInst(funcobj->nspace->theclass) + 0x30;
+    }
+
+    if (object2) {
+        inst->object = object2;
+    } else {
+        instobj = CParser_NewFunctionObject(NULL);
+        instobj->access = funcobj->access;
+        instobj->nspace = funcobj->nspace;
+        instobj->sclass = funcobj->sclass;
+        instobj->flags = funcobj->flags;
+        instobj->qual = funcobj->qual | Q_MANGLE_NAME;
+        instobj->name = templ->name;
+        instobj->u.func.inst = inst;
+
+        memclrw(&deduce, sizeof(TypeDeduce301));
+        deduce.funcinst = inst;
+        deduce.flag1B = flag;
+        instobj->type =
+            CTemplTool_DeduceTypeCopy((TypeDeduce*)&deduce, funcobj->type, &instobj->qual);
+        if (deduce.failed) {
+            return inst;
+        }
+        inst->object = instobj;
+
+        if (IS_TYPE_FUNC(instobj->type)) {
+            TYPE_FUNC(instobj->type)->flags &= ~FUNC_DEFINED;
+            if (TYPE_FUNC(instobj->type)->flags & FUNC_IS_CTOR) {
+                FuncArg* funcarg;
+                CError_ASSERT(159, TYPE_FUNC(instobj->type)->flags & FUNC_METHOD);
+                CError_ASSERT(160, funcarg = TYPE_FUNC(instobj->type)->args);
+
+                if (TYPE_METHOD(instobj->type)->theclass->flags & CLASS_HAS_VBASES) {
+                    CError_ASSERT(163, funcarg = funcarg->next);
+                }
+
+                if (funcarg->next) {
+                    Boolean ok;
+                    ok = CDecl_CheckCtorIntegrity(
+                        funcarg->next, TYPE_METHOD(instobj->type)->theclass
+                    );
+                    CError_ASSERT(169, ok);
+                }
+            }
+        }
+
+        if ((instobj->qual & Q_INLINE) && templ->stream.tokens) {
+            CInline_AddTemplateFunctionAction(instobj, templ, inst);
+        }
+    }
+
+    inst->next = templ->instances;
+    templ->instances = inst;
+    return inst;
+}
+#else
 static TemplFuncInstance* CTempl_GetCreateFuncInstance(
     Object* funcobj, TemplArg* args, Object* object2
 ) {
@@ -123,6 +273,9 @@ static TemplFuncInstance* CTempl_GetCreateFuncInstance(
     }
 
     inst->args = arg;
+#if MWCCPSP
+    inst->instStack = CTemplTool_GetInstanceStack(); // 3.0.1: the point of instantiation
+#endif
     inst->next = templ->instances;
     templ->instances = inst;
 
@@ -175,6 +328,7 @@ static TemplFuncInstance* CTempl_GetCreateFuncInstance(
 
     return inst;
 }
+#endif
 
 TemplFuncInstance* CTempl_CheckFuncInstance(
     Object* object1, TypeFunc* tfunc, TemplArg* args, Object* object2
@@ -199,7 +353,11 @@ TemplFuncInstance* CTempl_CheckFuncInstance(
         }
     }
 
+#if MWCCPSP
+    return CTempl_GetCreateFuncInstance(object1, info.args, object2 GCFI_ARG(FALSE));
+#else
     return CTempl_GetCreateFuncInstance(object1, info.args, object2);
+#endif
 }
 
 TemplFuncInstance* CTempl_DeduceFunc(
@@ -830,6 +988,18 @@ static Boolean CTempl_DeduceFuncType(TypeFunc* tfunc1, TypeFunc* tfunc2, TemplAr
     UInt32 qual2;
     UInt32 qual1;
 
+#if MWCCPSP
+    // 3.0.1 (0x54DCE0) also checks the cv-qualification and the result here,
+    // and skips the two hidden arguments of a pointer-to-member function type
+    if ((tfunc1->flags & FUNC_FLAGS_CV) != (tfunc2->flags & FUNC_FLAGS_CV)) {
+        return FALSE;
+    }
+    if (!CTempl_DeduceType1(
+            tfunc1->functype, tfunc1->qual, tfunc2->functype, tfunc2->qual, argArray, TRUE
+        )) {
+        return FALSE;
+    }
+#endif
     arg1 = tfunc1->args;
     arg2 = tfunc2->args;
 
@@ -837,6 +1007,14 @@ static Boolean CTempl_DeduceFuncType(TypeFunc* tfunc1, TypeFunc* tfunc2, TemplAr
         CError_ASSERT(1047, arg1);
         arg1 = arg1->next;
     }
+#if MWCCPSP
+    if ((tfunc2->flags & FUNC_PTM) && !(tfunc1->flags & FUNC_PTM)) {
+        CError_ASSERT(1078, arg2);
+        arg2 = arg2->next;
+        CError_ASSERT(1080, arg2);
+        arg2 = arg2->next;
+    }
+#endif
 
     while (1) {
         if (arg1 == NULL) {
@@ -926,6 +1104,7 @@ static Boolean CTempl_DeduceType1(
                     return FALSE;
                 }
 
+#if !MWCCPSP // 3.0.1 deduces the result in CTempl_DeduceFuncType
                 if (!CTempl_DeduceType1(
                         TYPE_FUNC(type1)->functype,
                         TYPE_FUNC(type1)->qual,
@@ -936,6 +1115,7 @@ static Boolean CTempl_DeduceType1(
                     )) {
                     return FALSE;
                 }
+#endif
                 return CTempl_DeduceFuncType(TYPE_FUNC(type1), TYPE_FUNC(type2), argArray);
 
             default:
@@ -957,7 +1137,11 @@ static Boolean CTempl_DeduceType2(
                 if (type2->type != TYPEPOINTER) {
                     return FALSE;
                 }
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(TPTR_QUAL(type1), TPTR_QUAL(type2))) {
+#else
                 if (!CParser_IsSameOrMoreCVQualified(TPTR_QUAL(type2), TPTR_QUAL(type1))) {
+#endif
                     return FALSE;
                 }
                 type1 = TPTR_TARGET(type1);
@@ -968,9 +1152,15 @@ static Boolean CTempl_DeduceType2(
                 if (type2->type != TYPEMEMBERPOINTER) {
                     return FALSE;
                 }
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(
+                        TYPE_MEMBER_POINTER(type1)->qual, TYPE_MEMBER_POINTER(type2)->qual
+                    )) {
+#else
                 if (!CParser_IsSameOrMoreCVQualified(
                         TYPE_MEMBER_POINTER(type2)->qual, TYPE_MEMBER_POINTER(type1)->qual
                     )) {
+#endif
                     return FALSE;
                 }
                 if (!CTempl_DeduceType2(
@@ -987,10 +1177,17 @@ static Boolean CTempl_DeduceType2(
                 continue;
 
             default:
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(qual1, qual2)) {
+                    return FALSE;
+                }
+                return CTempl_DeduceType1(type1, qual1, type2, qual2, argArray, FALSE);
+#else
                 if (!CParser_IsSameOrMoreCVQualified(qual2, qual1)) {
                     return FALSE;
                 }
                 return CTempl_DeduceType1(type1, qual2, type2, qual2, argArray, FALSE);
+#endif
         }
     }
 }
@@ -1007,7 +1204,11 @@ static Boolean CTempl_DeduceType3(
                 if (type2->type != TYPEPOINTER) {
                     return FALSE;
                 }
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(TPTR_QUAL(type1), TPTR_QUAL(type2))) {
+#else
                 if (!CParser_IsSameOrMoreCVQualified(TPTR_QUAL(type2), TPTR_QUAL(type1))) {
+#endif
                     return FALSE;
                 }
                 type1 = TPTR_TARGET(type1);
@@ -1019,9 +1220,15 @@ static Boolean CTempl_DeduceType3(
                 if (type2->type != TYPEMEMBERPOINTER) {
                     return FALSE;
                 }
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(
+                        TYPE_MEMBER_POINTER(type1)->qual, TYPE_MEMBER_POINTER(type2)->qual
+                    )) {
+#else
                 if (!CParser_IsSameOrMoreCVQualified(
                         TYPE_MEMBER_POINTER(type2)->qual, TYPE_MEMBER_POINTER(type1)->qual
                     )) {
+#endif
                     return FALSE;
                 }
                 if (!CTempl_DeduceType2(
@@ -1041,10 +1248,17 @@ static Boolean CTempl_DeduceType3(
                 if (!throughPointer) {
                     return FALSE;
                 }
+#if MWCCPS2
+                if (!CParser_IsSameOrMoreCVQualified(qual1, qual2)) {
+                    return FALSE;
+                }
+                return CTempl_DeduceType1(type1, qual1, type2, qual2, argArray, FALSE);
+#else
                 if (!CParser_IsSameOrMoreCVQualified(qual2, qual1)) {
                     return FALSE;
                 }
                 return CTempl_DeduceType1(type1, qual2, type2, qual2, argArray, FALSE);
+#endif
         }
     }
 }
@@ -1410,7 +1624,13 @@ void CTempl_FuncMatch(
                 if (object1) {
                     best->object = object1;
                 } else {
+#if MWCCPSP
+                    best->object =
+                        CTempl_GetCreateFuncInstance(success, info2.args, NULL GCFI_ARG(FALSE))
+                            ->object;
+#else
                     best->object = CTempl_GetCreateFuncInstance(success, info2.args, NULL)->object;
+#endif
                 }
             } else {
                 NameSpaceObjectList mylist;
@@ -1420,7 +1640,12 @@ void CTempl_FuncMatch(
                 CTempl_FuncMatch(&mylist, args, argexprs, best, expr);
             }
         } else {
+#if MWCCPSP
+            best->object =
+                CTempl_GetCreateFuncInstance(success, info2.args, NULL GCFI_ARG(FALSE))->object;
+#else
             best->object = CTempl_GetCreateFuncInstance(success, info2.args, NULL)->object;
+#endif
         }
     } else {
         best->object = object1;
@@ -1543,7 +1768,11 @@ Object* CTempl_DeduceFromFunctionCall(Object* funcobj, TemplArg* templargs, ENod
         }
         info.args[info.maxCount].next = NULL;
 
+#if MWCCPSP
+        return CTempl_GetCreateFuncInstance(funcobj, info.args, NULL GCFI_ARG(TRUE))->object;
+#else
         return CTempl_GetCreateFuncInstance(funcobj, info.args, NULL)->object;
+#endif
     } else {
         return NULL;
     }
@@ -1591,7 +1820,11 @@ Object* CTempl_DeduceFromConversion(Object* funcobj, Type* type, UInt32 qual) {
     }
     info.args[info.maxCount].next = NULL;
 
+#if MWCCPSP
+    return CTempl_GetCreateFuncInstance(funcobj, info.args, NULL GCFI_ARG(FALSE))->object;
+#else
     return CTempl_GetCreateFuncInstance(funcobj, info.args, NULL)->object;
+#endif
 }
 
 static int CTemplFunc_TemplateNestLevel(NameSpace* nspace) {
@@ -1669,8 +1902,18 @@ Object* CTempl_TemplateFunctionCheck(DeclInfo* di, NameSpaceObjectList* nsol) {
                     break;
                 }
                 continue;
+#if MWCCPS2
+            case TPT_TEMPLATE:
+                continue;
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 167 // mwccps2: its assert is at line 2013
+#endif
             default:
                 CError_FATAL(1846);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         }
 
         break;

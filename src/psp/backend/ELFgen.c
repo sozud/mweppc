@@ -4,8 +4,8 @@
 #include "compiler/CompilerTools.h"
 
 // mwccpsp 3.0.1 ELFgen.c (0x5309D0..0x531730). Functions are in the order
-// the original links them, except the three unreferenced functions in that
-// range (0x531420, 0x531460, 0x5314F0..0x531580).
+// the original links them, except the section data helpers DWARF output
+// uses (0x531420..0x531580), at the end.
 
 // Store a word in the object file's byte order.
 #define PUT32(p, v) \
@@ -233,7 +233,11 @@ void ELF_DefineSymbol(
     sym->sym.st_size = size;
     section = elf_sections[shndx];
 
+#if MWCCPS2 // b210 (0x540B30) tests the alignment signed
+    if ((SInt32)align > 1 && (misalign = section->shdr.sh_size & (align - 1))) {
+#else
     if (align > 1 && (misalign = section->shdr.sh_size & (align - 1))) {
+#endif
         if (section->shdr.sh_type != SHT_NOBITS) {
             AppendGListData(&section->data, elf_zeros, align - misalign);
         }
@@ -451,4 +455,53 @@ void func_005303A0(GList* gl) {
     }
     func_00530600(gl, &elf_ehdr);
     ShrinkGList(gl);
+}
+
+// 0x531420: store a halfword at offset in a section's data
+void func_00531420(ELFSection* section, SInt32 offset, UInt16 value) {
+    UInt8* p = (UInt8*)*section->data.data + offset;
+    PUT16(p, value);
+}
+
+// 0x531460: store a word at offset in a section's data
+void func_00531460(ELFSection* section, SInt32 offset, UInt32 value) {
+    UInt8* p = (UInt8*)*section->data.data + offset;
+    PUT32(p, value);
+}
+
+// 0x5314F0: append a byte; its offset
+SInt32 func_005314F0(ELFSection* section, UInt8 value) {
+    SInt32 offset = section->shdr.sh_size++;
+    AppendGListNoData(&section->data, 1);
+    (*section->data.data)[offset] = value;
+    return offset;
+}
+
+// 0x531520: append a halfword; its offset
+SInt32 func_00531520(ELFSection* section, UInt16 value) {
+    SInt32 offset = section->shdr.sh_size;
+    UInt8* p;
+
+    section->shdr.sh_size += 2;
+    AppendGListNoData(&section->data, 2);
+    p = (UInt8*)*section->data.data + offset;
+    PUT16(p, value);
+    return offset;
+}
+
+// 0x531580: append a word; its offset
+SInt32 func_00531580(ELFSection* section, UInt32 value) {
+    SInt32 offset = section->shdr.sh_size;
+    UInt8* p;
+
+    section->shdr.sh_size += 4;
+    AppendGListNoData(&section->data, 4);
+    p = (UInt8*)*section->data.data + offset;
+    PUT32(p, value);
+    return offset;
+}
+
+// 0x5302C0: the section with this index
+ELFSection* func_005302C0(UInt16 index) {
+    return elf_sections[index];
 }

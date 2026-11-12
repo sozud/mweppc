@@ -115,6 +115,9 @@ static SubBlock* Block_subBlock(Block* block, size_t size) {
 
     start = BLOCK_START(block);
     if (!start) {
+#if MWCCPS2
+        block->max_size_ = 0;
+#endif
         return NULL;
     }
 
@@ -342,7 +345,11 @@ static Block* link_new_block(size_t size, void* (*heap)(SInt32 size)) {
         size = 0x10000;
     }
 
+#if MWCCPS2
+    if ((block = heap(size)) == NULL) {
+#else
     if (!(block = heap(size))) {
+#endif
         return NULL;
     }
 
@@ -576,13 +583,30 @@ void* IRO_Alloc(size_t size) {
 #if MWCCPSP
 
 #endif
-#if MWCCPSP
+#if MWCCPS2
+// mwccps2 b210: one return (differs from the original only in the register
+// that holds size; config/replace.txt)
+void* IRO_malloc(size_t size) {
+    void* result;
+
+    if (!size) {
+        result = NULL;
+    } else {
+        result = allocate_from_var_pools(size, oalloc);
+    }
+    return result;
+}
+#elif MWCCPSP
 // 3.0.1: variable pools on oheap only (0x4F8B20)
 void* IRO_malloc(size_t size) {
-    if (!size) {
-        return NULL;
+    void* result;
+
+    if (size) {
+        result = allocate_from_var_pools(size, oalloc);
+    } else {
+        result = NULL;
     }
-    return allocate_from_var_pools(size, oalloc);
+    return result;
 }
 #else
 void* IRO_malloc(size_t size) {

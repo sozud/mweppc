@@ -66,3 +66,113 @@ jobs:
         with:
           name: mwccpsp-linux-x86_64
           path: build/mwccpsp
+
+  build-ps2:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the native PS2 compiler in Docker
+        run: |
+          docker build -f tools/mwccps2/Dockerfile -t mwccps2 .
+          mkdir -p build
+          docker run --rm -v "$PWD/build:/out" mwccps2
+          file build/mwccps2
+
+      - name: Smoke test
+        run: |
+          printf 'int f(int x) { return x + 1; }\n' > t.c
+          build/mwccps2 -c -O4,p t.c -o t.o
+          file t.o | grep -q 'ELF 32-bit LSB relocatable, MIPS'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccps2-linux-x86_64
+          path: build/mwccps2
+
+  # tools/mwccpsp/test.py: the tests compiled by the native compiler and by
+  # the original under wibo must give identical objects (cases listed in
+  # tests/known-failures-*.txt are reported but don't fail)
+  test-psp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang and lld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Get the original compiler and wibo
+        run: |
+          mkdir -p orig/PSP_3_0_1
+          curl -fsSL -o mwccpsp_219.tar.gz \
+            https://github.com/Xeeynamo/sotn-decomp/releases/download/cc1-psx-26/mwccpsp_219.tar.gz
+          echo "62ec4faa807ad5afaefa7c92de6423505072c321fad13c071c2f640e9820b5c8  mwccpsp_219.tar.gz" | sha256sum -c
+          tar -xzf mwccpsp_219.tar.gz -C orig/PSP_3_0_1
+          python3 tools/download_tool.py wibo build/tools/wibo
+
+      - name: Build
+        run: python3 tools/mwccpsp/native_build.py -j 4 -o build/mwccpsp
+
+      - name: Compare with the original
+        run: python3 tools/mwccpsp/test.py -j 4 --cc build/mwccpsp --orig "build/tools/wibo orig/PSP_3_0_1/mwccpsp.exe"
+
+  test-ps2:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang and lld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Get the original compiler and wibo
+        run: |
+          python3 tools/mwccps2/get_orig.py
+          python3 tools/download_tool.py wibo build/tools/wibo
+
+      - name: Build
+        run: |
+          python3 tools/mwccps2/native_ps2.py -j 4
+          cp build/PS2_3_0_1/native/x86_64/mwccps2 build/mwccps2
+
+      - name: The generated tables are the committed ones
+        run: git diff --exit-code -- src/native/ps2
+
+      - name: Compare with the original
+        run: python3 tools/mwccpsp/test.py --ps2 -j 4 --cc build/mwccps2 --orig "build/tools/wibo orig/PS2_3_0_1/mwccps2.exe"
+
+  # tools/mwccpsp/difftest.py: the native mwccpsp built from the base branch
+  # and from this commit must compile the tests and this repository's own
+  # sources to identical objects and messages; where they differ, the
+  # original (under wibo) decides between a fix and a regression
+  difftest-psp:
+    runs-on: ubuntu-24.04
+    env:
+      BASE: origin/mwccpsp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang and lld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Get the original compiler and wibo
+        run: |
+          mkdir -p orig/PSP_3_0_1
+          curl -fsSL -o mwccpsp_219.tar.gz \
+            https://github.com/Xeeynamo/sotn-decomp/releases/download/cc1-psx-26/mwccpsp_219.tar.gz
+          echo "62ec4faa807ad5afaefa7c92de6423505072c321fad13c071c2f640e9820b5c8  mwccpsp_219.tar.gz" | sha256sum -c
+          tar -xzf mwccpsp_219.tar.gz -C orig/PSP_3_0_1
+          python3 tools/download_tool.py wibo build/tools/wibo
+
+      - name: Build the base and this commit
+        run: |
+          git worktree add ../base "$BASE"
+          mkdir -p ../base/orig && cp -r orig/PSP_3_0_1 ../base/orig/
+          (cd ../base && python3 tools/mwccpsp/native_build.py -j 4 -o build/mwccpsp)
+          python3 tools/mwccpsp/native_build.py -j 4 -o build/mwccpsp
+
+      - name: Compare
+        run: |
+          python3 tools/mwccpsp/difftest.py -j 4 --a ../base/build/mwccpsp --b build/mwccpsp \
+            --orig "build/tools/wibo orig/PSP_3_0_1/mwccpsp.exe"

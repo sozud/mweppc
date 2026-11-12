@@ -161,7 +161,11 @@ Boolean CScope_IsEmptySymTable(void) {
     NameSpaceName* nsname;
     SInt32 i;
 
+#if MWCCPSP
+    CError_ASSERT(355, cscope_root->is_hash);
+#else
     CError_ASSERT(232, cscope_root->is_hash);
+#endif
 
     for (i = 0; i < 1024; i++) {
         for (nsname = cscope_root->data.hash[i]; nsname; nsname = nsname->next) {
@@ -212,6 +216,14 @@ static void CScope_AmbigNameError(NameSpace* nspace1, NameSpace* nspace2, HashNa
 NameSpaceObjectList* CScope_FindName(NameSpace* nspace, HashNameNode* name) {
     NameSpaceName* scan;
 
+#if MWCCPS2
+    if (!nspace) {
+        return NULL;
+    }
+#endif
+#if MWCCPSP
+
+#endif
     for (scan = nspace->tparams; scan; scan = scan->next) {
         if (scan->name == name) {
             return &scan->first;
@@ -486,7 +498,11 @@ NameSpace* CScope_NewListNameSpace(HashNameNode* name, Boolean is_global) {
 
 NameSpace* CScope_FindNonClassNonFunctionNS(NameSpace* nspace) {
     while (nspace) {
+#if MWCCPS2
+        if (nspace->theclass == NULL && !nspace->is_templ) {
+#else
         if (!nspace->theclass && !nspace->is_templ) {
+#endif
             return nspace;
         }
         nspace = nspace->parent;
@@ -595,8 +611,14 @@ void CScope_AddObject(NameSpace* nspace, HashNameNode* name, ObjBase* obj) {
             objlist->next = newlist;
             goto done;
         }
+#if MWCCPS2 // b210: a using-declaration object (sclass TK_USING) overloads like a function
+        if (!copts.cplusplus ||
+            !(isFunction = otype == OT_OBJECT &&
+                  (IS_TYPE_FUNC(OBJECT(obj)->type) || OBJECT(obj)->sclass == TK_USING))) {
+#else
         if (!copts.cplusplus ||
             !(isFunction = otype == OT_OBJECT && IS_TYPE_FUNC(OBJECT(obj)->type))) {
+#endif
             CError_Error(ERR_ILLEGAL_NAME_OVERLOADING);
             return;
         }
@@ -610,8 +632,14 @@ void CScope_AddObject(NameSpace* nspace, HashNameNode* name, ObjBase* obj) {
                 return;
             }
 
+#if MWCCPS2
+            isExistingFunction = OBJECT(scan->object)->otype == OT_OBJECT &&
+                (IS_TYPE_FUNC(OBJECT(scan->object)->type) ||
+                 OBJECT(scan->object)->sclass == TK_USING);
+#else
             isExistingFunction = OBJECT(scan->object)->otype == OT_OBJECT &&
                 IS_TYPE_FUNC(OBJECT(scan->object)->type);
+#endif
             if (!isExistingFunction) {
                 CError_Error(ERR_ILLEGAL_NAME_OVERLOADING);
                 return;
@@ -781,8 +809,13 @@ static NameSpaceLookupList* CScope_BuildNameSpaceMemberLookupList(NameSpace* nsp
 NameSpaceObjectList* CScope_CopyNameSpaceObjectList(NameSpaceObjectList* list, Boolean global) {
     NameSpaceObjectList *current, *first;
 
+#if MWCCPS2
+    current = first =
+        global ? galloc(sizeof(NameSpaceObjectList)) : lalloc(sizeof(NameSpaceObjectList));
+#else
     first = current =
         global ? galloc(sizeof(NameSpaceObjectList)) : lalloc(sizeof(NameSpaceObjectList));
+#endif
     do {
         current->object = list->object;
         list = list->next;
@@ -1886,6 +1919,9 @@ static Boolean CScope_DependentTemplateMember(
     }
 }
 
+#if MWCCPS2
+extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
+#endif
 static Boolean CScope_CheckDtorName(TypeClass* tclass, Boolean* noDtor) {
     if ((tk = lex()) != TK_IDENTIFIER) {
         CError_Error(ERR_IDENTIFIER_EXPECTED);
@@ -1901,10 +1937,17 @@ static Boolean CScope_CheckDtorName(TypeClass* tclass, Boolean* noDtor) {
             }
             if ((tclass->flags & CLASS_IS_TEMPL_INST) && (lookahead() == '<')) {
                 tk = lex();
+#if MWCCPS2
+                if (!CTemplTool_EqualArgs(
+                        CTemplTool_GetTemplClassInst(tclass)->inst_args,
+                        CTempl_ParseUncheckTemplArgs(NULL, FALSE)
+                    )) {
+#else
                 if (!CTemplTool_EqualArgs(
                         TEMPL_CLASS_INST(tclass)->inst_args,
                         CTempl_ParseUncheckTemplArgs(NULL, FALSE)
                     )) {
+#endif
                     CError_Error(ERR_TEMPLATE_PARAMETER_ARGUMENT_LIST_MISMATCH);
                 }
             }
@@ -2831,7 +2874,11 @@ void CScope_DefineTypeTag(NameSpace* nspace, HashNameNode* name, Type* type) {
     ott = galloc(sizeof(ObjTypeTag));
     memclrw(ott, sizeof(ObjTypeTag));
     ott->otype = OT_TYPETAG;
+#if MWCCPS2
+    ott->access = (nspace->theclass != NULL) ? global_access : ACCESSPUBLIC;
+#else
     ott->access = nspace->theclass ? global_access : ACCESSPUBLIC;
+#endif
     ott->type = type;
     CScope_AddObject(nspace, name, OBJ_BASE(ott));
 #if MWCCPSP

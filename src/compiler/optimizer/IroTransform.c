@@ -2587,10 +2587,12 @@ done:
                 break;
         }
 
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not look through casts
         // 3.0.1: look through casts that keep every value
         while (left->type == IROLinearOp1Arg && left->nodetype == ETYPCON && func_0055A3F0(left)) {
             left = left->u.monadic;
         }
+#endif
 
         switch (nd->nodetype) {
             case ESHL:
@@ -2623,8 +2625,18 @@ done:
                     } else if (is_unsigned(nd->rtype)) {
                         ReplaceExprWithLeftChild301(left);
                         nd->nodetype = (nd->nodetype == ESHR) ? EAND : EANDASS;
+#if MWCCPS2
+                        // b210's CInt64 is 128 bits wide (b145's assert is 13 lines earlier)
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -13
+                        CError_ASSERT(2341, nd->rtype->size * 8 <= 128);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+                        CInt64_SetLong(&size, 128 - nd->rtype->size * 8);
+#else
                         CError_ASSERT(2341, nd->rtype->size * 8 <= 64);
                         CInt64_SetLong(&size, 64 - nd->rtype->size * 8);
+#endif
                         val = CInt64_Add(val, size);
                         right->u.node->data.intval = CInt64_ShrU(cint64_negone, val);
                         if (!IRO_TypesEqual(nd->rtype, right->rtype)) {
@@ -4040,10 +4052,13 @@ remove:
                             }
                             break;
                     }
-                } else if (func_0055A3F0(father) && func_0055A3F0(nd)) {
+                }
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 drops no other cast of a cast
+                else if (func_0055A3F0(father) && func_0055A3F0(nd)) {
                     nd->type = IROLinearNop;
                     father->u.monadic = nd->u.monadic;
                 }
+#endif
                 break;
             default:
                 break;
@@ -4525,7 +4540,9 @@ void func_0056F6C0(IROLinear* nd) {
 }
 #endif
 
-#if MWCCPSP
+#if MWCCPS2
+// b210 keeps this family in IroUtil.c (0x5621D0..)
+#elif MWCCPSP
 extern Statement* IRO_PreLinearize301(Statement* stmt); // IroLinearForm.c
 extern Type* func_0055A620(Type* type); // integral promotion (IroLogicalSelection.c)
 extern Type* func_0055A650(Type* type); // the integer type for a pointer type
@@ -5128,7 +5145,9 @@ static Boolean TransformMonadicSelfAssignmentToDiadicSelfAssignment(IROLinear* n
 }
 #endif
 
-#if MWCCPSP
+#if MWCCPS2
+// b210 keeps this family in IroUtil.c (0x5621D0..)
+#elif MWCCPSP
 extern IROLinear* IRO_MakeTypeConversion(
     IROLinear* linear, Type* type, IROList* list
 ); // IroTypeConv.c

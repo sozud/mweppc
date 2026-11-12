@@ -1,4 +1,7 @@
 #include "compiler/CError.h"
+#if MWCCPSP
+#include "compiler/CExpr.h"
+#endif
 #include "compiler/CClass.h"
 #include "compiler/CFunc.h"
 #include "compiler/CInt64.h"
@@ -72,7 +75,7 @@ void CError_Internal(char* filename, int line) {
     // 3.0.1 also names the function being compiled and the source file
     srcname = func_004393A0(&cparamblkptr->sourcefile);
     if (cscope_currentfunc) {
-        funcname = cscope_currentfunc->u.data.linkname ? cscope_currentfunc->u.data.linkname->name
+        funcname = cscope_currentfunc->u.func.linkname ? cscope_currentfunc->u.func.linkname->name
                                                        : cscope_currentfunc->name->name;
     } else {
         funcname = "";
@@ -496,7 +499,14 @@ static void CError_BufferAppendType(CErrorBuffer* eb, Type* ty, UInt32 qual) {
                 case IT_LONGDOUBLE:
                     CError_BufferAppendString(eb, "long double");
                     return;
-#if MWCCPSP
+#if MWCCPS2 // b210: 17 is __fixed__8x8, 18 __int128 (no TX_VEC_S)
+                case IT_17:
+                    CError_BufferAppendString(eb, "__fixed__8x8");
+                    return;
+                case IT_18:
+                    CError_BufferAppendString(eb, "__int128");
+                    return;
+#elif MWCCPSP
                 case IT_17:
                     CError_BufferAppendString(eb, "TX_VEC_S");
                     return;
@@ -953,6 +963,9 @@ void CError_ErrorMessage(int errTable, char* str, Boolean isTerminal, Boolean is
         }
         if ((SInt32)token == -1) {
             ref = NULL;
+#if MWCCPS2
+            buf[0] = 0; // b210 reports an empty line of context
+#endif
         } else {
             CPrep_GetTokenContext(
                 token,
@@ -1009,7 +1022,19 @@ static void CError_BufferAppendTemplateStack(CErrorBuffer* eb) {
         for (indent = index; indent < count; indent++) {
             CError_BufferAppendChar(eb, ' ');
         }
+#if MWCCPS2
+        if (stack[index]->is_poi) {
+            CError_BufferAppendString(eb, "(point of instantiation: '");
+        } else {
+            CError_BufferAppendString(eb, "(instantiating: '");
+        }
+#elif MWCCPSP
+        CError_BufferAppendString(
+            eb, stack[index]->is_poi ? "(point of instantiation: '" : "(instantiating: '"
+        );
+#else
         CError_BufferAppendString(eb, "(instantiating: '");
+#endif
         if (stack[index]->is_func) {
             CError_AppendObjectName(eb, stack[index]->u.func);
         } else {
@@ -1018,7 +1043,9 @@ static void CError_BufferAppendTemplateStack(CErrorBuffer* eb) {
         CError_BufferAppendString(eb, "')");
     }
 
+#if !MWCCPS2 // b210 leaves the buffer unterminated
     CError_BufferTerminate(eb);
+#endif
 }
 
 #if MWCCPSP
@@ -1026,6 +1053,8 @@ extern char* func_0043FFC0(void); // CPrep: the #include chain, or NULL at top l
 #endif
 #if MWCCPSP
 
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 124 // mwccps2: its assert is at line 0x512
 #endif
 void CError_ErrorMessageVA(
     int code, const char* format, va_list list, Boolean isTerminal, Boolean isWarning
@@ -1033,7 +1062,9 @@ void CError_ErrorMessageVA(
     CErrorBuffer eb;
     char buf[256];
     char unmangleBuf[256];
-#if MWCCPSP
+#if MWCCPS2
+    char pathBuf[260]; // mwccps2 b210: MAX_PATH (the frame is 0xFC bytes smaller)
+#elif MWCCPSP
     char pathBuf[512];
 #endif
     SInt32 moddate;
@@ -1129,6 +1160,10 @@ void CError_ErrorMessageVA(
 #endif
     CError_ErrorMessage(code, eb.start, isTerminal, isWarning);
 }
+#if MWCCPSP
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
 static void CError_VAErrorMessage(int code, va_list list, Boolean isTerminal, Boolean isWarning) {
     char buf[256];
@@ -1236,6 +1271,11 @@ void CError_ErrorFuncCall(short code, NameSpaceObjectList* args, ENodeList* argN
                 CError_BufferAppendChar(&eb, '(');
                 argscan = argNodes;
                 while (argscan) {
+#if MWCCPSP
+                    if (copts.cplusplus && CExpr_IsLValue(argscan->node)) {
+                        CError_BufferAppendString(&eb, "{lval} ");
+                    }
+#endif
                     CError_BufferAppendType(
                         &eb, argscan->node->rtype, argscan->node->flags & ENODE_FLAG_QUALS
                     );
@@ -1260,6 +1300,17 @@ exit_main_loop:
             CError_BufferAppendChar(&eb, '\'');
             CError_AppendObjectName(&eb, (Object*)args->object);
             CError_BufferAppendChar(&eb, '\'');
+#if MWCCPSP
+            if (IS_TYPE_FUNC(OBJECT(args->object)->type) &&
+                (TYPE_FUNC(OBJECT(args->object)->type)->flags & FUNC_METHOD) &&
+                !(TYPE_FUNC(OBJECT(args->object)->type)->flags & (FUNC_IS_CTOR | FUNC_IS_DTOR))) {
+                CError_BufferAppendString(
+                    &eb,
+                    TYPE_METHOD(OBJECT(args->object)->type)->is_static ? " (static)"
+                                                                       : " (non-static)"
+                );
+            }
+#endif
         }
         args = args->next;
     }

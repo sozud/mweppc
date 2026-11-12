@@ -20,7 +20,11 @@ extern SInt32 data_00625A98[7]; // the next virtual register of each class
 extern int func_0048FB20(MPCode* pc); // a load/store's move kind (0: none)
 extern MPCode* func_0048FDC0(int kind, MOperand* src, MOperand* dst);
 extern MPCode* func_00490280(MOperand* src, MOperand* dst);
+#if MWCCPS2
+extern void func_00435AA0(Object* obj, char rclass, int reg);
+#else
 extern void func_00435AA0(Object* obj, char rclass, short reg);
+#endif
 extern Boolean uniquely_aliases(PCode* a, PCode* b);
 extern Boolean uniquely_aliases_alias(PCode* a, Alias* b);
 extern Boolean may_alias_worst_case(PCode* pcode);
@@ -74,7 +78,14 @@ MPCodeBlock* func_00546600(MPCodeBlock* a, MPCodeBlock* b) {
 // 0x5466A0: renames the register that store stores to reg, when its only
 // definition is earlier in the store's block with no memory access between
 // that may alias the store.
-int func_005466A0(MPCode* store, short reg) {
+#if MWCCPS2
+// b210 keeps func_005466A0 and the reaches() wrappers out of line
+#define SL_NOINLINE __declspec(noinline)
+#else
+#define SL_NOINLINE
+#endif
+
+SL_NOINLINE int func_005466A0(MPCode* store, short reg) {
     MOperand* op;
     RegUseOrDef301* defs;
     RegUseOrDef301* uses;
@@ -124,7 +135,12 @@ int func_005466A0(MPCode* store, short reg) {
 
 // 0x546800 (may_alias) and 0x5468E0 (uniquely_aliases): def reaches use and
 // no store between them aliases def.
+#if MWCCPS2
+// b210 expands it into both wrappers (direct calls to kills)
+inline int reaches(MPCode* def, int defid, MPCode* use, Boolean (*kills)(PCode*, PCode*)) {
+#else
 static int reaches(MPCode* def, int defid, MPCode* use, Boolean (*kills)(PCode*, PCode*)) {
+#endif
     MPCodeBlock* block;
     MPCode* pc;
 
@@ -151,11 +167,11 @@ static int reaches(MPCode* def, int defid, MPCode* use, Boolean (*kills)(PCode*,
     return 1;
 }
 
-int func_00546800(MPCode* def, int defid, MPCode* use) {
+SL_NOINLINE int func_00546800(MPCode* def, int defid, MPCode* use) {
     return reaches(def, defid, use, may_alias);
 }
 
-int func_005468E0(MPCode* def, int defid, MPCode* use) {
+SL_NOINLINE int func_005468E0(MPCode* def, int defid, MPCode* use) {
     return reaches(def, defid, use, uniquely_aliases);
 }
 
@@ -189,6 +205,11 @@ int func_00545DA0(void) {
     char rclass;
     char lastrclass;
 
+#if MWCCPS2
+    // b210 leaves the scratch operands and tmpreg/lastdef/prevdefid unset
+    changed = 0;
+    lastrclass = (char)0xFE;
+#else
     changed = 0;
     lastrclass = (char)0xFE;
     tmpreg = 0;
@@ -196,6 +217,7 @@ int func_00545DA0(void) {
     prevdefid = 0;
     memclrw(&op0, sizeof(op0));
     memclrw(&op10, sizeof(op10));
+#endif
     for (oud = data_00624780; oud; oud = oud->next) {
         havereg = 0;
         nloads = 0;

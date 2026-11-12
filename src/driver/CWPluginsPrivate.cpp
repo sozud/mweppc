@@ -497,11 +497,25 @@ CW_CALLBACK CWSetPluginAPI(CWPluginContext context, SInt32 api) {
     if (!ValidateContext(context) && !ValidateInitTermContext(context)) {
         return cwErrInvalidParameter;
     }
+#if MWCCPS2
+    shellContextType* sc = static_cast<shellContextType*>(context->shellContext);
+    if (api == 1) {
+        goto set;
+    }
+    if (api == 2) {
+        goto set;
+    }
+    return cwErrInvalidParameter;
+set:
+    sc->pluginAPI = api;
+    return cwNoErr;
+#else
     if (api == 1 || api == 2) {
         static_cast<shellContextType*>(context->shellContext)->pluginAPI = api;
         return cwNoErr;
     }
     return cwErrInvalidParameter;
+#endif
 }
 
 // 0x4163E0

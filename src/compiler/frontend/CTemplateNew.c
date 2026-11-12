@@ -248,6 +248,106 @@ static Type* CTempl_ParseTemplArgType(UInt32* resultQual) {
     return di.thetype;
 }
 
+#if MWCCPSP
+extern ENode* func_004AF140(ENode* expr, Type* type, UInt32 qual); // &C::f as a member pointer
+
+// 0x4E8250: convert and check a non-type template argument
+static ENode* CTempl_CheckTemplArgExpr301(ENode* expr, Type* type, UInt32 qual) {
+    if (type &&
+        !CTemplTool_IsTemplateArgumentDependentExpression(expr) &&
+        !CTemplTool_IsTemplateArgumentDependentType(type)) {
+        switch (type->type) {
+            case TYPEINT:
+            case TYPEENUM:
+                expr = argumentpromotion(expr, type, (SInt16)qual, TRUE);
+                if (expr->type == EINTCONST) {
+                    break;
+                }
+                goto illegal;
+            case TYPEPOINTER:
+                if (TYPE_POINTER(type)->qual & Q_REFERENCE) {
+                    if (expr->type == EINDIRECT) {
+                        expr = argumentpromotion(expr, type, (SInt16)qual, TRUE);
+                    }
+                    if (expr->type == EINDIRECT || expr->type == EOBJREF) {
+                        break;
+                    }
+                    goto illegal;
+                }
+                expr = pointer_generation(expr);
+                if (TPTR_TARGET(type)->type == TYPEFUNC) {
+                    if (expr->type == EOBJACCESS || expr->type == EOBJREF) {
+                        expr = argumentpromotion(expr, type, (SInt16)qual, TRUE);
+                    }
+                } else if (expr->type == EOBJREF) {
+                    expr = argumentpromotion(expr, type, (SInt16)qual, TRUE);
+                }
+                if (expr->type == EOBJREF) {
+                    break;
+                }
+                goto illegal;
+            case TYPEMEMBERPOINTER:
+                if (expr->type == EOBJACCESS) {
+                    expr = func_004AF140(expr, type, qual);
+                }
+                if (expr->type == EOBJACCESS) {
+                    break;
+                }
+illegal:
+                CError_Error(ERR_ILLEGAL_NON_TYPE_TEMPLATE_ARGUMENT);
+                expr = nullnode();
+                break;
+            default:
+                CError_Error(ERR_ILLEGAL_USE_VOID, type, qual);
+                expr = nullnode();
+                break;
+        }
+    }
+
+    if (CTemplTool_IsTemplateArgumentDependentExpression(expr)) {
+        return expr;
+    }
+    expr = pointer_generation(expr);
+    switch (expr->type) {
+        case EINTCONST:
+        case EOBJACCESS:
+            break;
+        case EOBJREF:
+            if (CParser_HasInternalLinkage2(expr->data.objref)) {
+                CError_Error(ERR_TEMPLATE_NON_TYPE_ARGUMENT_OBJECTS_SHALL, expr->data.objref);
+            }
+            break;
+        case EINDIRECT:
+            if (expr->data.monadic->type == EOBJREF) {
+                if (CParser_HasInternalLinkage2(expr->data.monadic->data.objref)) {
+                    CError_Error(
+                        ERR_TEMPLATE_NON_TYPE_ARGUMENT_OBJECTS_SHALL,
+                        expr->data.monadic->data.objref
+                    );
+                }
+                break;
+            }
+        default:
+            CError_Error(ERR_ILLEGAL_NON_TYPE_TEMPLATE_ARGUMENT);
+            expr = nullnode();
+            break;
+    }
+    return expr;
+}
+
+static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
+    ENode* expr;
+
+    disallowgreaterthan = TRUE;
+    if (!copts.old_argmatch) {
+        expr = assignment_expression();
+    } else {
+        expr = conv_assignment_expression();
+    }
+    disallowgreaterthan = FALSE;
+    return CInline_CopyExpression(CTempl_CheckTemplArgExpr301(expr, type, qual), CopyModeGlobal);
+}
+#else
 static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
     ENode* expr;
     ENode* copy;
@@ -262,11 +362,7 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
 
     if (type &&
         !CTemplTool_IsTemplateArgumentDependentType(type) &&
-#if MWCCPSP
-        !ENODE_IS_TEMPLDEPEXPR(expr)) {
-#else
         !IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
-#endif
         expr = argumentpromotion(expr, type, qual, TRUE);
         if (IS_TYPE_POINTER_ONLY(type)) {
             if (ENODE_IS(expr, ETYPCON) && ENODE_IS(expr->data.monadic, EINTCONST)) {
@@ -278,11 +374,7 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
         }
     }
 
-#if MWCCPSP
-    if (!ENODE_IS_TEMPLDEPEXPR(expr)) {
-#else
     if (!IS_TYPE_TEMPLDEPEXPR(expr->rtype)) {
-#endif
         if (!copts.old_argmatch) {
             expr = pointer_generation(expr);
         }
@@ -311,6 +403,7 @@ static ENode* CTempl_ParseTemplArgExpr(Type* type, UInt32 qual) {
         return CInline_CopyExpression(expr, CopyModeGlobal);
     }
 }
+#endif
 
 static Type* CTempl_ParseTemplArgTempl(TemplParam* params) {
     NameResult pr;
@@ -457,10 +550,14 @@ defaultProc:
                 case TYPEFUNC:
                     di.thetype = CDecl_NewPointerType(di.thetype);
                     break;
+#if MWCCPSP
+                case TYPEMEMBERPOINTER: // 3.0.1 accepts pointers to members
+#else
                 case TYPEMEMBERPOINTER:
                     CError_Error(ERR_UNIMPLEMENTED_C_FEATURE);
                     di.thetype = TYPE(&stsignedint);
                     break;
+#endif
                 case TYPEINT:
                 case TYPEENUM:
                 case TYPETEMPLATE:
@@ -804,6 +901,16 @@ Type* CTempl_ParseTemplTemplParam(TypeTemplDep* type) {
     Type* newType;
 
     tk = lex();
+#if MWCCPS2
+    if ((args = CTempl_ParseUncheckTemplArgs(NULL, TRUE)) != NULL) {
+        newType = TYPE(CDecl_NewTemplDepType(TEMPLDEP_QUALTEMPL));
+        TYPE_TEMPLATE(newType)->u.qualtempl.type = type;
+        TYPE_TEMPLATE(newType)->u.qualtempl.args = args;
+        return newType;
+    }
+    CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+    return TYPE(&stsignedint);
+#else
     if (!(args = CTempl_ParseUncheckTemplArgs(NULL, TRUE))) {
         CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
         return TYPE(&stsignedint);
@@ -813,7 +920,31 @@ Type* CTempl_ParseTemplTemplParam(TypeTemplDep* type) {
     TYPE_TEMPLATE(newType)->u.qualtempl.type = type;
     TYPE_TEMPLATE(newType)->u.qualtempl.args = args;
     return newType;
+#endif
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPS2
+// 0x4F5430 (b219 0x4E72A0): real name unknown; its only caller is an
+// unnamed CExpr.c function (b210 0x524290)
+Type* CTempl_ClassGetTypeWithArgs(TemplClass* templ, TemplArg* args) {
+    TemplClass* owner;
+    TemplClass* pspecOwner;
+    Type* type;
+
+    pspecOwner = (owner = CTemplTool_GetTemplClass(TYPE_CLASS(templ)))->pspec_owner;
+    if (pspecOwner) {
+        owner = pspecOwner;
+    }
+
+    if ((type = CTemplTool_IsDependentTemplate(owner, args)) != NULL) {
+        return type;
+    }
+
+    return TYPE(CTemplClass_GetInstance(owner, args, NULL));
+}
+#endif
 
 Type* CTempl_ClassGetType(TemplClass* templ) {
     TemplClass* owner;
@@ -822,11 +953,24 @@ Type* CTempl_ClassGetType(TemplClass* templ) {
     TemplClass* pspecOwner;
     Type* type;
 
+#if MWCCPS2
+    pspecOwner = (owner = CTemplTool_GetTemplClass(TYPE_CLASS(templ)))->pspec_owner;
+#else
     pspecOwner = (owner = templ)->pspec_owner;
+#endif
     if (pspecOwner) {
         owner = pspecOwner;
     }
 
+#if MWCCPS2
+    if ((args = CTempl_ParseTemplArgs(&owner, &ownerArgs)) == NULL) {
+        return &stvoid;
+    }
+
+    if ((type = CTemplTool_IsDependentTemplate(owner, args)) != NULL) {
+        return type;
+    }
+#else
     if (!(args = CTempl_ParseTemplArgs(&owner, &ownerArgs))) {
         return &stvoid;
     }
@@ -834,11 +978,18 @@ Type* CTempl_ClassGetType(TemplClass* templ) {
     if ((type = CTemplTool_IsDependentTemplate(owner, args))) {
         return type;
     }
+#endif
 
     return TYPE(CTemplClass_GetInstance(owner, args, ownerArgs));
 }
 
-static void CTempl_SetupClassParamNameSpace(TemplateScopeState* templateScope, TypeClass* tclass) {
+#if MWCCPS2
+// always inlined; b210 has no out-of-line copy
+inline
+#endif
+    static void CTempl_SetupClassParamNameSpace(
+        TemplateScopeState* templateScope, TypeClass* tclass
+    ) {
     cscope_current = tclass->nspace;
 }
 
@@ -1008,9 +1159,11 @@ static TemplateFunction* CTempl_DeclareTemplateFunction(
     TYPE_FUNC(object->type)->flags |= FUNC_IS_TEMPL;
     object->u.func.u.templ = templ;
 
+#if !MWCCPSP // 3.0.1: an inline template has weak external linkage
     if (di->qual & Q_INLINE) {
         object->sclass = TK_STATIC;
     }
+#endif
 
     templ->tfunc = object;
     CScope_AddObject(cscope_current, di->name, OBJ_BASE(object));
@@ -1826,6 +1979,7 @@ Boolean CTempl_GenFuncInstance(
     DeclInfo di;
 #if MWCCPSP
     TemplStack* stack;
+    TemplStack* pointStack;
 #else
     TemplStack stack;
 #endif
@@ -1888,6 +2042,12 @@ Boolean CTempl_GenFuncInstance(
     di.sourceoffset = templ->startoffset;
 
 #if MWCCPSP
+    // 3.0.1: instantiate under the stack recorded where the instance was
+    // created (its point of instantiation)
+    if (inst->instStack) {
+        pointStack = ctempl_curinstance;
+        ctempl_curinstance = inst->instStack;
+    }
     stack = CTemplTool_PushInstance(NULL, inst->object);
 #else
     CTemplTool_PushInstance(&stack, NULL, inst->object);
@@ -1906,6 +2066,9 @@ Boolean CTempl_GenFuncInstance(
 
 #if MWCCPSP
     CTemplTool_PopInstance(stack);
+    if (inst->instStack) {
+        ctempl_curinstance = pointStack;
+    }
 #else
     CTemplTool_PopInstance(&stack);
 #endif
@@ -2048,10 +2211,17 @@ static Boolean CTempl_GenClassInstance(TemplClassInst* inst, Boolean isExplicit)
                 result = TRUE;
             }
         } else {
+#if MWCCPSP
+            if (
+#else
             if (!inst->static_instantiated &&
+#endif
                 object->datatype == DDATA &&
                 !(object->qual & Q_INLINE_DATA) &&
                 !(object->flags & OBJECT_DEFINED) &&
+#if MWCCPSP
+                (isExplicit || (object->flags & OBJECT_REFERENCED)) && // 3.0.1: only used members
+#endif
                 CTempl_GenMemberInstance(inst, OBJECT_TEMPL(object), isExplicit)) {
                 result = TRUE;
             }

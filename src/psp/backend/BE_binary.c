@@ -15,20 +15,12 @@ typedef struct MSwitchTable {
     struct Object* object; // the table: label pointers at +0x28, size at +0x2C
 } MSwitchTable;
 
-typedef struct ObjDataReloc {
-    struct ObjDataReloc* next;
-    struct Object* target;
-    SInt32 offset;
-    SInt32 addend;
-} ObjDataReloc;
-
 extern SInt32 data_00624DF4; // largest alignment in the function
 extern SInt32 data_00603F70; // current byte offset
 extern MSwitchTable* data_00624724; // switch tables to emit
 extern SInt32* data_006241D8; // receives the instruction count
 extern void func_004584C0(SInt32* out, SInt32 fill);
 extern void* lalloc(SInt32 size);
-extern void ObjGen_EmitData(struct Object* obj, void* data, ObjDataReloc* relocs, SInt32 size);
 
 // a switch table object's entries (label operands) and size in bytes
 #define OBJECT_SWITCH_LABELS(obj) ((MOperand**)(obj)->u.data.u.switchtable.data)
@@ -36,13 +28,33 @@ extern void ObjGen_EmitData(struct Object* obj, void* data, ObjDataReloc* relocs
 #define SWITCH_LABEL_OFFSET(l) (((MPCodeLabel*)(l)->ptr)->block->codeoffset)
 
 extern SInt32 data_00625208; // index of the instruction being encoded
-extern void func_004C5940(SInt32 err);
-extern void func_004C5890(SInt32 max, SInt32 value);
+extern void func_004C5940(int code, ...); // MIPSError_Error
+extern void func_004C5890(int code, ...); // MIPSError_Warning
 
 // A label's code offset in bytes.
 #define LABEL_OFFSET(v) (((MPCodeLabel*)(v))->block->codeoffset)
 // A register operand: the second register of a pair is one higher.
+#if MWCCPS2
+static inline SInt32 ps2_reg(MOperand* a) {
+    SInt32 r;
+
+    r = (SInt16)a->value;
+    if (a->flags & 0x4000) {
+        r++;
+    }
+    return r;
+}
+#define REG(a) ps2_reg(a)
+#else
 #define REG(a) ((SInt16)(a)->value + (((a)->flags & 0x4000) ? 1 : 0))
+#endif
+
+// b210: an operand's 128-bit constant keeps its low word at +0x10
+#if MWCCPS2
+#define ENC_IMM(a) ((a)->value_mid[0])
+#else
+#define ENC_IMM(a) ((a)->value2)
+#endif
 
 void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
     char* fmt;
@@ -52,11 +64,23 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
     SInt32 v;
     SInt32 hi;
     UInt16 op;
+#if MWCCPS2 // b210 indexes the operand in every case
+#define arg (&pc->args[argi])
+#else
     MOperand* arg;
+#endif
 
     argi = 0;
+#if MWCCPS2
+    {
+        OpcodeDef* def = &data_006115F8[pc->op];
+        fmt = def->format;
+        pc->word = def->unk10;
+    }
+#else
     fmt = data_006115F8[pc->op].format;
     pc->word = data_006115F8[pc->op].unk10;
+#endif
 
     if (*fmt) {
         do {
@@ -86,16 +110,21 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                 tick = 1;
             }
 
+#if !MWCCPS2
             arg = &pc->args[argi];
+#endif
             switch (*fmt) {
                 case '&':
                     pc->word |= arg->value << 21;
                     argi++;
                     break;
                 case '<':
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= (arg->value & 7) << 18;
-                    } else {
+                    } else
+#endif
+                    {
                         v = arg->value;
                         if (v > 31) {
                             func_004C5890(31, v);
@@ -105,9 +134,12 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     argi++;
                     break;
                 case '>':
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= (arg->value & 7) << 16;
-                    } else {
+                    } else
+#endif
+                    {
                         v = arg->value;
                         if (v > 31) {
                             func_004C5890(31, v);
@@ -167,24 +199,39 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                             pc->pair->word |= (UInt16)hi;
                         }
                     } else {
-                        pc->word |= (UInt16)arg->value2;
+                        pc->word |= (UInt16)ENC_IMM(arg);
                     }
                     argi++;
                     break;
+#if !MWCCPS2
                 case 'e':
                     pc->word |= arg->value << 8;
                     argi++;
                     break;
+#endif
                 case 'i':
-                    pc->word |= (UInt16)arg->value2;
+#if MWCCPS2
+                    v = ENC_IMM(arg);
+                    if (wide) {
+                        pc->word |= (v >> 3) << 6;
+                    } else {
+                        pc->word |= (UInt16)v;
+                    }
+#else
+                    pc->word |= (UInt16)ENC_IMM(arg);
+#endif
                     argi++;
                     break;
                 case 'k':
+#if MWCCPS2
+                    pc->word |= (ENC_IMM(arg) & 31) << 16;
+#else
                     if (wide) {
                         pc->word |= (UInt8)arg->value2 << 16;
                     } else {
                         pc->word |= (arg->value2 & 31) << 16;
                     }
+#endif
                     argi++;
                     break;
                 case 'o':
@@ -197,9 +244,12 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     } else {
                         CError_FATAL(252);
                     }
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= v & 0xFFFC;
-                    } else {
+                    } else
+#endif
+                    {
                         pc->word |= (UInt16)v;
                     }
                     argi++;
@@ -208,7 +258,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     if (pass == 2) {
                         if (pc->unk38 != 10) {
                             if (arg->kind == 2) {
-                                v = arg->value2;
+                                v = ENC_IMM(arg);
                             } else {
                                 v = LABEL_OFFSET(arg->ptr) / 4 - data_00625208 - 1;
                                 if (pc->flags & 0x4000000) {
@@ -228,9 +278,12 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     argi++;
                     break;
                 case 's':
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= ((SInt16)arg->value << 21) & 0x7E00000;
-                    } else {
+                    } else
+#endif
+                    {
                         pc->word |= (SInt16)arg->value << 21;
                     }
                     argi++;
@@ -240,7 +293,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     argi++;
                     break;
                 case 'u':
-                    pc->word |= (UInt16)(arg->value2 >> 16);
+                    pc->word |= (UInt16)(ENC_IMM(arg) >> 16);
                     argi++;
                     break;
                 case 'v':
@@ -264,9 +317,12 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     CError_FATAL(344);
                     break;
                 case 'D':
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= REG(arg) & 0x7F;
-                    } else {
+                    } else
+#endif
+                    {
                         pc->word |= REG(arg) << 6;
                     }
                     argi++;
@@ -290,14 +346,29 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     argi++;
                     break;
                 case 'S':
+#if MWCCPS2 // b210: a variant selector in bits 21-22 (cf. 'N')
+                    if (wide && tick) {
+                        pc->word &= 0xFF9FFFFF;
+                        if (arg->flags & 0x400) {
+                            pc->word |= 0x200000;
+                        } else if (arg->flags & 0x200) {
+                            pc->word |= 0x400000;
+                        } else if (arg->flags & 0x100) {
+                            pc->word |= 0x600000;
+                        }
+                    }
+                    pc->word |= REG(arg) << 11;
+#else
                     if (wide) {
                         pc->word |= (REG(arg) & 0x7F) << 8;
                     } else {
                         pc->word |= REG(arg) << 11;
                     }
+#endif
                     argi++;
                     break;
                 case 'T':
+#if !MWCCPS2
                     if (wide) {
                         v = REG(arg);
                         if ((UInt16)(pc->op - 0x4CC) <= 4) {
@@ -311,6 +382,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                         argi++;
                         break;
                     }
+#endif
                 case 'N':
                     if (wide && tick) {
                         pc->word &= 0xFE7FFFFF;
@@ -342,9 +414,12 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     argi++;
                     break;
                 case 'E':
+#if !MWCCPS2
                     if (wide) {
                         pc->word |= (SInt16)arg->value << 16;
-                    } else {
+                    } else
+#endif
+                    {
                         pc->word |= REG(arg) << 16;
                     }
                     argi++;
@@ -355,20 +430,24 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     break;
                 case 'A':
                 case 'U':
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 encodes no label word here
                     if (pass == 2 && arg->kind == 6) {
                         pc->word = LABEL_OFFSET(arg->ptr);
                     }
+#endif
                     argi++;
                     break;
                 case 'I':
                     if (!wide) {
-                        pc->word |= arg->value2;
+                        pc->word |= ENC_IMM(arg);
                     }
                     argi++;
                     break;
                 case 'Q':
                     argi++;
                     break;
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -5 // b145 asserts
                 case 'F':
                     CError_FATAL(516);
                     break;
@@ -376,10 +455,16 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     CError_FATAL(524);
                     break;
                 case 'l':
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                    CError_FATAL(528); // b145: no 'l' operands
+#else
                     if (pass == 2 && arg->kind == 6) {
                         pc->word = LABEL_OFFSET(arg->ptr);
                     }
+#endif
                     break;
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -11 // b145 asserts
                 case '(':
                 case ')':
                 case ',':
@@ -391,6 +476,8 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                 default:
                     CError_FATAL(550);
                     break;
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
             }
             fmt++;
         } while (*fmt);
@@ -411,6 +498,8 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
 // Final pass for one instruction: branches whose target is out of 16-bit
 // range become the long form, then instructions with label operands are
 // encoded again with the final offsets.
+#undef arg
+
 void BE_EncodeFinal(MPCode* pc) {
     SInt32 d;
     char* label;
@@ -429,8 +518,10 @@ void BE_EncodeFinal(MPCode* pc) {
         BE_EncodeInstruction(pc, 2);
     } else if (pc->op == 3 && pc->args[2].kind == 6) {
         BE_EncodeInstruction(pc, 2);
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no second case
     } else if (pc->op == 0x2EE && pc->args[0].kind == 6) {
         BE_EncodeInstruction(pc, 2);
+#endif
     }
     data_00625208++;
 }
@@ -447,7 +538,7 @@ void BE_EncodeAll(void) {
         for (pc = block->first; pc; pc = pc->next) {
             if (pc->flags & 0x40000000) {
                 last = pc;
-            } else if (pc->op < 0x518) {
+            } else if (pc->op < BE_NUM_OPCODES) {
                 BE_EncodeInstruction(pc, 1);
             }
         }
@@ -459,16 +550,25 @@ void BE_EncodeAll(void) {
 
 static void BE_CountInstruction(MPCode* pc) {
     pc->offset = data_00603F70;
-    if (pc->op < 0x518) {
+    if (pc->op < BE_NUM_OPCODES) {
         data_00625208++;
         data_00603F70 += 4;
-    } else if (pc->op < 0x5C5) {
+    } else if (pc->op < MACRO_OP(0xAD)) {
         func_004C5940(15);
     }
 }
 
 // Lay out the function (offsets, alignment padding), emit its switch tables,
 // then encode every instruction with the final offsets.
+// b210: an operand's 128-bit constant keeps its low word at +0x10
+#if MWCCPS2
+#define LAYOUT_IMM(op) ((op).value_mid[0])
+#else
+#define LAYOUT_IMM(op) ((op).value2)
+#endif
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -17 // b145 asserts
 void BE_LayoutAndEncode(struct Object* func) {
     MPCodeBlock* block;
     MPCode* pc;
@@ -482,7 +582,11 @@ void BE_LayoutAndEncode(struct Object* func) {
     MOperand** labels;
     void* buf;
     SInt32 fill;
+#if MWCCPS2
+    CInt64 fillvalue;
+#else
     SInt32 fillvalue[2];
+#endif
     SInt32 align;
     SInt32 n;
     SInt32 off;
@@ -502,21 +606,21 @@ void BE_LayoutAndEncode(struct Object* func) {
             } else if (pc->flags & 0x100000) {
                 cur = pc;
                 switch (pc->op) {
-                    case 0x5BF:
-                    case 0x5C1:
-                    case 0x5C3:
+                    case MACRO_OP(0xA7):
+                    case MACRO_OP(0xA9):
+                    case MACRO_OP(0xAB):
                         fill = 0;
                         break;
-                    case 0x5BE:
-                        b = (UInt8)pc->args[1].value2;
+                    case MACRO_OP(0xA6):
+                        b = (UInt8)LAYOUT_IMM(pc->args[1]);
                         fill = b | (b << 16) | (b << 24) | (b << 8);
                         break;
-                    case 0x5C0:
-                        b = (UInt16)pc->args[1].value2;
+                    case MACRO_OP(0xA8):
+                        b = (UInt16)LAYOUT_IMM(pc->args[1]);
                         fill = b | (b << 16);
                         break;
-                    case 0x5C2:
-                        fill = pc->args[1].value2;
+                    case MACRO_OP(0xAA):
+                        fill = LAYOUT_IMM(pc->args[1]);
                         break;
                     default:
                         CError_FATAL(718);
@@ -524,9 +628,13 @@ void BE_LayoutAndEncode(struct Object* func) {
                         pc = pc->next;
                         continue;
                 }
+#if MWCCPS2
+                CInt64_SetLong(&fillvalue, fill);
+#else
                 func_004584C0(fillvalue, fill);
-                if (pc->args[0].value2) {
-                    align = BIT32(pc->args[0].value2);
+#endif
+                if (LAYOUT_IMM(pc->args[0])) {
+                    align = BIT32(LAYOUT_IMM(pc->args[0]));
                     if (align > data_00624DF4) {
                         data_00624DF4 = align;
                     }
@@ -534,7 +642,11 @@ void BE_LayoutAndEncode(struct Object* func) {
                         if (pc == block->first) {
                             block->codeoffset += 4;
                         }
+#if MWCCPS2
+                        nop = makepcode(0x2ED, fillvalue);
+#else
                         nop = makepcode(0x2ED, fillvalue[0], fillvalue[1]);
+#endif
                         insertpcodebefore(pc, nop);
                         BE_CountInstruction(nop);
                     }
@@ -590,3 +702,172 @@ void BE_LayoutAndEncode(struct Object* func) {
     }
     *data_006241D8 = data_00625208;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+
+#if MWCCPS2
+// b210 #pragma padloop (copts+0x40): a short loop (fewer than seven
+// instructions from its branch target to its end) is padded with nops up to
+// seven, the last of which is marked to stay last (0x40000000).
+#include "psp/Loop301.h"
+
+extern MOperand* func_0048FAE0(MPCode* pc); // a branch's label operand
+extern void func_0054AD10(void (*func)(Loop301*));
+
+static inline Boolean ps2_isbranch(MPCode* pc) {
+    return (pc->flags & 0x10000000) || pc->op == 0x39 || pc->op == 0x38A || pc->op == 0x38B;
+}
+
+// 0x4C2960
+void ps2_padloop_4C2960(MPCodeBlock* block) {
+    MPCode* last;
+    int n;
+    int count;
+    MPCodeBlock* target;
+    MPCodeBlock* b;
+    MPCode* q;
+
+    n = 0;
+    count = 0;
+    last = block->last;
+    if (block->flags2E & 0x4000) {
+        return;
+    }
+    if (!last ||
+        (!(last->flags & 0x10000000) &&
+         last->op != 0x39 &&
+         last->op != 0x38A &&
+         last->op != 0x38B)) {
+        return;
+    }
+    {
+        target = ((MPCodeLabel*)func_0048FAE0(last)->ptr)->block;
+        b = target;
+        for (;;) {
+            if (b->number == block->number) {
+                break;
+            }
+            b = b->next;
+            if (!b) {
+                break;
+            }
+            n++;
+            if (n > 2 || n < -2) {
+                return;
+            }
+        }
+        b = block;
+        while (target != b) {
+            count += b->pcodecount;
+            for (q = b->first; q; q = q->next) {
+                if (q->flags & 0x100000) {
+                    count--;
+                }
+            }
+            b = b->prev;
+            if (!b) {
+                break;
+            }
+            if (count >= 7) {
+                return;
+            }
+        }
+        if (b) {
+            count += b->pcodecount;
+            for (q = b->first; q; q = q->next) {
+                if (q->flags & 0x100000) {
+                    count--;
+                }
+            }
+        }
+        if (count >= 7) {
+            return;
+        }
+        q = last->prev;
+        if (q && (q->flags & 0x40000000)) {
+            q->flags &= ~0x40000000;
+        }
+        while (count < 7) {
+            insertpcodebefore(last, makepcode(0xBA));
+            count++;
+        }
+        if (last->prev) {
+            last->prev->flags |= 0x40000000;
+        }
+    }
+}
+
+// 0x4C2AA0
+static void ps2_padloop_cb(Loop301* loop) {
+    if (!loop->exits) {
+        return;
+    }
+    ps2_padloop_4C2960(loop->exits->block);
+}
+
+// 0x4C2950
+void ps2_padloop_4C2950(Object* func) {
+    func_0054AD10(ps2_padloop_cb);
+}
+// b210 #pragma dividefix (copts+0x3E): R5900 multiply/divide hazards. A
+// div/mult (0xF3, 0x101, 0x125, 0x366, 0x37A) right after an mflo/mfhi
+// (0xDF) gets a nop between them; in a block ending in a branch-likely
+// (flags & 1) it needs three more instructions after it, and near the top
+// of a block that follows its predecessor it needs three before it.
+static MPCodeBlock* ps2_dividefix_prev; // 0x61B8E8
+
+// 0x4C4960
+static void ps2_dividefix_block(MPCodeBlock* block) {
+    MPCode* pc;
+    UInt8 follows;
+    UInt8 likely;
+    int lastmf;
+    int i;
+
+    pc = block->last;
+    follows = 0;
+    if (block->prev == ps2_dividefix_prev) {
+        follows = 1;
+    }
+    likely = pc->flags & 1;
+    lastmf = -1;
+    for (pc = block->first, i = 1; pc; pc = pc->next, i++) {
+        if (pc->op == 0xF3 ||
+            pc->op == 0x366 ||
+            pc->op == 0x101 ||
+            pc->op == 0x37A ||
+            pc->op == 0x125) {
+            if (lastmf == i - 1) {
+                insertpcodebefore(pc, makepcode(0xBA));
+                i++;
+            }
+            if (likely && block->pcodecount - i <= 3) {
+                while (block->pcodecount - i <= 3) {
+                    insertpcodeafter(pc, makepcode(0xBA));
+                }
+            }
+            if (follows && i < 3) {
+                while (i < 3) {
+                    insertpcodebefore(pc, makepcode(0xBA));
+                    i++;
+                }
+            }
+        } else if (pc->op == 0xDF) {
+            lastmf = i;
+        }
+    }
+}
+
+// 0x4C4910
+void ps2_dividefix_4C4910(Object* func) {
+    MPCodeBlock* block;
+
+    ps2_dividefix_prev = NULL;
+    for (block = data_00624FD0; block; block = block->next) {
+        if (block->pcodecount && !(block->flags2E & 0x80) && !(block->flags2E & 0x4000)) {
+            ps2_dividefix_block(block);
+        }
+        ps2_dividefix_prev = block;
+    }
+}
+#endif

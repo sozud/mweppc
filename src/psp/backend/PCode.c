@@ -313,7 +313,7 @@ MPCodeBlock* func_0046F660(MPCodeBlock* from, MPCodeBlock* to) {
     MPCodeBlock* block;
 
     if (from->next != to) {
-        CError_Internal("PCode.c", 611);
+        CError_Internal("PCode.c", CError_B145_LINE(611));
     }
     block = lalloc(sizeof(MPCodeBlock));
     memclrw(block, sizeof(MPCodeBlock));
@@ -431,7 +431,7 @@ void unlinkblocks(MPCodeBlock* from, MPCodeBlock* to) {
 
     e = findlink(from, to);
     if (!e) {
-        CError_Internal("PCode.c", 934);
+        CError_Internal("PCode.c", CError_B145_LINE(934));
     }
     for (pp = &to->predecessors; *pp != e; pp = &(*pp)->nextpred) {}
     *pp = e->nextpred;

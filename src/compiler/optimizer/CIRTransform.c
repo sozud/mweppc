@@ -129,6 +129,11 @@ static ENode* CIRTrans_CheckRuntimeAssign(ENode* expr) {
     return expr;
 }
 
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 17 // mwccps2: its assert is at line 0x220
+__declspec(noinline) // b210 calls it (0x52E190)
+#endif
 static void CIRTrans_SetupMultiAccessOperand(MultiAccessOperand* mop, ENode* expr) {
     memclrw(mop, sizeof(MultiAccessOperand));
 
@@ -144,11 +149,29 @@ static void CIRTrans_SetupMultiAccessOperand(MultiAccessOperand* mop, ENode* exp
             mop->bitfieldType = expr->rtype;
             expr = expr->data.monadic;
         }
+#if MWCCPS2 // b210: an increment/decrement gets the pointer type on its operand
+        switch (expr->type) {
+            case EPOSTINC:
+            case EPOSTDEC:
+            case EPREINC:
+            case EPREDEC:
+                expr->data.monadic->rtype = CDecl_NewPointerType(mop->type);
+                break;
+            default:
+                expr->rtype = CDecl_NewPointerType(mop->type);
+                break;
+        }
+#else
         expr->rtype = CDecl_NewPointerType(mop->type);
+#endif
         mop->tempobj = create_temp_object(expr->rtype);
         mop->ass = makediadicnode(create_objectnode(mop->tempobj), expr, EASS);
     }
 }
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
 static ENode* CIRTrans_GetMultiAccessOperand(MultiAccessOperand* mop) {
     ENode* expr;
@@ -176,6 +199,10 @@ static ENode* CIRTrans_InitMultiAccessExpression(MultiAccessOperand* mop, ENode*
     return expr;
 }
 
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 27 // mwccps2: 0x28E
+#endif
 ENode* CIRTrans_TransformOpAss(ENode* expr) {
     ENodeType nt;
     ENode* result;
@@ -242,6 +269,10 @@ ENode* CIRTrans_TransformOpAss(ENode* expr) {
     result = makediadicnode(CIRTrans_GetMultiAccessOperand(&mop), result, EASS);
     return CIRTrans_InitMultiAccessExpression(&mop, result);
 }
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
 static void CIRTrans_TransIncDec(void) {}
 

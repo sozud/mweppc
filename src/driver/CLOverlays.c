@@ -60,11 +60,19 @@ Boolean Overlays_AddOvlGroup(Overlays* this, OvlGroup* grp, SInt32* grpnum) {
     OS_ASSERT(70, this);
     OS_ASSERT(71, grp);
 
+#if MWCCPS2
+    if (!this->groups) {
+        this->groups = grp;
+    } else {
+        this->lastgrp->next = grp;
+    }
+#else
     if (this->groups == NULL) {
         this->groups = grp;
     } else {
         this->lastgrp->next = grp;
     }
+#endif
     this->lastgrp = grp;
 
     if (grpnum) {

@@ -94,7 +94,11 @@ static void GetToolVersionInfo(void) {
     if (VerQueryValueA(
             info, "\\StringFileInfo\\040904B0\\LegalCopyright", (LPVOID*)&value, &length
         )) {
+#if MWCCPS2
+        copy = toolVersionInfo.copyright = xmalloc(NULL, strlen(value) + 3); // b210 (0x40DC30)
+#else
         copy = toolVersionInfo.copyright = xmalloc(NULL, strlen(value) + 2);
+#endif
         for (i = 0; value[i]; i++) {
             if (value[i] == (char)0xA9) {
                 *copy++ = '(';
@@ -572,7 +576,11 @@ static Boolean SupportedPlugin(Plugin* pl, const char** reason) {
         *reason = "GetDropInFlags callback not found";
         return FALSE;
     }
+#if MWCCPS2
+    if (pl->cb->GetDropInFlags(&df, &dfsize) != cwNoErr) {
+#else
     if (pl->cb->GetDropInFlags(&df, &dfsize)) {
+#endif
         *reason = "GetDropInFlags callback failed";
         return FALSE;
     }
@@ -995,7 +1003,11 @@ Plugin* Plugins_CL_MatchTarget(Plugin* list, OSType cpu, OSType os, OSType type,
     scan = list ? list : pluginlist;
     pick = NULL;
     while (scan) {
+#if MWCCPS2
+        if (scan->cl_cb != NULL) {
+#else
         if (scan->cl_cb) {
+#endif
             if (Plugin_CL_MatchesTarget(scan, cpu, os, FALSE) &&
                 Plugin_MatchesType(scan, type, lang, FALSE)) {
                 pick = scan;
@@ -1294,7 +1306,11 @@ int Plugins_AddFileTypeMappingsForTarget(
     }
 
     while (list) {
+#if MWCCPS2
+        if (list->cl_cb == NULL || Plugin_CL_MatchesTarget(list, cpu, os, FALSE)) {
+#else
         if (!list->cl_cb || Plugin_CL_MatchesTarget(list, cpu, os, FALSE)) {
+#endif
             Plugin_AddFileTypeMappings(list, mlist);
         }
         list = list->next;

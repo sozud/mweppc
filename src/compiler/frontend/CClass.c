@@ -664,7 +664,17 @@ static UInt8 CClass_IsCovariantResult(
     return 0;
 }
 
+#if MWCCPS2
+UInt8 CClass_GetOverrideKind(Object* oa, Object* ob, Boolean errorflag) {
+    TypeFunc* a = TYPE_FUNC(oa->type);
+    TypeFunc* b = TYPE_FUNC(ob->type);
+
+    if (!IS_TYPE_FUNC(a) || !IS_TYPE_FUNC(b)) {
+        return 0;
+    }
+#else
 UInt8 CClass_GetOverrideKind(TypeFunc* a, TypeFunc* b, Boolean errorflag) {
+#endif
     if (!a->args || !b->args) {
         return 0;
     }
@@ -1172,15 +1182,32 @@ Boolean CClass_IsTrivialCopyAssignClass(TypeClass* tclass) {
     Object* object;
     ObjMemberVar* ivar;
     Type* type;
+#if MWCCPSP
+    ClassList* base;
+
+    // 3.0.1: virtual bases rule it out; ordinary bases need only be
+    // trivial themselves
+    if (tclass->vtable || tclass->vbases || CClass_Destructor(tclass)) {
+        return FALSE;
+    }
+#else
 
     if (tclass->vtable || tclass->bases || CClass_Destructor(tclass)) {
         return FALSE;
     }
+#endif
 
     object = CClass_AssignmentOperator(tclass);
     if (object && !(TYPE_FUNC(object->type)->flags & FUNC_AUTO_GENERATED)) {
         return FALSE;
     }
+#if MWCCPSP
+    for (base = tclass->bases; base; base = base->next) {
+        if (!CClass_IsTrivialCopyAssignClass(base->base)) {
+            return FALSE;
+        }
+    }
+#endif
 
     for (ivar = tclass->ivars; ivar; ivar = ivar->next) {
         type = ivar->type;
@@ -1419,7 +1446,11 @@ BClassList* CClass_GetBasePath(
     cclass_isbase_foundoffset = -1;
     cclass_isambigbase = FALSE;
 
+#if MWCCPS2
+    if ((path = CClass_GetBasePathRec(a, b, 0, 1)) != NULL) {
+#else
     if ((path = CClass_GetBasePathRec(a, b, 0, 1))) {
+#endif
         *founddepth = cclass_founddepth;
         *isambigbase = cclass_isambigbase;
 
@@ -1597,19 +1628,27 @@ ENode* CClass_DirectBasePointerCast(ENode* expr, TypeClass* a, TypeClass* b) {
 
     for (vbase = a->vbases; vbase; vbase = vbase->next) {
         if (vbase->base == b) {
+#if MWCCPS2
+            CError_ASSERT(1383, (path = CClass_GetBasePath(a, b, &depth, &isambigbase)) != NULL);
+#else
 #if MWCCPSP
             CError_ASSERT(1387, path = CClass_GetBasePath(a, b, &depth, &isambigbase));
 #else
             CError_ASSERT(1273, path = CClass_GetBasePath(a, b, &depth, &isambigbase));
 #endif
+#endif
             return CClass_AccessPathCast(path, expr, FALSE);
         }
     }
 
+#if MWCCPS2
+    CError_FATAL(1387);
+#else
 #if MWCCPSP
     CError_FATAL(1383);
 #else
     CError_FATAL(1277);
+#endif
 #endif
     return expr;
 }
@@ -1742,7 +1781,11 @@ Boolean CClass_OverridesBaseMember(TypeClass* tclass, HashNameNode* name, Object
                 object = OBJECT(nsol->object);
                 if (object->otype == OT_OBJECT &&
                     object->datatype == DVFUNC &&
+#if MWCCPSP
+                    CCLASS_OVERRIDE(object, obj, TRUE)) {
+#else
                     CClass_GetOverrideKind(TYPE_FUNC(object->type), TYPE_FUNC(obj->type), TRUE)) {
+#endif
                     result = TRUE;
                 }
             }
@@ -1862,9 +1905,13 @@ static void CClass_FindOVFunc(OVClass* a, OVClass* b, OVFunc* func) {
     if (CClass_IsBaseOf(b, a)) {
         for (scan = a->vfuncs; scan; scan = scan->next) {
             if ((func->obj->name == scan->obj->name) &&
+#if MWCCPSP
+                (overrideKind = CCLASS_OVERRIDE(func->obj, scan->obj, FALSE))) {
+#else
                 (overrideKind = CClass_GetOverrideKind(
                      TYPE_FUNC(func->obj->type), TYPE_FUNC(scan->obj->type), FALSE
                  ))) {
+#endif
                 if (func->overriderclass) {
                     if (func->overriderclass->tclass == a->tclass ||
                         CClass_ClassDominates(func->overriderclass->tclass, a->tclass)) {
@@ -1914,13 +1961,25 @@ static TypeList* CClass_GetCoVariantClassList(
 
             if (object->name == func->name &&
                 object->datatype == DVFUNC &&
+#if MWCCPSP
+                CCLASS_OVERRIDE(object, func, FALSE) ==
+#else
                 CClass_GetOverrideKind(TYPE_FUNC(object->type), TYPE_FUNC(func->type), FALSE) ==
+#endif
                     2) {
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 181 // mwccps2: its assert is at line 0x74B
+#endif
                 CError_ASSERT(
                     1686,
                     IS_TYPE_POINTER_ONLY(TYPE_FUNC(object->type)->functype) &&
                         IS_TYPE_CLASS(TPTR_TARGET(TYPE_FUNC(object->type)->functype))
                 );
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
                 type = TPTR_TARGET(TYPE_FUNC(object->type)->functype);
                 for (scan = list; scan; scan = scan->next) {
@@ -2085,14 +2144,26 @@ static void CClass_AllocVTableRec(OVClass* ovclass) {
             if (ovfunc->overrider) {
                 object = ovfunc->overrider->obj;
                 if ((TYPE_FUNC(object->type)->flags & FUNC_COVARIANT) &&
+#if MWCCPSP
+                    CCLASS_OVERRIDE(ovfunc->obj, object, FALSE) == 2) {
+#else
                     CClass_GetOverrideKind(
                         TYPE_FUNC(ovfunc->obj->type), TYPE_FUNC(object->type), FALSE
                     ) == 2) {
+#endif
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 181 // mwccps2: its assert is at line 0x814
+#endif
                     CError_ASSERT(
                         1887,
                         IS_TYPE_POINTER_ONLY(TYPE_FUNC(ovfunc->obj->type)->functype) &&
                             IS_TYPE_CLASS(TPTR_TARGET(TYPE_FUNC(ovfunc->obj->type)->functype))
                     );
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
                     object = CClass_FindCovariantFunction(
                         object, TPTR_TARGET(TYPE_FUNC(ovfunc->obj->type)->functype)
                     );
@@ -2369,9 +2440,13 @@ static void CClass_FindDominator(
 
         if (object->name == cclass_dominator_vobject->name &&
             object->datatype == DVFUNC &&
+#if MWCCPSP
+            CCLASS_OVERRIDE(cclass_dominator_vobject, object, FALSE)) {
+#else
             CClass_GetOverrideKind(
                 TYPE_FUNC(cclass_dominator_vobject->type), TYPE_FUNC(object->type), FALSE
             )) {
+#endif
             if (object == cclass_dominator_vobject && offset1 == cclass_dominator_voffset) {
                 if (object1) {
                     if (cclass_dominator_oobject && cclass_dominator_ooffset != offset2) {
@@ -2520,7 +2595,11 @@ void CClass_ClassAction(TypeClass* tclass) {
         return;
     }
 
+#if MWCCPS2
+    if (tclass->vtable && !(tclass->flags & 0x4000)) { // b210 class flag 0x4000 (unnamed)
+#else
     if (tclass->vtable) {
+#endif
         vtable_data_size = tclass->vtable->size;
         vtable_object_data = lalloc(vtable_data_size);
         memclrw(vtable_object_data, vtable_data_size);
@@ -3096,9 +3175,13 @@ static void CClass_OptimizeBitFieldAccess(Type** ptype, SInt32* poffset) {
             } else {
                 *ptype = TYPE(&stsignedlong);
             }
+#if MWCCPS2 && MWCCPS2_BUILD >= 210 // b210 leaves a full-width 32-bit bitfield's type alone
+        }
+#else
         } else {
             *ptype = innertype;
         }
+#endif
         return;
     }
     if (bitfield->size == stsignedchar.size) {

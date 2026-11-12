@@ -504,7 +504,7 @@ static void CParser_SetupRuntimeObjects(void) {
 #endif
 #if MWCCPSP
 extern UInt8 data_00625E9F;
-extern void* data_00624B70;
+extern struct DeferredDefArg* data_00624B70;
 extern SInt32 data_006247B8;
 extern UInt8 data_005E986C;
 #endif
@@ -896,6 +896,24 @@ static void CParser_SetCFMFlags(Object* object, DeclInfo* declinfo) {
         object->flags |= declinfo->exportflags;
     }
 
+#if MWCCPS2
+    // b210 (0x44C9B0): an alias is classified by the object it names
+    {
+        Object* target = object;
+        while (target->datatype == DALIAS) {
+            target = target->u.alias.object;
+        }
+        if (target->datatype == DDATA) {
+            if (copts.cfm_export) {
+                object->flags |= OBJECT_EXPORT;
+            }
+            if (copts.cfm_internal) {
+                object->flags |= OBJECT_INTERNAL;
+            }
+            return;
+        }
+    }
+#else
     if (object->datatype == DDATA) {
         if (copts.cfm_export) {
             object->flags |= OBJECT_EXPORT;
@@ -905,6 +923,7 @@ static void CParser_SetCFMFlags(Object* object, DeclInfo* declinfo) {
         }
         return;
     }
+#endif
     if (copts.cfm_internal) {
         object->flags |= OBJECT_INTERNAL;
         return;
@@ -924,7 +943,27 @@ void CParser_UpdateObject(Object* object, DeclInfo* declinfo) {
     if (declinfo && declinfo->section) {
         object->section = ((volatile DeclInfo*)declinfo)->section;
     }
-#if !MWCCPSP // 3.0.1 has no register or interrupt info here
+#if MWCCPS2
+    // b210 (0x44C920): a global's register-variable record (Object +0x3C,
+    // from DeclInfo +0x7C; class at +0x2E, register at +0x32). A record is
+    // allocated when there is none, then replaced by the declaration's.
+    if (declinfo && object->datatype == DDATA) {
+#if MWCCPSP_NATIVE
+        char** rvp = (char**)&object->u.data.info;
+#define PS2_DECLINFO_7C(d) ((d)->ps2_unk7C)
+#else
+        char** rvp = (char**)((char*)object + 0x3C);
+#define PS2_DECLINFO_7C(d) (*(char**)((char*)(d) + 0x7C))
+#endif
+        if (!*rvp) {
+            *rvp = galloc(sizeof(VarInfo));
+            memclrw(*rvp, sizeof(VarInfo));
+            *rvp = PS2_DECLINFO_7C(declinfo);
+        } else if (!*(SInt16*)PS2_VARINFO_AT(*rvp, 0x32) && *PS2_VARINFO_AT(*rvp, 0x2E) != 5) {
+            *rvp = PS2_DECLINFO_7C(declinfo);
+        }
+    }
+#elif !MWCCPSP // 3.0.1 has no register or interrupt info here
     if (declinfo && object->datatype == DDATA && !object->u.data.reginfo.reg) {
         object->u.data.reginfo = declinfo->reginfo;
     }
@@ -1081,8 +1120,13 @@ Object* CParser_NewAliasObject(Object* object, SInt32 offset) {
     *alias = *object;
     alias->datatype = DALIAS;
     alias->u.alias.object = object;
+#if MWCCPS2
+    alias->u.alias.offset = offset;
+    alias->nspace = cscope_current;
+#else
     alias->u.alias.member = NULL;
     alias->u.alias.offset = offset;
+#endif
     CScope_AddObject(cscope_current, alias->name, OBJ_BASE(alias));
     return alias;
 }
@@ -1230,17 +1274,65 @@ Object* CParser_FindDeallocationObject(
     }
 }
 
+#if MWCCPS2
+Boolean oldstylecompatible(FuncArg* arg) {
+    if (arg != &oldstyle && !copts.ignore_oldstyle) {
+        while (arg) {
+            if (arg == &elipsis) {
+                return FALSE;
+            }
+            switch (arg->type->type) {
+                case TYPEINT:
+                    if (TYPE_INTEGRAL(arg->type)->integral < IT_INT) {
+                        return FALSE;
+                    }
+                    break;
+                case TYPEFLOAT:
+                    if (TYPE_INTEGRAL(arg->type)->integral < IT_DOUBLE) {
+                        return FALSE;
+                    }
+                    break;
+                default:
+                    break;
+            }
+            arg = arg->next;
+        }
+    }
+
+    return TRUE;
+}
+#else
 #if MWCCPSP
 Boolean oldstylecompatible(FuncArg* arg) { // 3.0.1: also used by CDecl.c
-    if (arg == &oldstyle || copts.ignore_oldstyle) {
-        return TRUE;
+    if (arg != &oldstyle && !copts.ignore_oldstyle) {
+        while (arg) {
+            if (arg == &elipsis) {
+                return FALSE;
+            }
+            switch (arg->type->type) {
+                case TYPEINT:
+                    if (TYPE_INTEGRAL(arg->type)->integral < IT_INT) {
+                        return FALSE;
+                    }
+                    break;
+                case TYPEFLOAT:
+                    if (TYPE_INTEGRAL(arg->type)->integral < IT_DOUBLE) {
+                        return FALSE;
+                    }
+                    break;
+                default:
+                    break;
+            }
+            arg = arg->next;
+        }
     }
+    return TRUE;
+}
 #else
 static Boolean oldstylecompatible(FuncArg* arg) {
     if (copts.ignore_oldstyle) {
         return TRUE;
     }
-#endif
 
     while (arg) {
         if (arg == &elipsis) {
@@ -1265,6 +1357,8 @@ static Boolean oldstylecompatible(FuncArg* arg) {
 
     return TRUE;
 }
+#endif
+#endif
 
 static Boolean is_arglistequal(FuncArg* a, FuncArg* b) {
     if (a == &oldstyle) {
@@ -1789,6 +1883,12 @@ short CParser_GetOperator(ENodeType t) {
             return TK_SHL;
         case ESHR:
             return TK_SHR;
+#if MWCCPS2
+        case EMIN:
+            return TK_LESS_QUESTION;
+        case EMAX:
+            return TK_GREATER_QUESTION;
+#endif
         case ELESS:
             return '<';
         case EGREATER:
@@ -2254,7 +2354,9 @@ static Boolean CParser_ClassHasMutableMember(TypeClass* tclass) {
 }
 
 Boolean CParser_IsReadOnly(Type* type, UInt32 qual) {
+#if !MWCCPS2
     int result;
+#endif
     while (type->type == TYPEARRAY) {
         type = TYPE_POINTER(type)->target;
     }
@@ -2271,11 +2373,15 @@ Boolean CParser_IsReadOnly(Type* type, UInt32 qual) {
     if (!(qual & Q_CONST)) {
         return FALSE;
     }
+#if MWCCPS2
+    return type->type != TYPECLASS || !CParser_ClassHasMutableMember(TYPE_CLASS(type));
+#else
     result = TRUE;
     if (type->type == TYPECLASS && (!CParser_ClassHasMutableMember(TYPE_CLASS(type))) == FALSE) {
         result = FALSE;
     }
     return result;
+#endif
 }
 #endif
 
@@ -2504,11 +2610,28 @@ void TypedefDeclInfo(DeclInfo* declinfo, Type* type, UInt32 qual) {
         declinfo->qual &= ~(Q_RESTRICT | Q_REFERENCE | Q_VOLATILE | Q_CONST);
         declinfo->qual |= qual & (Q_ALIGNED_MASK | Q_REFERENCE | Q_PASCAL | Q_VOLATILE | Q_CONST);
     } else {
+#if MWCCPS2
+        // b210 (0x44A460): a qualified function typedef is diagnosed; an
+        // incomplete array is copied whole (with its element count)
+        if (IS_TYPE_FUNC(type)) {
+            if (declinfo->qual & Q_CONST) {
+                CError_QualifierCheck(Q_CONST);
+            }
+            if (declinfo->qual & Q_VOLATILE) {
+                CError_QualifierCheck(Q_VOLATILE);
+            }
+        }
+#endif
         declinfo->thetype = type;
         declinfo->qual |= qual & (Q_ALIGNED_MASK | Q_REFERENCE | Q_PASCAL | Q_VOLATILE | Q_CONST);
         if (IS_TYPE_ARRAY(declinfo->thetype) && !declinfo->thetype->size) {
+#if MWCCPS2
+            declinfo->thetype = galloc(sizeof(TypeArray301));
+            *(TypeArray301*)declinfo->thetype = *(TypeArray301*)type;
+#else
             declinfo->thetype = galloc(sizeof(TypePointer));
             *TYPE_POINTER(declinfo->thetype) = *TYPE_POINTER(type);
+#endif
         }
     }
     declinfo->isType = TRUE;
@@ -2774,6 +2897,12 @@ void CParser_ParseAttribute(Type* type, DeclInfo* declinfo) {
         }
         tk = lex();
     } while ((int)tk == TK_UU_ATTRIBUTE_UU);
+#if MWCCPS2
+    // b210 keeps 2.4.7's asm("reg") global register variables
+    if ((int)tk == TK_ASM && declinfo) {
+        CMach_ParseGlobalRegisterVariable(declinfo);
+    }
+#endif
 }
 #else
 void CParser_ParseAttribute(Type* type, DeclInfo* declinfo) {
@@ -3529,6 +3658,8 @@ static Boolean CParser_IsAltiVecPrefix(void) {
 // storage class inside friend declarations, a type found through a base
 // class path is queued for an access check (unk44list) and a declaration
 // name may first be looked up in DeclInfo.unk10.
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -21 // b145 asserts
 void CParser_GetDeclSpecs(DeclInfo* di, Boolean resolveMembers) {
     short typesize;
     short signedness;
@@ -4024,6 +4155,8 @@ bailOut:
     no_declspecs = FALSE;
     goto restart;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 void CParser_GetDeclSpecs(DeclInfo* di, Boolean resolveMembers) {
     short typesize;
@@ -4722,6 +4855,10 @@ void CParser_NewClassAction(TypeClass* tclass) {
     cparser_classactions = act;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -21 // b145 asserts
+#endif
 void CParser_CallBackAction(Object* obj) {
     CallbackAction* act;
 
@@ -4738,6 +4875,10 @@ void CParser_CallBackAction(Object* obj) {
     CError_FATAL(4601);
 #endif
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static Object* CParser_FindOverloadFunc(NameSpaceObjectList* list, TypeFunc* tfunc) {
     while (list) {
@@ -5001,6 +5142,29 @@ static void CParser_ParseDeclaration(DeclInfo* di) {
         default:
 declaration:
             CParser_GetDeclSpecs(di, TRUE);
+#if MWCCPS2
+            // b210 (0x447CA0): register is allowed at file scope when the
+            // declarator names a register (DeclInfo +0x7C's VarInfo)
+            if (di->storageclass == TK_AUTO) {
+                CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+                di->storageclass = 0;
+            }
+            if (tk == ';') {
+                CParser_CheckAnonymousUnion(di, FALSE);
+            } else {
+                VarInfo* vi;
+
+                scandeclaratorlist(di);
+                if (di->storageclass == TK_REGISTER &&
+                    (vi = *(VarInfo**)di->ps2_unk7C) &&
+                    !vi->reg &&
+                    vi->unk24[2] != 5 &&
+                    vi->unk24[2] != 0) {
+                    CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
+                    di->storageclass = 0;
+                }
+            }
+#else
             if ((UInt16)(di->storageclass - TK_AUTO) < 2) {
                 CError_Error(ERR_ILLEGAL_STORAGE_CLASS);
                 di->storageclass = 0;
@@ -5010,6 +5174,7 @@ declaration:
             } else {
                 scandeclaratorlist(di);
             }
+#endif
             break;
     }
     CParser_GlobalCleanup(FALSE);

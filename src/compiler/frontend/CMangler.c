@@ -284,6 +284,119 @@ HashNameNode* CMangler_OperatorName(short token) {
             return NULL;
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+static void CMangler_MangleFunction(Object* obj, NameSpace* nspace);
+static void CMangler_CheckTemplateArguments(TemplArg* arg);
+
+// 0x49F360: the name of a string literal of an inline function with external
+// linkage: "@STRING@", the function's mangled name, and "@n" after the first
+void func_0049F360(Object* obj, Object* func, SInt32 index) {
+    char buf[64];
+    NameSpace* nspace;
+    HashNameNode* name;
+
+    CError_ASSERT(1250, CParser_IsDataObject(obj));
+    if (func->u.func.inst) {
+        CMangler_CheckTemplateArguments(func->u.func.inst->args);
+    }
+    for (nspace = func->nspace; nspace; nspace = nspace->parent) {
+        if (nspace->name) {
+            break;
+        }
+    }
+    name_mangle_list.size = 0;
+    AppendGListName(&name_mangle_list, "@STRING@");
+    CMangler_MangleFunction(func, nspace);
+    if (index > 0) {
+        AppendGListByte(&name_mangle_list, '@');
+        index += -1;
+        if (index < 0) {
+            AppendGListByte(&name_mangle_list, 'n');
+            index = -index;
+        }
+        sprintf(buf, "%ld", index);
+        AppendGListName(&name_mangle_list, buf);
+    }
+    AppendGListByte(&name_mangle_list, 0);
+    COS_LockHandle(name_mangle_list.data);
+    name = GetHashNameNodeExport(*name_mangle_list.data);
+    COS_UnlockHandle(name_mangle_list.data);
+    obj->u.data.linkname = name;
+}
+
+// 0x49F5A0: the name of a static local of an inline function with external
+// linkage: "@LOCAL@", the function's mangled name, "@" and the local's name,
+// and "@n" after the first of that name
+void func_0049F5A0(Object* obj, Object* func, SInt32 index) {
+    char buf[64];
+    NameSpace* nspace;
+    HashNameNode* name;
+
+    CError_ASSERT(1173, CParser_IsDataObject(obj));
+    if (func->u.func.inst) {
+        CMangler_CheckTemplateArguments(func->u.func.inst->args);
+    }
+    for (nspace = func->nspace; nspace; nspace = nspace->parent) {
+        if (nspace->name) {
+            break;
+        }
+    }
+    name_mangle_list.size = 0;
+    AppendGListName(&name_mangle_list, "@LOCAL@");
+    CMangler_MangleFunction(func, nspace);
+    AppendGListByte(&name_mangle_list, '@');
+    AppendGListName(&name_mangle_list, obj->name->name);
+    if (index > 0) {
+        AppendGListByte(&name_mangle_list, '@');
+        index += -1;
+        if (index < 0) {
+            AppendGListByte(&name_mangle_list, 'n');
+            index = -index;
+        }
+        sprintf(buf, "%ld", index);
+        AppendGListName(&name_mangle_list, buf);
+    }
+    AppendGListByte(&name_mangle_list, 0);
+    COS_LockHandle(name_mangle_list.data);
+    name = GetHashNameNodeExport(*name_mangle_list.data);
+    COS_UnlockHandle(name_mangle_list.data);
+    obj->u.data.linkname = name;
+}
+
+// 0x49F480: the name of a static local's guard: "@GUARD@" and the local's
+// link name, without a leading "@LOCAL@"
+void func_0049F480(Object* guard, Object* obj) {
+    char* name;
+    char* p;
+
+    CError_ASSERT(1209, CParser_IsDataObject(guard));
+    CError_ASSERT(1210, CParser_IsDataObject(obj) && obj->u.data.linkname);
+    name = obj->u.data.linkname->name;
+    for (p = name; *p; p++) {
+        if (*p == '@') {
+            if (p[1] == 'L' &&
+                p[2] == 'O' &&
+                p[3] == 'C' &&
+                p[4] == 'A' &&
+                p[5] == 'L' &&
+                p[6] == '@') {
+                name = p + 7;
+            }
+            break;
+        }
+    }
+    name_mangle_list.size = 0;
+    AppendGListName(&name_mangle_list, "@GUARD@");
+    AppendGListName(&name_mangle_list, name);
+    AppendGListByte(&name_mangle_list, 0);
+    COS_LockHandle(name_mangle_list.data);
+    guard->u.data.linkname = GetHashNameNodeExport(*name_mangle_list.data);
+    COS_UnlockHandle(name_mangle_list.data);
+}
+#endif
 
 HashNameNode* CMangler_VTableName(TypeClass* theclass) {
     HashNameNode* name;

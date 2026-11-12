@@ -7,7 +7,48 @@
 #include "driver/Resources.h"
 #include "driver/ResourceStrings.h"
 #include <string.h>
+#if MWCCPS2
+#include "compiler/win32.h"
+// declared here, not in win32.h: new declarations there renumber other units' statics
+__declspec(dllimport) DWORD __stdcall GetModuleFileNameA(
+    HMODULE hModule, LPSTR lpFilename, DWORD nSize
+);
+__declspec(dllimport) HMODULE __stdcall LoadLibraryA(LPCSTR lpLibFileName);
+__declspec(dllimport) BOOL __stdcall FreeLibrary(HMODULE hLibModule);
+#endif
 
+#if MWCCPS2
+// b210 first looks for the string table in the exe's own Win32 resources
+int __stdcall RegisterResource(const char* name, SInt16 rsrcid, const char** list) {
+    char str[256];
+    char path[260];
+    HMODULE module;
+    int len;
+    Handle h;
+
+    if (list) {
+        return Res_AddResource(name, rsrcid, list);
+    }
+    if (!GetModuleFileNameA(GetModuleHandleA(NULL), path, 259)) {
+        OS_SpecToString(&clState.programSpec, path, 260);
+    }
+    module = LoadLibraryA(path);
+    if (module) {
+        len = LoadStringA(module, 101, str, 256);
+        FreeLibrary(module);
+        if (len) {
+            return TRUE;
+        }
+    }
+    h = GetResource('STR#', rsrcid);
+    if (h) {
+        ReleaseResource(h);
+        return TRUE;
+    }
+    CLFatalError("Resource ('STR#',%d) '%s' not found in executable\n", rsrcid, name);
+    return FALSE;
+}
+#else
 int __stdcall RegisterResource(const char* name, SInt16 rsrcid, const char** list) {
     Handle h;
 
@@ -23,6 +64,7 @@ int __stdcall RegisterResource(const char* name, SInt16 rsrcid, const char** lis
         return Res_AddResource(name, rsrcid, list);
     }
 }
+#endif
 
 int __stdcall RegisterStaticPlugin(const BasePluginCallbacks* callbacks) {
     return Plugins_Add(Plugin_New(callbacks, NULL, NULL));

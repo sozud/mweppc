@@ -473,6 +473,12 @@ static CInt64 ConstantExpressionTail(CInt64 value) {
 }
 
 CInt64 InlineAsm_Int64Expression(void) {
+#if MWCCPS2
+    CInt64 left;
+
+    left = PrimaryExpression();
+    return GetPrec(tk) != 0 ? ConstantExpressionTail(left) : left;
+#else
     CInt64 left = PrimaryExpression();
     CInt64 value;
 
@@ -482,6 +488,7 @@ CInt64 InlineAsm_Int64Expression(void) {
         value = left;
     }
     return value;
+#endif
 }
 
 SInt32 InlineAsm_ConstantExpression(void) {
@@ -693,7 +700,9 @@ void ScanStatements(volatile short endToken) {
                 while (tk == TK_EOL) {
                     CPrep_TokenStreamFlush();
                     tk = lex();
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210
                     sourceoffset = CPrep_GetFileOffsetInfo(&cparser_fileoffset);
+#endif
                 }
                 if (tk == '"') {
                     tk = lex();
@@ -716,6 +725,9 @@ void ScanStatements(volatile short endToken) {
             } else {
                 InlineAsm_gccmode = TRUE;
                 copts.cplusplus = FALSE;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                copts.asmpoundcomment = TRUE; // b145
+#endif
                 tk = lex();
             }
         }
@@ -1142,9 +1154,13 @@ void InlineAsm_PackAsmStatement(Statement* stmt, Statement* first, void** output
                 break;
             case MOpnd_Reg:
             case MOpnd_LocalObj:
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 converts every object operand
+                op->u.reg.object = (Object*)CInline_GetLocalID(op->u.reg.object);
+#else
                 if (op->u.obj.obj && op->u.obj.obj->datatype == DLOCAL) {
                     op->u.reg.object = (Object*)CInline_GetLocalID(op->u.reg.object);
                 }
+#endif
                 break;
             case MOpnd_Lab:
                 op->u.lab.label =

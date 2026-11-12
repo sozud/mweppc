@@ -121,7 +121,7 @@ extern struct Macro** macrohashtable;
 extern UInt8 cprep_nomem_exit;
 extern UInt8 cprep_nostring;
 extern UInt8 cprep_eoltokens;
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2
 extern TokenStack tokenstack[256]; // 3.0.1 nests macros 256 deep
 #else
 extern TokenStack tokenstack[128];

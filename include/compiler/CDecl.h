@@ -100,6 +100,14 @@ struct DeclInfo {
     Boolean firstDeclaration;
     UInt8 interruptflags;
     ObjRegInfo reginfo;
+#if MWCCPS2
+#if MWCCPSP_NATIVE
+    char* ps2_unk7C; // natively a pointer's room: CParser_UpdateObject reads a pointer here
+#else
+    UInt8 ps2_unk7C
+        [4]; // mwccps2 b210: sizeof 0x80 (CDecl_UnpackDeclInfo clears 0x80); placement unverified
+#endif
+#endif
 };
 
 struct BigDeclInfo {
@@ -107,6 +115,9 @@ struct BigDeclInfo {
     DeclInfo declinfo2;
     Boolean unused;
     Boolean valid;
+#if MWCCPS2
+    UInt8 ps2_pad[2]; // mwccps2 b210: sizeof 0x104 (scanstructdeclarationlist clears 0x104)
+#endif
 };
 #pragma pack(pop)
 

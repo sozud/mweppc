@@ -2076,3 +2076,44 @@ CExpr_GenericPtmfCall = 0x00524710;
 Type_RequiresMemoryReturn = 0x00464EE0;
 CExpr_IsStaticType = 0x00525370;
 CExpr2.c/CExpr_IsObjrefPlusX = 0x005253A0;
+CExpr.c/CExpr_DummyDestr = 0x005161D0;
+// 2.4.7's name for ObjGen_EmitData (CInit.c declaredata calls it); native builds alias it
+ObjGen_DeclareData = 0x00462860;
+CRTTI.c/CRTTI_ParseCast = 0x005444C0;
+// statement-expression splicing state (0x46DCB0 / 0x46DD20)
+CFunc.c/data_005EDCB1 = 0x005EDCB1;
+CFunc.c/data_005EDCB4 = 0x005EDCB4;
+CFunc.c/func_0046DD20 = 0x0046DD20;
+CTemplateNew.c/CTempl_CheckTemplArgExpr301 = 0x004E8250;
+
+// ObjGen.c: CPrep calls it at each source file change; it stores the name
+// that func_00535220 reads (DWARF compile unit name).
+ObjGen_SrcBreakName = 0x004622F0;
+
+// IroUtil.c: IRO_FindFirst (0x554360) renumbers (IRO_RenumberInts 0x562220)
+// and calls the static FindFirst (0x554370); IroTransform.c's
+// switchFatherLeft301 calls it.
+IRO_FindFirst = 0x00554360;
+IroUtil.c/FindFirst = 0x00554370;
+
+// IroPointerAnalysis.c: 0x4CEAB0 checks pointsToFunction, evaluates the
+// expression into a LocationSetSet and walks it, as
+// PointerAnalysis_LookupLinearNodePointerExpr does (not LookupGotoTargets).
+PointerAnalysis_LookupLinearNodePointerExpr = 0x004CEAB0;
+
+// IroStrengthReduction.c (3.0.1) owns these walker actions; IroLoop.c's
+// 2.4.7 copies claim the same addresses, so the import drops both names.
+IroStrengthReduction.c/ActUnmarkRISCandidate = 0x0059DB60;
+IroStrengthReduction.c/RemoveExprAction = 0x0059E740;
+
+// Addresses read off call sites: the original calls these where our source
+// calls the named function (diff.py side by side), and the name had none.
+CScope_IsEmptySymTable = 0x004EDD40;
+UseDefChains301.c/addobjectusedef = 0x0053D5D0;
+
+// CPrec.c: 3.0.1 splits the class writer: plain classes (0x4F44D0, which
+// the field writers call), templates (0x4F4710) and instances (0x4F4AB0).
+CPrec.c/CPrec_GetTypeClassPatch = 0x004F44D0;
+CPrec.c/CPrec_GetTemplClassPatch301 = 0x004F4710;
+CPrec.c/CPrec_GetTemplClassInstPatch301 = 0x004F4AB0;
+CPrec.c/CPrec_GetObjMemberVarPatch = 0x004F1940;

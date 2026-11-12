@@ -1780,6 +1780,9 @@ extern void func_0056AB70(
 extern int CExcept_IsSubList(ExceptionAction* a, ExceptionAction* b);
 
 // 0x576350: the node starting with label, and the node before it
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_00597D60)
+#endif
 Boolean func_00576350(CLabel* label, IRONode** node, IRONode** prevNode) {
     IRONode* prev;
     IRONode* iter;
@@ -1799,11 +1802,27 @@ Boolean func_00576350(CLabel* label, IRONode** node, IRONode** prevNode) {
 }
 
 // 0x555160: code of statement b may move to statement a's exception context
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_00599070)
+#endif
 Boolean func_00555160(Statement* a, Statement* b) {
+#if MWCCPS2
+    Boolean result;
+    struct ExceptionAction* astack;
+    struct ExceptionAction* bstack;
+
+    if (a == b || (astack = a->dobjstack) == (bstack = b->dobjstack)) {
+        result = TRUE;
+    } else {
+        result = CExcept_IsSubList(astack, bstack) == 0;
+    }
+    return result;
+#else
     if (a == b || a->dobjstack == b->dobjstack) {
         return TRUE;
     }
     return CExcept_IsSubList(a->dobjstack, b->dobjstack) == 0;
+#endif
 }
 
 // 0x598EC0: a top-level statement lies between start and stop (3.0.1
@@ -2399,7 +2418,11 @@ void func_00598C80(IRONodes* nodes, IRONode* fnode1, IRONode* fnode2) {
 
     if (fnode1 && !fnode1->marked) {
         fnode1->marked = TRUE;
+#if MWCCPS2
+        IRO_FNodeWorkStack_Add(nodes, fnode1->index); // b210 inlines it here (0x598C80)
+#else
         func_00598E70(nodes, fnode1->index);
+#endif
         if (fnode1 != fnode2) {
             for (i = 0; i < fnode1->numsucc; i++) {
                 func_00598C80(nodes, IRO_NodeTable[fnode1->succ[i]], fnode2);
@@ -3037,5 +3060,64 @@ void IRO_RegenerateExpressions(void) {
         GenerateCondAssignments();
         IRO_DumpAfterPhase("GenerateCondAssignments", FALSE);
     }
+}
+#endif
+#if MWCCPSP
+
+#if MWCCPS2 && MWCCPSP_NATIVE
+// IRO_RegenerateExpressions calls it by its b210 address
+// (IRO_GenerateCondAssignments); the hybrid binds that to this static,
+// natively it needs a global name
+void IRO_GenerateCondAssignments(void) {
+    GenerateCondAssignments();
+}
+#endif
+
+#endif
+#if MWCCPSP
+extern Boolean CScope_IsStdNameSpace(NameSpace* nspace);
+extern NameSpace* cscope_root;
+
+// a call of the C library's name (in C++, std:: or global) with one
+// floating argument and a floating result; *arg is set to the argument
+static inline Boolean IRO_IsMathCall(IROLinear* linear, IROLinear** arg, const char* name) {
+    IROLinear* callee;
+    Object* obj;
+    Boolean is;
+
+    callee = linear->u.funccall.callee;
+    if (callee->type == IROLinearOperand && callee->u.node->type == EOBJREF) {
+        obj = callee->u.node->data.objref;
+        if ((!copts.cplusplus ||
+             CScope_IsStdNameSpace(obj->nspace) ||
+             obj->nspace == cscope_root) &&
+            !strcmp(obj->name->name, name) &&
+            linear->u.funccall.argCount == 1 &&
+            linear->u.funccall.args[0]->rtype->type == TYPEFLOAT &&
+            linear->rtype->type == TYPEFLOAT) {
+            is = TRUE;
+        } else {
+            is = FALSE;
+        }
+    } else {
+        is = FALSE;
+    }
+    if (is) {
+        if (arg) {
+            *arg = linear->u.funccall.args[0];
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// 0x596E30
+Boolean IRO_IsCosCall(IROLinear* linear, IROLinear** arg) {
+    return IRO_IsMathCall(linear, arg, "cos");
+}
+
+// 0x596ED0
+Boolean IRO_IsSinCall(IROLinear* linear, IROLinear** arg) {
+    return IRO_IsMathCall(linear, arg, "sin");
 }
 #endif

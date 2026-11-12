@@ -159,7 +159,11 @@ static int ConvertMemToDisk(BrowseTableEntry* mem, BrowseFileRecord* disk, int n
         memset(disk->filepath, 0, blen);
         strncpy(disk->filepath, mem->filepath, slen);
         mem++;
+#if MWCCPSP
+        disk = (BrowseFileRecord*)(((unsigned char*)disk) + blen + 0x10);
+#else
         disk = (BrowseFileRecord*)(((unsigned char*)disk) + 0x10 + blen);
+#endif
     }
 
     return TRUE;

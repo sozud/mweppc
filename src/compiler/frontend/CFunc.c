@@ -206,7 +206,11 @@ void CFunc_SetupLocalVarInfo(Object* obj) {
         }
     }
 
+#if MWCCPS2
+    if (obj->type != NULL && is_volatile_object(obj)) {
+#else
     if (obj->type && is_volatile_object(obj)) {
+#endif
         obj->u.var.info->noregister = TRUE;
     }
 }
@@ -347,7 +351,90 @@ static ENode* CFunc_DefaultArg(Type* type, UInt32 qual, FuncArg* args) {
 }
 
 #if MWCCPSP
-extern void CFunc_DefaultArg301(FuncArg* arg, FuncArg* args); // 0x46EB10: may defer the parse
+extern UInt8 data_00625E9F; // set while default arguments may be deferred
+// a default argument whose parse is deferred (#pragma defer_defarg_parsing)
+typedef struct DeferredDefArgScope {
+    struct DeferredDefArgScope* next;
+    NameSpace* nspace;
+    NameSpaceName* tparams;
+} DeferredDefArgScope;
+typedef struct DeferredDefArg {
+    struct DeferredDefArg* next;
+    FuncArg* args;
+    FuncArg* arg;
+    NameSpace* nspace;
+    DeferredDefArgScope* scopes; // the enclosing template scopes, outermost first
+    TokenStream stream;
+} DeferredDefArg;
+extern DeferredDefArg* data_00624B70;
+extern void func_00443CB0(TokenStream* stream); // collects the default argument's tokens
+
+// the enclosing template scopes, outermost first
+static inline DeferredDefArgScope* CFunc_TemplateScopes(void) {
+    DeferredDefArgScope* list;
+    DeferredDefArgScope* scope;
+    NameSpace* nspace;
+
+    list = NULL;
+    nspace = cscope_current;
+    while (nspace != NULL) {
+        if (nspace->tparams != NULL) {
+            scope = lalloc(sizeof(DeferredDefArgScope));
+            scope->nspace = nspace;
+            scope->tparams = nspace->tparams;
+            scope->next = list;
+            list = scope;
+        }
+        nspace = nspace->parent;
+    }
+    return list;
+}
+
+// 3.0.1's CFunc_DefaultArg reads the type from the argument
+static inline ENode* CFunc_ParseDefaultArg(FuncArg* arg, FuncArg* args) {
+    ENode* expr;
+    TStreamElement* element;
+    ENode* result;
+
+    name_obj_check = defarg_name_obj_check;
+    check_arglist = args;
+    expr = conv_assignment_expression();
+    name_obj_check = NULL;
+
+    if (!CTemplTool_IsTemplateArgumentDependentExpression(expr) &&
+        !CTemplTool_IsTemplateArgumentDependentType(arg->type)) {
+        result = argumentpromotion(expr, arg->type, (SInt16)arg->qual, TRUE);
+    } else if (expr && (element = CPrep_CurStreamElement()) && element->tokenfile) {
+        result = CExpr_NewTemplDepENode(TDE_SOURCEREF);
+        result->data.templdep.u.sourceref.expr = expr;
+        result->data.templdep.u.sourceref.token = galloc(sizeof(TStreamElement));
+        *result->data.templdep.u.sourceref.token = *element;
+    } else {
+        result = expr;
+    }
+
+    return CInline_CopyExpression(result, CopyModeGlobal);
+}
+
+// 3.0.1: parse the default argument of arg, or save its tokens for later
+void CFunc_DefaultArg301(FuncArg* arg, FuncArg* args) {
+    DeferredDefArg* defer;
+
+    if (data_00625E9F && copts.defer_defarg_parsing) {
+        defer = lalloc(sizeof(DeferredDefArg));
+        memclrw(defer, sizeof(DeferredDefArg));
+        defer->args = args;
+        defer->arg = arg;
+        defer->nspace = cscope_current;
+        defer->scopes = CFunc_TemplateScopes();
+        defer->next = data_00624B70;
+        data_00624B70 = defer;
+        func_00443CB0(&defer->stream);
+        defer->arg->is_deferred = TRUE;
+    } else {
+        arg->dexpr = CFunc_ParseDefaultArg(arg, args);
+    }
+}
 extern void func_00500E60(DeclInfo* di, void* list); // appends to di->unk44list
 
 // 3.0.1 (0x46E630): the parameter declaration inherits the outer unk10, its
@@ -590,24 +677,25 @@ FuncArg* parameter_type_list(DeclInfo* declinfo) {
     declinfo->oldStyleParameters = FALSE;
     declinfo->parameterScope = NULL;
 
-    if (!copts.cplusplus) {
+    if (copts.cplusplus) {
+        args = parameter_list(declinfo);
+    } else {
         if (tk != TK_ELLIPSIS && !isdeclaration(0, 0, 0, 0)) {
             identifier_list(declinfo);
-            return &oldstyle;
+            args = &oldstyle;
+        } else {
+            nspace = CScope_NewListNameSpace(NULL, FALSE);
+            nspace->parent = cscope_current;
+            cscope_current = nspace;
+            save_in_func_arglist = in_func_arglist;
+            in_func_arglist = TRUE;
+            args = parameter_list(declinfo);
+            in_func_arglist = save_in_func_arglist;
+            cscope_current = nspace->parent;
+            if (!CScope_IsEmptyNameSpace(nspace)) {
+                declinfo->parameterScope = nspace;
+            }
         }
-        nspace = CScope_NewListNameSpace(NULL, FALSE);
-        nspace->parent = cscope_current;
-        save_in_func_arglist = in_func_arglist;
-        in_func_arglist = TRUE;
-        cscope_current = nspace;
-        args = parameter_list(declinfo);
-        cscope_current = nspace->parent;
-        in_func_arglist = save_in_func_arglist;
-        if (!CScope_IsEmptyNameSpace(nspace)) {
-            declinfo->parameterScope = nspace;
-        }
-    } else {
-        args = parameter_list(declinfo);
     }
 
     return args;
@@ -852,13 +940,29 @@ void CFunc_CodeCleanup(Statement* stmt) {
 #endif
     CExcept_ExceptionTansform(stmt);
 }
+#if MWCCPSP
+
+#if MWCCPS2
+// b210 compares exception actions with CExcept_ActionCompare (by content)
+// where mwccpsp compares the pointers
+#define CFUNC_ACT_EQ(a, b) CExcept_ActionCompare((a), (b))
+#define CFUNC_ACT_END(p) CExcept_ActionCompare((p), NULL)
+#else
+#define CFUNC_ACT_EQ(a, b) ((a) == (b))
+#define CFUNC_ACT_END(p) (!(p))
+#endif
+#endif
 
 static Boolean DestructorNeeded(ExceptionAction* ea, ExceptionAction* end) {
     while (ea) {
         if (CExcept_ActionNeedsDestruction(ea)) {
             return TRUE;
         }
+#if MWCCPSP
+        if (CFUNC_ACT_EQ(ea, end)) {
+#else
         if (ea == end) {
+#endif
             break;
         }
         ea = ea->prev;
@@ -870,7 +974,11 @@ static Boolean DestructorNeeded(ExceptionAction* ea, ExceptionAction* end) {
 static Statement* DestructLocals(Statement* stmt, ExceptionAction* ea, ExceptionAction* end) {
     while (ea) {
         stmt = CExcept_ActionCleanup(ea, stmt);
+#if MWCCPSP
+        if (CFUNC_ACT_EQ(ea, end)) {
+#else
         if (ea == end) {
+#endif
             break;
         }
         ea = ea->prev;
@@ -888,12 +996,20 @@ static Boolean NeedsDestruction(Statement* stmt1, Statement* stmt2) {
     ea2 = stmt2->dobjstack;
 
     for (scan = ea2; scan; scan = scan->prev) {
+#if MWCCPSP
+        if (CFUNC_ACT_EQ(scan, ea1)) {
+#else
         if (scan == ea1) {
+#endif
             return FALSE;
         }
     }
 
+#if MWCCPSP
+    while (ea1 && !CFUNC_ACT_EQ(ea1, ea2)) {
+#else
     while (ea1 && ea1 != ea2) {
+#endif
         if (CExcept_ActionNeedsDestruction(ea1)) {
             return TRUE;
         }
@@ -909,7 +1025,11 @@ static ExceptionAction* FindLastNonCommonStackObj(Statement* stmt1, Statement* s
 
     for (ea2 = stmt2->dobjstack; ea2; ea2 = ea2->prev) {
         for (ea1 = stmt1->dobjstack; ea1; ea1 = ea1->prev) {
+#if MWCCPSP
+            if (CFUNC_ACT_EQ(ea1->prev, ea2)) {
+#else
             if (ea1->prev == ea2) {
+#endif
                 return ea1;
             }
         }
@@ -935,6 +1055,9 @@ static void DestructorReturnTransform(Statement* stmt1, Statement* stmt2) {
             stmt->sourcefilepath = stmt2->sourcefilepath;
             DestructLocals(stmt, stmt2->dobjstack, NULL);
             stmt2->expr = create_objectnode(tempobj);
+#if MWCCPS2
+            stmt2->dobjstack = NULL; // b210: the return no longer runs the cleanups
+#endif
         } else {
             stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt1);
             stmt->expr = stmt2->expr;
@@ -942,6 +1065,9 @@ static void DestructorReturnTransform(Statement* stmt1, Statement* stmt2) {
             stmt->sourcefilepath = stmt2->sourcefilepath;
             DestructLocals(stmt, stmt2->dobjstack, NULL);
             stmt2->expr = nullnode();
+#if MWCCPS2
+            stmt2->dobjstack = NULL;
+#endif
         }
     }
 }
@@ -1001,11 +1127,20 @@ static inline Boolean CFunc_NeedsCleanup(Statement* stmt, Statement* dest) {
 
     from = stmt->dobjstack;
     for (p = dest->dobjstack; p; p = p->prev) {
+#if MWCCPSP
+        if (CFUNC_ACT_EQ(p, from)) {
+#else
         if (p == from) {
+#endif
             return FALSE;
         }
     }
+#if MWCCPSP
+    for (from = stmt->dobjstack, p = dest->dobjstack; from && !CFUNC_ACT_EQ(from, p);
+         from = from->prev) {
+#else
     for (from = stmt->dobjstack, p = dest->dobjstack; from && from != p; from = from->prev) {
+#endif
         if (CExcept_ActionNeedsDestruction(from)) {
             return TRUE;
         }
@@ -1018,7 +1153,11 @@ static inline Boolean CFunc_AnyCleanup(ExceptionAction* p) {
         if (CExcept_ActionNeedsDestruction(p)) {
             return TRUE;
         }
+#if MWCCPSP
+        if (CFUNC_ACT_END(p)) {
+#else
         if (!p) {
+#endif
             break;
         }
         p = p->prev;
@@ -1031,7 +1170,11 @@ static inline ExceptionAction* CFunc_CommonScope(Statement* stmt, ExceptionActio
 
     while (to) {
         for (p = stmt->dobjstack; p; p = p->prev) {
+#if MWCCPSP
+            if (CFUNC_ACT_EQ(p->prev, to)) {
+#else
             if (p->prev == to) {
+#endif
                 return p;
             }
         }
@@ -1045,7 +1188,11 @@ static inline Statement* CFunc_EmitCleanups(
 ) {
     for (; p; p = p->prev) {
         stmt = CExcept_ActionCleanup(p, stmt);
+#if MWCCPSP
+        if (CFUNC_ACT_EQ(p, stop)) {
+#else
         if (p == stop) {
+#endif
             break;
         }
     }
@@ -1055,7 +1202,11 @@ static inline Statement* CFunc_EmitCleanups(
 static inline Statement* CFunc_EmitAllCleanups(Statement* stmt, ExceptionAction* p) {
     for (; p; p = p->prev) {
         stmt = CExcept_ActionCleanup(p, stmt);
+#if MWCCPSP
+        if (CFUNC_ACT_END(p)) {
+#else
         if (!p) {
+#endif
             break;
         }
     }
@@ -1181,7 +1332,7 @@ void CFunc_DestructorCleanup(Statement* first) {
 }
 
 #if MWCCPSP
-extern void func_0046DCB0(Statement* first); // computed-goto label handling
+void func_0046DCB0(Statement* first); // statement expressions into statements
 extern Boolean data_005EDCB8;
 
 // 0x469000: a GCC statement expression ({ ... }): its statements, with the
@@ -1235,8 +1386,111 @@ ENode* func_00469000(void) {
 
 extern Boolean data_005EDCB8;
 
+static Boolean data_005EDCB1; // a statement expression was spliced
+static Statement* data_005EDCB4; // the statement being searched
+
+// 0x46DD20: splice a statement expression's statements in before the
+// current statement; the node becomes the value of its last expression
+// statement
+static void func_0046DD20(ENode* expr) {
+    Statement* stmt;
+    Statement* last;
+    Statement* cur;
+    Statement* copy;
+    UInt8 type;
+    Boolean first;
+
+    if (expr->type == ESTMT) {
+        data_005EDCB1 = TRUE;
+        last = stmt = *(Statement**)&expr->data;
+        CError_ASSERT(1092, stmt);
+        cur = data_005EDCB4;
+        first = TRUE;
+        while (stmt->next) {
+            if (first) {
+                // the current statement moves after the spliced ones
+                type = stmt->type;
+                copy = lalloc(sizeof(Statement));
+                *copy = *cur;
+                cur->next = copy;
+                cur->type = type;
+                cur->flags = 0;
+                first = FALSE;
+            } else {
+                type = stmt->type;
+                copy = lalloc(sizeof(Statement));
+                memclrw(copy, sizeof(Statement));
+                copy->next = cur->next;
+                cur->next = copy;
+                copy->type = type;
+                copy->value = cur->value;
+                copy->sourceoffset = cur->sourceoffset;
+                copy->sourcefilepath = cur->sourcefilepath;
+                copy->dobjstack = cur->dobjstack;
+                cur = copy;
+            }
+            cur->flags = stmt->flags;
+            cur->value = stmt->value;
+            cur->expr = stmt->expr;
+            cur->label = stmt->label;
+            CError_ASSERT(1115, !stmt->dobjstack);
+            cur->sourceoffset = stmt->sourceoffset;
+            cur->sourcefilepath = stmt->sourcefilepath;
+            if (cur->type == ST_LABEL) {
+                cur->label->stmt = cur;
+            }
+            if (cur->type != ST_EXPRESSION || cur->expr->type != ESCOPEEND) {
+                last = cur;
+            }
+            stmt = stmt->next;
+        }
+        if (stmt->type != ST_EXPRESSION || stmt->expr->type != ESCOPEEND) {
+            last = stmt;
+        }
+        CError_ASSERT(1099, last && last->type == ST_EXPRESSION);
+        *expr = *last->expr;
+    }
+}
+
+// 0x46DCB0: replace the statement expressions in the function's statements
+void func_0046DCB0(Statement* stmt) {
+    while (stmt) {
+        switch (stmt->type) {
+            case ST_NOP:
+            case ST_LABEL:
+            case ST_GOTO:
+            case ST_BEGINCATCH:
+            case ST_ENDCATCH:
+            case ST_ENDCATCHDTOR:
+            case ST_ASM:
+                break;
+            case ST_RETURN:
+                if (!stmt->expr) {
+                    break;
+                }
+            case ST_EXPRESSION:
+            case ST_SWITCH:
+            case ST_IFGOTO:
+            case ST_IFNGOTO:
+            case ST_GOTOEXPR:
+                data_005EDCB4 = stmt;
+                data_005EDCB1 = FALSE;
+                CExpr_SearchExprTree(stmt->expr, func_0046DD20);
+                if (data_005EDCB1) {
+                    continue; // search the statement again
+                }
+                break;
+            default:
+                CError_FATAL(1165);
+        }
+        stmt = stmt->next;
+    }
+}
+
 // 0x46D890 (3.0.1): the jump checks moved to CFunc_WarnUnused301; what is
 // left inserts the destructor calls on scope exits
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 void CFunc_DestructorCleanup301(Statement* first) {
     Statement *stmt, *next;
 
@@ -1256,7 +1510,7 @@ void CFunc_DestructorCleanup301(Statement* first) {
         }
         switch (next->type) {
             case ST_GOTO:
-                if (stmt->dobjstack != next->label->stmt->dobjstack &&
+                if (!CFUNC_ACT_EQ(stmt->dobjstack, next->label->stmt->dobjstack) &&
                     CFunc_NeedsCleanup(stmt, next->label->stmt)) {
                     CFunc_EmitCleanups(
                         stmt, stmt->dobjstack, CFunc_CommonScope(stmt, next->label->stmt->dobjstack)
@@ -1283,7 +1537,8 @@ void CFunc_DestructorCleanup301(Statement* first) {
                     case ST_ENDCATCH:
                     case ST_ENDCATCHDTOR:
                     case ST_ASM:
-                        if (stmt->dobjstack != next->dobjstack && CFunc_NeedsCleanup(stmt, next)) {
+                        if (!CFUNC_ACT_EQ(stmt->dobjstack, next->dobjstack) &&
+                            CFunc_NeedsCleanup(stmt, next)) {
                             CFunc_EmitCleanups(
                                 stmt, stmt->dobjstack, CFunc_CommonScope(stmt, next->dobjstack)
                             );
@@ -1310,7 +1565,7 @@ void CFunc_DestructorCleanup301(Statement* first) {
                         break;
                     case ST_IFGOTO:
                     case ST_IFNGOTO:
-                        if (next->dobjstack != next->label->stmt->dobjstack &&
+                        if (!CFUNC_ACT_EQ(next->dobjstack, next->label->stmt->dobjstack) &&
                             CFunc_NeedsCleanup(next, next->label->stmt)) {
                             stmt = DestructorIfTransform(next);
                         } else {
@@ -1324,6 +1579,8 @@ void CFunc_DestructorCleanup301(Statement* first) {
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #endif
 #if !MWCCPSP
 static void scancase(DeclThing* thing) {
@@ -2078,6 +2335,7 @@ static void statement(DeclThing* thing) {
     switch (tk) {
         case TK_RETURN:
             tk = lex();
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 always has a return type here
             if (!thing->thetype) {
                 CError_Error(ERR_ILLEGAL_USE, "return");
                 if (tk != ';') {
@@ -2085,6 +2343,7 @@ static void statement(DeclThing* thing) {
                 }
                 break;
             }
+#endif
 
             if ((thing->thetype == &stvoid && !copts.cplusplus) ||
                 CClass_IsConstructor(cscope_currentfunc) ||
@@ -2492,7 +2751,11 @@ static void statement(DeclThing* thing) {
             tk = TK_IDENTIFIER;
 
         default:
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 declares in statements only in C++
+            if (copts.cplusplus && isdeclaration(1, 0, 0, 0)) {
+#else
             if ((copts.c9x || copts.cplusplus) && isdeclaration(1, 0, 0, 0)) {
+#endif
                 CFunc_ParseLocalDeclaration(FALSE);
                 tk = lex();
                 return;
@@ -2538,7 +2801,11 @@ static void CFunc_LoopStatement(DeclThing* thing, Boolean isFor) {
 
     if (isFor) {
         if (tk != ';') {
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 declares in statements only in C++
+            if (copts.cplusplus && isdeclaration(1, 0, 0, 0)) {
+#else
             if ((copts.cplusplus || copts.c9x) && isdeclaration(1, 0, 0, 0)) {
+#endif
                 if (!copts.ARMscoping) {
                     block = CFunc_NewDeclBlock();
                 }
@@ -2661,6 +2928,8 @@ static void CFunc_LoopStatement(DeclThing* thing, Boolean isFor) {
 }
 
 // the value of a return statement (0x46B100)
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 static ENode* CFunc_ReturnValue(ENode* expr) {
     Type* type;
     UInt32 qual;
@@ -2679,6 +2948,8 @@ static ENode* CFunc_ReturnValue(ENode* expr) {
     }
     return expr;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static void statement(DeclThing* thing) {
     Statement* stmt;
@@ -3391,6 +3662,8 @@ extern ENode* func_00518C10(
 );
 
 // 3.0.1 (0x46B340): a class result is copied in by func_00518C10
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 static ENode* returnstatementadjust(ENode* expr, Type* type, UInt32 qual) {
     Object* object;
     ENode* expr2;
@@ -3420,6 +3693,8 @@ static ENode* returnstatementadjust(ENode* expr, Type* type, UInt32 qual) {
     expr2 = makediadicnode(expr2, CExpr_AssignmentPromotion(expr, type, qual, TRUE), EASS);
     return expr2;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 Statement* CFunc_GenerateLoop(
     Statement* stmt,
@@ -3900,6 +4175,8 @@ void CFunc_AppendLocal(Object* object) {
     list->object = object;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 static Object* CFunc_LocalDataDeclarator(
     DeclInfo* di, TStreamElement* deftoken, Boolean isParameterList
 ) {
@@ -4172,9 +4449,13 @@ static Object* CFunc_LocalDataDeclarator(
     }
     return object;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 3.0.1: statics of inline functions are named by the mangler (weak); the
 // others get a unique name
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 void CFunc_NameLocalStaticDataObject(Object* obj) {
     Object* func;
     HashNameNode* name;
@@ -4192,6 +4473,19 @@ void CFunc_NameLocalStaticDataObject(Object* obj) {
         special = FALSE;
     }
 
+#if MWCCPS2
+    if (!special) {
+        name = obj->name;
+        obj->name = CParser_AppendUniqueName(name->name);
+        CMangler_GetLinkName(obj);
+        obj->name = name;
+        return;
+    }
+
+    func_0049F5A0(obj, cscope_currentfunc, cfunc_staticvarcount++);
+    obj->qual |= Q_IMPLICIT_WEAK;
+    obj->sclass = 0;
+#else
     if (!special) {
         name = obj->name;
         obj->name = CParser_AppendUniqueName(name->name);
@@ -4202,7 +4496,10 @@ void CFunc_NameLocalStaticDataObject(Object* obj) {
         obj->qual |= Q_IMPLICIT_WEAK;
         obj->sclass = 0;
     }
+#endif
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // a case whose value depends on template arguments (3.0.1: SwitchInfo.depcases)
 typedef struct SwitchDepCase {
@@ -4368,8 +4665,12 @@ void CFunc_CompoundStatement(DeclThing* thing) {
         tk = lex();
 #if MWCCPSP
         // 3.0.1: C declarations at the start of a block (C99 and C++ mix
-        // them with statements)
+        // them with statements); b145 does so in C99 too
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+        if (!copts.cplusplus) {
+#else
         if (!copts.cplusplus && !copts.c9x) {
+#endif
             while (isdeclaration(0, 0, 0, 0)) {
                 CFunc_ParseLocalDeclaration(FALSE);
                 tk = lex();
@@ -4530,7 +4831,17 @@ void CFunc_SetupNewFuncArgs(Object* func, FuncArg* args) {
 
             CFunc_SetupLocalVarInfo(obj);
 
-#if MWCCPSP
+#if MWCCPS2
+            // b210 tests the by-reference class again before the hidden-argument copy
+            if (IS_TYPE_CLASS(obj->type) && CClass_ReferenceArgument(TYPE_CLASS(obj->type))) {
+                obj->type = CDecl_NewPointerType(obj->type);
+                TPTR_QUAL(obj->type) = Q_REFERENCE | Q_RESTRICT;
+            } else if (!(IS_TYPE_CLASS(obj->type) &&
+                         CClass_ReferenceArgument(TYPE_CLASS(obj->type))) &&
+                       CMach_PassResultInHiddenArg(obj->type)) {
+                CFunc_CopyHiddenArgument(NULL, obj);
+            }
+#elif MWCCPSP
             if (IS_TYPE_CLASS(obj->type) && CClass_ReferenceArgument(TYPE_CLASS(obj->type))) {
                 obj->type = CDecl_NewPointerType(obj->type);
                 TPTR_QUAL(obj->type) = Q_REFERENCE | Q_RESTRICT;
@@ -4603,6 +4914,8 @@ static ObjectList* CFunc_CopyObjectList(const FuncArg* args) {
 #if MWCCPSP
 // 0x468810 (3.0.1, name not known): the hidden argument a struct result is
 // returned through
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -18 // b145 asserts
 static void CFunc_SetupResultArgument(Object* func) {
     ObjectList* list;
     Object* resultobj;
@@ -4616,7 +4929,11 @@ static void CFunc_SetupResultArgument(Object* func) {
         list = lalloc(sizeof(ObjectList));
         list->object = resultobj;
         if (CABI_GetStructResultArgumentIndex(TYPE_FUNC(func->type))) {
+#if MWCCPS2
+            CError_ASSERT(4093, arguments);
+#else
             CError_ASSERT(4170, arguments);
+#endif
             list->next = arguments->next;
             arguments->next = list;
         } else {
@@ -4625,6 +4942,8 @@ static void CFunc_SetupResultArgument(Object* func) {
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x4685C0 (3.0.1): takes the parameter names and the old-style flag
 // instead of the DeclInfo
@@ -5290,6 +5609,8 @@ static Object* CFunc_DeclareFuncName(char* str, HashNameNode* name) {
 }
 
 #if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 // 0x46D750 (3.0.1, name not known): marks the statements control can reach
 // from `stmt`; a call to a noreturn void function ends a path
 static void CFunc_MarkReachable(Statement* stmt) {
@@ -5357,6 +5678,8 @@ static void CFunc_MarkReachable(Statement* stmt) {
         stmt = stmt->next;
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 static inline void CFunc_CheckJumpTo(Statement* stmt, ExceptionAction* to) {
     if (stmt->dobjstack != to && !CFunc_ScopeContains(stmt->dobjstack, to)) {
@@ -5373,6 +5696,8 @@ static inline void CFunc_CheckJumpTo(Statement* stmt, ExceptionAction* to) {
 // 0x46D370 (3.0.1): unused variables and arguments, a value-returning
 // function that can fall off its end (pedantic or C++), and C++ jumps into
 // the scope of an object with a destructor
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
 void CFunc_WarnUnused301(Object* func, Statement* first) {
     ObjectList* list;
     Statement* stmt;
@@ -5460,8 +5785,8 @@ void CFunc_WarnUnused301(Object* func, Statement* first) {
         }
     }
 }
-#endif
-#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 #endif
 #if MWCCPSP
@@ -5506,7 +5831,13 @@ extern void func_00467D10(void); // constructor initializers (3.0.1)
 extern void func_0046AE40(Object* func, Statement* first); // #pragma opt_classresults
 extern void func_004F8630(Object* func); // an asm function's body
 
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT -77 // mwccps2: CFunc_ParseFuncDef .. CFunc_GenerateDummyCtorFunc
+#endif
 // 3.0.1 (0x466E50)
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -54 // b145 asserts
 void CFunc_ParseFuncDef(
     Object* func,
     DeclInfo* di,
@@ -5593,7 +5924,11 @@ void CFunc_ParseFuncDef(
                 );
             }
             if (CMach_PassResultInHiddenArg(list->object->type)) {
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -18 // b145 asserts
                 CError_FATAL(3965);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -54 // b145 asserts
             }
         }
     }
@@ -5604,16 +5939,29 @@ void CFunc_ParseFuncDef(
 
     CFunc_DeclareFuncNames(&names, func);
 
+#if MWCCPS2
+    if (tk == TK_TRY) {
+        tk = lex();
+        has_try = TRUE;
+    } else {
+        has_try = FALSE;
+    }
+#else
     has_try = tk == TK_TRY;
     if (has_try) {
         tk = lex();
     }
+#endif
 
     if (CClass_IsConstructor(func)) {
 #if MWCCPSP_NATIVE
         // 3.0.1 (0x467D10) wraps the initializers in an ECTORINIT statement
         // for its own CABI; the CABI here still takes 2.4.7's ctor_chain
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
         CError_ASSERT(5029, cscope_currentclass);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -54 // b145 asserts
         CFunc_ParseCtorInitializer();
         CFunc_CheckCtorInitializer(cscope_currentclass, ctor_chain);
 #else
@@ -5755,6 +6103,8 @@ void CFunc_ParseFuncDef(
 
     CScope_RestoreScope(&scope);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 void CFunc_ParseFuncDef(
     Object* func,
@@ -6056,6 +6406,10 @@ void CFunc_GenerateSingleExprFunc(Object* func, ENode* expr) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -54 // b145 asserts
+#endif
 void CFunc_GenerateDummyCtorFunc(Object* func, Object* real_ctor) {
     NameSpace* nspace;
     FuncArg* arg;
@@ -6145,5 +6499,13 @@ void CFunc_GenerateDummyCtorFunc(Object* func, Object* real_ctor) {
         copts.filesyminfo = saveDebugInfo;
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
 #pragma pack(2)

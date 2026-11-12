@@ -923,10 +923,17 @@ ENode* CExpr_PointerGeneration(ENode* expr) {
 }
 
 static void CExpr_ConstPointerCheck(ENode* expr, Type* type, short qual) {
+#if MWCCPS2
+    Type* exprtype;
+    Type* b;
+    Type* a;
+    short exprqual;
+#else
     Type* exprtype;
     Type* a;
     Type* b;
     short exprqual;
+#endif
 
     exprtype = expr->rtype;
     if (IS_TYPE_POINTER_ONLY(type) && IS_TYPE_POINTER_ONLY(exprtype)) {
@@ -1216,6 +1223,24 @@ ENode* CExpr_DoExplicitConversion(Type* type, UInt32 qual, ENodeList* list) {
     }
 
     CanCreateObject(type);
+#if MWCCPSP
+    // 3.0.1: T() clears a temporary
+    if (!list && CClass_IsPODClass(TYPE_CLASS(type))) {
+        tempnode = makemonadicnode(
+            funccallexpr(
+                clear_func,
+                create_temp_node(type),
+                intconstnode(CABI_GetSizeTType(), type->size),
+                NULL,
+                NULL
+            ),
+            EINDIRECT
+        );
+        tempnode->rtype = type;
+        tempnode->flags = qual & ENODE_FLAG_QUALS;
+        return tempnode;
+    }
+#endif
     if (!list && CClass_IsPODClass(TYPE_CLASS(type))) {
         obj = CParser_NewGlobalDataObject(NULL);
         obj->name = CParser_GetUniqueName();
@@ -2232,6 +2257,9 @@ ENode* func_00517250(void) {
 }
 extern ENode* func_00469000(void); // GCC statement expression ({ ... })
 
+#if MWCCPS2
+inline static ENode* s_expression301(void);
+#endif
 static ENode* CExpr_NameResultExpr(NameResult* pr, ENode* expr, Boolean isAddressOf);
 ENode* CExpr_ObjAccessExpr(EObjAccess* acc, Boolean isAddressOf);
 
@@ -2323,7 +2351,11 @@ static ENode* primary_expression(Boolean isAddressOf) {
                 }
                 return func_00469000();
             }
+#if MWCCPS2
+            expr = s_expression301();
+#else
             expr = s_expression();
+#endif
             if (tk != ')') {
                 CError_ErrorSkip(ERR_RPAREN_EXPECTED);
             } else {
@@ -2561,7 +2593,39 @@ extern void func_00500ED0(
 static NameSpaceObjectList* CExpr_DropTypeObjects(NameSpaceObjectList* list);
 
 ENode* getpointertomemberfunc301(ENode* expr, Type* type, Boolean a, Boolean b, Boolean c);
-extern SInt32 func_00516F40(Type* type); // __builtin_classify_type
+// 0x516F40: __builtin_classify_type
+static SInt32 func_00516F40(Type* type) {
+    switch (type->type) {
+        case TYPEVOID:
+            return 0;
+        case TYPEINT:
+            return 1;
+        case TYPEFLOAT:
+            return 8;
+        case TYPEENUM:
+            return 3;
+        case TYPESTRUCT:
+            return 12;
+        case TYPECLASS:
+            return 12;
+        case TYPEFUNC:
+            return 10;
+        case TYPEMEMBERPOINTER:
+        case TYPEPOINTER:
+            if (TPTR_TARGET(type)->type == TYPEFUNC) {
+                return 12;
+            }
+            return 5;
+        case TYPEARRAY:
+            return 14;
+        case TYPEBITFIELD:
+            return -1;
+        case TYPETEMPLATE:
+            return -1;
+        default:
+            return -1;
+    }
+}
 extern SInt32 func_00516FB0(Type* type); // __builtin_type / __builtin_ntype
 extern void func_00464B40(Type* type);
 extern ENode* func_00513730(void); // unary_expression (3.0.1)
@@ -2569,7 +2633,7 @@ extern ENode* func_00513730(void); // unary_expression (3.0.1)
 // 0x516D60: the value of a type operator: 0 sizeof, 1 __alignof__, 3
 // __builtin_align, 4 __builtin_type, 5 __builtin_vargtype, 6
 // __builtin_classify_type; template-dependent operands make a dependent node
-static ENode* CExpr_TypeOpValue(UInt8 kind, Type* type, ENode* expr) {
+ENode* CExpr_TypeOpValue(UInt8 kind, Type* type, ENode* expr) {
     Type* rtype;
     ENode* result;
     SInt32 value;
@@ -2595,9 +2659,9 @@ static ENode* CExpr_TypeOpValue(UInt8 kind, Type* type, ENode* expr) {
     if (expr) {
         if (CTemplTool_IsTemplDepExpr(expr)) {
             result = CExpr_NewTemplDepENode(TDE_SIZEOF);
-            ((ENode**)&result->data)[0] = expr;
-            ((UInt8*)&result->data)[4] = kind;
-            ((UInt8*)&result->data)[5] = TRUE;
+            result->data.templdep.u.typeop.operand = expr;
+            result->data.templdep.u.typeop.kind = kind;
+            result->data.templdep.u.typeop.isexpr = TRUE;
             return result;
         }
         type = expr->rtype;
@@ -2605,9 +2669,9 @@ static ENode* CExpr_TypeOpValue(UInt8 kind, Type* type, ENode* expr) {
 
     if (CTemplTool_IsTemplateArgumentDependentType(type)) {
         result = CExpr_NewTemplDepENode(TDE_SIZEOF);
-        ((Type**)&result->data)[0] = type;
-        ((UInt8*)&result->data)[4] = kind;
-        ((UInt8*)&result->data)[5] = FALSE;
+        result->data.templdep.u.typeop.operand = type;
+        result->data.templdep.u.typeop.kind = kind;
+        result->data.templdep.u.typeop.isexpr = FALSE;
         return result;
     }
 
@@ -2681,7 +2745,11 @@ static ENode* CExpr_ParseTypeOp(UInt8 kind) {
         memclrw(&di, sizeof(DeclInfo));
         CParser_GetDeclSpecs(&di, FALSE);
         scandeclarator(&di);
+#if MWCCPS2
+        if (di.name != NULL) {
+#else
         if (di.name) {
+#endif
             CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
         }
         if (tk == ')') {
@@ -3115,9 +3183,15 @@ templdep:
 // 0x517F60: a template-dependent access to a lone block-scope alias
 // (extern declaration) refers to the global itself
 static void CExpr_ObjAccessUnalias(EObjAccess* acc) {
+#if MWCCPS2
+    Object* obj;
+    NameSpaceObjectList* list;
+    NameSpaceObjectList* n;
+#else
     NameSpaceObjectList* list;
     NameSpaceObjectList* n;
     Object* obj;
+#endif
 
     for (list = acc->list; list; list = list->next) {
         obj = OBJECT(list->object);
@@ -3592,7 +3666,7 @@ parsed:
 extern ENode* func_00543940(void); // const_cast
 extern ENode* func_00544170(void); // dynamic_cast
 extern ENode* func_00543A70(void); // reinterpret_cast
-extern ENode* func_00543CA0(void); // static_cast
+extern ENode* func_00543CA0(void); // static_cast (CRTTI.c)
 extern ENode* func_005446E0(void); // typeid
 static ENode* CExpr_Subscript301(ENode* expr, ENode* index);
 extern ENode* func_00524050(ENode* func, ENodeList* args); // f(args)
@@ -3643,15 +3717,28 @@ static ENode* CExpr_Subscript301(ENode* expr, ENode* index) {
 // 0x516100: x++
 static ENode* CExpr_PostIncrement301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
         return CTempl_MakeTemplDepExpr(NULL, EPOSTINC, expr);
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator(TK_INCREMENT, e, nullnode(), &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator(TK_INCREMENT, expr, nullnode(), &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(3374, expr);
     }
@@ -3732,7 +3819,11 @@ static ENode* postfix_expression(Boolean isAddressOf) {
         switch (tk) {
             case '[':
                 tk = lex();
+#if MWCCPS2 // b210 inlines it here too
+                index = s_expression301();
+#else
                 index = s_expression();
+#endif
                 expr = CExpr_Subscript301(expr, CExpr_RewriteConst(pointer_generation2(index)));
                 if (tk != ']') {
                     CError_ErrorSkip(ERR_RBRACKET_EXPECTED);
@@ -3813,7 +3904,6 @@ typedef struct TypeList301 {
 
 extern CExprMemberQual* func_00515410(Boolean flag); // the member name after . or ->
 extern ENode* func_005157E0(ENode* expr, CExprMemberQual* mq); // member access with a parsed name
-extern ENode* func_005161D0(ENode* expr); // pseudo destructor call on a scalar
 extern Boolean func_00464EE0(Type* type);
 
 // 0x514E00: x.m and x->m (operator-> chains, a class rvalue goes through
@@ -3971,7 +4061,7 @@ static ENode* CExpr_MemberAccess301(ENode* expr, CExprMemberQual* mq, Boolean ar
 
         default:
             if (!mq) {
-                if (copts.cplusplus && (result = func_005161D0(expr))) {
+                if (copts.cplusplus && (result = CExpr_DummyDestr(expr))) {
                     return result;
                 }
                 CError_ErrorSkip(ERR_NOT_STRUCT_UNION_CLASS);
@@ -4611,9 +4701,6 @@ ENode* getpointertomemberfunc301(ENode* expr, Type* type, Boolean a, Boolean b, 
     );
 }
 
-// 3.0.1: a deduced template function instance's object is at +0x18
-#define TEMPL_FUNC_INST_OBJECT301(inst) (*(Object**)((char*)(inst) + 0x18))
-
 // 0x514380: a pointer to member function: the function that fits `type`
 // (a second pass ignores the exact type when `retry`), its data object
 // {0, vtable index or -1, vtable offset or the function}
@@ -4673,7 +4760,7 @@ retry:
                     cand, TYPE_FUNC(TYPE_MEMBER_POINTER(type)->ty1), templargs, NULL, FALSE
                 );
                 CError_ASSERT(4489, inst);
-                cand = TEMPL_FUNC_INST_OBJECT301(inst);
+                cand = inst->object;
             } else {
                 cand = NULL;
             }
@@ -5019,22 +5106,56 @@ static ENode* CExpr_UnaryPlus301(ENode* expr);
 static ENode* CExpr_UnaryMinus301(ENode* expr);
 static ENode* CExpr_BinNot301(ENode* expr);
 static ENode* CExpr_LogNot301(ENode* expr);
-extern ENode* func_0051F4D0(Boolean global); // delete
-extern ENode* func_0051FEE0(Boolean global); // new
+ENode* func_0051F4D0(Boolean global); // delete
+extern ENode* func_0051FEE0(Boolean global); // new (CExpr2.c)
+
+extern ENode* func_0051F530(
+    ENode* expr, Boolean isGlobal, Boolean isArray
+); // the delete expression
+
+// 0x51F4D0: delete [[]] cast-expression
+ENode* func_0051F4D0(Boolean isGlobal) {
+    Boolean isArray;
+
+    if ((tk = lex()) == '[') {
+        if ((tk = lex()) != ']') {
+            CError_Error(ERR_RBRACKET_EXPECTED);
+        } else {
+            tk = lex();
+        }
+        isArray = TRUE;
+    } else {
+        isArray = FALSE;
+    }
+    return func_0051F530(pm_expression(), isGlobal, isArray);
+}
 
 // 0x513B30: ++x
 static ENode* CExpr_PreIncrement301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
     ENode* one;
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
         return CTempl_MakeTemplDepExpr(NULL, EPREINC, expr);
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator(TK_INCREMENT, e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator(TK_INCREMENT, expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(5004, expr);
     }
@@ -5053,15 +5174,28 @@ static ENode* CExpr_PreIncrement301(ENode* expr) {
 // 0x513C20: ~x
 static ENode* CExpr_BinNot301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
         return CTempl_MakeTemplDepExpr(NULL, EBINNOT, expr);
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator('~', e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator('~', expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(4973, expr);
     }
@@ -5106,6 +5240,9 @@ static ENode* CExpr_AddressOf301(ENode* expr) {
 // 0x513DB0: *x
 static ENode* CExpr_Deref301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
     ENode* result;
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
@@ -5113,11 +5250,21 @@ static ENode* CExpr_Deref301(ENode* expr) {
         result->data.templdep.u.monadic = expr;
         return result;
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator('*', e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator('*', expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(4911, expr);
     }
@@ -5134,6 +5281,9 @@ static ENode* CExpr_Deref301(ENode* expr) {
 // 0x513E70: +x
 static ENode* CExpr_UnaryPlus301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
     ENode* result;
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
@@ -5141,11 +5291,21 @@ static ENode* CExpr_UnaryPlus301(ENode* expr) {
         result->data.templdep.u.monadic = expr;
         return result;
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator('+', e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator('+', expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(4871, expr);
     }
@@ -5166,15 +5326,28 @@ static ENode* CExpr_UnaryPlus301(ENode* expr) {
 // 0x513F40: -x
 static ENode* CExpr_UnaryMinus301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
         return CTempl_MakeTemplDepExpr(NULL, EMONMIN, expr);
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator('-', e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator('-', expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(4813, expr);
     }
@@ -5202,16 +5375,29 @@ static ENode* CExpr_UnaryMinus301(ENode* expr) {
 // 0x514090: !x
 static ENode* CExpr_LogNot301(ENode* expr) {
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
     ENode* result;
 
     if (CTemplTool_IsTemplDepExpr(expr)) {
         return CTempl_MakeTemplDepExpr(NULL, ELOGNOT, expr);
     }
+#if MWCCPS2
+    e = CExpr_RewriteConst(pointer_generation2(expr));
+    expr = e;
+    if (copts.cplusplus && CExpr_CheckOperator('!', e, NULL, &conv)) {
+        expr = conv.expression;
+        if (expr) {
+            return expr;
+        }
+#else
     expr = CExpr_RewriteConst(pointer_generation2(expr));
     if (copts.cplusplus && CExpr_CheckOperator('!', expr, NULL, &conv)) {
         if (conv.expression) {
             return conv.expression;
         }
+#endif
         expr = conv.left;
         CError_ASSERT(4754, expr);
     }
@@ -5255,6 +5441,9 @@ static ENode* CExpr_LogNot301(ENode* expr) {
 ENode* unary_expression(void) {
     ENode* expr;
     Conversion conv;
+#if MWCCPS2
+    ENode* e;
+#endif
 
     switch (tk) {
         case TK_COLON_COLON:
@@ -5280,11 +5469,21 @@ ENode* unary_expression(void) {
             if (CTemplTool_IsTemplDepExpr(expr)) {
                 return CTempl_MakeTemplDepExpr(NULL, EPREDEC, expr);
             }
+#if MWCCPS2
+            e = CExpr_RewriteConst(pointer_generation2(expr));
+            expr = e;
+            if (copts.cplusplus && CExpr_CheckOperator(TK_DECREMENT, e, NULL, &conv)) {
+                expr = conv.expression;
+                if (expr) {
+                    return expr;
+                }
+#else
             expr = CExpr_RewriteConst(pointer_generation2(expr));
             if (copts.cplusplus && CExpr_CheckOperator(TK_DECREMENT, expr, NULL, &conv)) {
                 if (conv.expression) {
                     return conv.expression;
                 }
+#endif
                 expr = conv.left;
                 CError_ASSERT(5040, expr);
             }
@@ -5674,10 +5873,13 @@ ENode* CExpr_MemberPointerConversion(ENode* expr, TypeMemberPointer* type, Boole
         return expr;
     }
     if (ENODE_IS(expr, EMEMBER)) {
-#if MWCCPSP
+#if MWCCPS2
+        expr = getpointertomemberfunc301(expr, TYPE(type), FALSE, buildData, retry);
+        return expr;
+#elif MWCCPSP
         return getpointertomemberfunc301(expr, TYPE(type), FALSE, buildData, retry);
 #else
-        return getpointertomemberfunc(expr, TYPE(type), buildData);
+    return getpointertomemberfunc(expr, TYPE(type), buildData);
 #endif
     }
 
@@ -8816,7 +9018,12 @@ illegal:
         }
     }
 
+#if MWCCPS2
+    // b210 builds the node with nt: this path also makes <<= >>= &= ^= |=
+    result = makediadicnode(left, right, nt);
+#else
     result = makediadicnode(left, right, EASS);
+#endif
     result->flags = left->flags;
     return CodeGen_CheckExpr(result);
 }
@@ -9490,6 +9697,166 @@ ENode* conv_assignment_expression(void) {
     return pointer_generation(assignment_expression());
 }
 
+#if MWCCPS2
+// b210 (0x51BB00) has the 3.0.1 bodies: a cast to void silences the
+// compare warning, the side-effect test knows the 3.0.1 node kinds
+// (EMIN/EMAX, scopes, template-dependent nodes) and looks through an
+// indirection of a comma.
+inline static Boolean CExpr_HasSideEffect(ENode* expr) {
+    switch (expr->type) {
+        case EMONMIN:
+        case EBINNOT:
+        case ELOGNOT:
+        case EMUL:
+        case EDIV:
+        case EMODULO:
+        case EADD:
+        case ESUB:
+        case ESHL:
+        case ESHR:
+        case ELESS:
+        case EGREATER:
+        case ELESSEQU:
+        case EGREATEREQU:
+        case EEQU:
+        case ENOTEQU:
+        case EAND:
+        case EXOR:
+        case EOR:
+        case ELAND:
+        case ELOR:
+        case EMIN:
+        case EMAX:
+        case EROTL:
+        case EROTR:
+        case EBITFIELD:
+        case EINTCONST:
+        case EFLOATCONST:
+        case ESTRINGCONST:
+        case EOBJREF:
+        case ETEMP:
+        case EOBJACCESS:
+            return FALSE;
+        case ETYPCON:
+            return IS_TYPE_VOID(expr->rtype);
+        case EINDIRECT:
+            switch (expr->data.monadic->type) {
+                case EFUNCCALL:
+                case EFUNCCALLP:
+                    return TRUE;
+                case ECOMMA:
+                    return CInline_ExpressionHasSideEffect(expr->data.monadic->data.diadic.right);
+            }
+            return FALSE;
+        case ECOMMA:
+            return CInline_ExpressionHasSideEffect(expr->data.diadic.right);
+        case ECOND:
+            return CInline_ExpressionHasSideEffect(expr->data.cond.expr1) ||
+                CInline_ExpressionHasSideEffect(expr->data.cond.expr2);
+        case EPOSTINC:
+        case EPOSTDEC:
+        case EPREINC:
+        case EPREDEC:
+        case EFORCELOAD:
+        case EASS:
+        case EMULASS:
+        case EDIVASS:
+        case EMODASS:
+        case EADDASS:
+        case ESUBASS:
+        case ESHLASS:
+        case ESHRASS:
+        case EANDASS:
+        case EXORASS:
+        case EORASS:
+        case EFUNCCALL:
+        case EFUNCCALLP:
+        case ENULLCHECK:
+        case EPRECOMP:
+        case ELABEL:
+        case EMFPOINTER:
+        case ENEWEXCEPTION:
+        case ENEWEXCEPTIONARRAY:
+        case EINITTRYCATCH:
+        case EINSTRUCTION:
+            return TRUE;
+        case ESCOPEBEGIN:
+        case ESCOPEEND:
+        case ETEMPLDEP:
+            return TRUE;
+        default:
+            CError_Internal("CExpr.c", CError_B145_LINE(8337));
+            return FALSE;
+    }
+}
+
+void CExpr_CheckUnusedExpression(ENode* expr) {
+    ENode* scan;
+    ENodeList* arg;
+    Boolean isvoidcast;
+
+    if (copts.warn_possunwant) {
+        isvoidcast = FALSE;
+        scan = expr;
+        while (ENODE_IS(scan, ETYPCON)) {
+            if (scan == expr && scan->rtype == &stvoid) {
+                isvoidcast = TRUE;
+            }
+            scan = scan->data.monadic;
+        }
+        if (ENODE_IS(scan, EEQU) && !isvoidcast) {
+            CError_Warning(ERR_POSSIBLE_UNWANTED_COMPARE);
+            return;
+        }
+    }
+
+    if (copts.warn_no_side_effect) {
+        if (!CExpr_HasSideEffect(expr)) {
+            CError_Warning(ERR_EXPRESSION_NO_SIDE_EFFECT);
+            return;
+        }
+    }
+
+    if (copts.warn_resultnotused) {
+        scan = expr;
+        if (!IS_TYPE_VOID(expr->rtype)) {
+            if (ENODE_IS(expr, EINDIRECT)) {
+                scan = expr->data.monadic;
+            }
+
+            switch (scan->type) {
+                case EFUNCCALL:
+                case EFUNCCALLP:
+                    if (ENODE_IS(scan->data.funccall.funcref, EOBJREF) &&
+                        scan->data.funccall.funcref->data.objref->name == asop_name_node) {
+                        break;
+                    }
+                    if (CMach_GetFunctionResultClass(scan->data.funccall.functype) == 1 &&
+                        (arg = scan->data.funccall.args)) {
+                        switch (CABI_GetStructResultArgumentIndex(scan->data.funccall.functype)) {
+                            case 0:
+                                break;
+                            case 1:
+                                if ((arg = arg->next)) {
+                                    break;
+                                }
+                                CError_Internal("CExpr.c", CError_B145_LINE(8398));
+                            default:
+                                CError_Internal("CExpr.c", CError_B145_LINE(8399));
+                        }
+
+                        if (!ENODE_IS(arg->node, ETEMP)) {
+                            break;
+                        }
+                    }
+                    CError_Warning(ERR_RESULT_FUNCTION_CALL_NOT_USED);
+                default:
+                    break;
+            }
+        }
+    }
+}
+#else
 static Boolean CExpr_HasSideEffect(ENode* expr) {
     switch (expr->type) {
         case EMONMIN:
@@ -9652,6 +10019,7 @@ void CExpr_CheckUnusedExpression(ENode* expr) {
         }
     }
 }
+#endif
 
 #if MWCCPSP
 // 0x50D1E0: commas stay operands in inline assembly; template-dependent
@@ -9811,6 +10179,194 @@ void CExpr_CheckUnwantedAssignment(ENode* expr) {
         }
     }
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPS2
+// b210 0x51B360 (b219 0x50CCC0): 3.0.1's version also takes an address plus
+// or minus an integer constant
+Boolean func_0050CCC0(Object** objptr, CInt64* valptr) {
+    CInt64 val;
+    ENode* expr;
+    ENode* cnode;
+    ENode* addr;
+    Boolean neg;
+
+    if (objptr) {
+        *objptr = NULL;
+    }
+    val = cint64_zero;
+    *valptr = val;
+
+    expr = CExpr_RewriteConst(pointer_generation2(assignment_expression()));
+    neg = FALSE;
+    cnode = addr = NULL;
+    switch (expr->type) {
+        case EINTCONST:
+            cnode = expr;
+            break;
+        case EINDIRECT:
+        case EOBJREF:
+        case EMEMBER:
+            addr = expr;
+            break;
+        case ESUB:
+            neg = TRUE;
+        case EADD:
+            if (!ENODE_IS(expr->data.diadic.left, EINTCONST) &&
+                !ENODE_IS(expr->data.diadic.right, EINTCONST)) {
+                CError_Error(0x14A);
+            }
+            if (ENODE_IS(expr->data.diadic.right, EINTCONST)) {
+                cnode = expr->data.diadic.right;
+                addr = expr->data.diadic.left;
+            } else {
+                if (neg) {
+                    CError_Error(0x14B);
+                }
+                addr = expr->data.diadic.right;
+                cnode = expr->data.diadic.left;
+            }
+            break;
+        default:
+            CError_Error(0x149);
+            break;
+    }
+
+    if (cnode) {
+        if (neg) {
+            *valptr = CInt64_Neg(cnode->data.intval);
+        } else {
+            *valptr = cnode->data.intval;
+        }
+        if (!addr) {
+            return TRUE;
+        }
+    }
+
+    if (objptr && addr) {
+        switch (addr->type) {
+            case EINDIRECT:
+                if (CInit_RelocInitCheck(addr->data.monadic, objptr, &val, TRUE)) {
+                    *valptr = CInt64_Add(*valptr, val);
+                    return TRUE;
+                }
+                break;
+            case EOBJREF:
+                *objptr = addr->data.objref;
+                while ((*objptr)->datatype == DALIAS) {
+                    *objptr = (*objptr)->u.alias.object;
+                }
+                return TRUE;
+            case EMEMBER:
+                if (addr->data.objaccess.list->object->otype == OT_OBJECT) {
+                    if (addr->data.objaccess.list->next &&
+                        addr->data.objaccess.list->next->object->otype == OT_OBJECT) {
+                        CError_Error(ERR_AMBIGUOUS_ACCESS_OVERLOADED_FUNCTION);
+                    }
+                    *objptr = OBJECT(addr->data.objaccess.list->object);
+                    while ((*objptr)->datatype == DALIAS) {
+                        *objptr = (*objptr)->u.alias.object;
+                    }
+                    return TRUE;
+                }
+                break;
+        }
+    }
+
+    CError_Error(ERR_ILLEGAL_ADDRESSING_MODE);
+    return FALSE;
+}
+#elif MWCCPSP
+// 0x50CCC0: an inline assembler operand: an object (objptr, if allowed) and a
+// constant, as obj, obj + c, c + obj or obj - c
+Boolean func_0050CCC0(Object** objptr, CInt64* valptr) {
+    ENode* expr;
+    ENode* addr;
+    ENode* cnst;
+    Boolean negate;
+    CInt64 offset;
+    NameSpaceObjectList* list;
+
+    if (objptr) {
+        *objptr = NULL;
+    }
+    offset = cint64_zero;
+    *valptr = cint64_zero;
+    expr = CExpr_RewriteConst(pointer_generation2(assignment_expression()));
+    addr = NULL;
+    cnst = NULL;
+    negate = FALSE;
+    switch (expr->type) {
+        case EINDIRECT:
+        case EOBJREF:
+        case EOBJACCESS:
+            addr = expr;
+            break;
+        case EINTCONST:
+            cnst = expr;
+            break;
+        case ESUB:
+            negate = TRUE;
+        case EADD:
+            if (!ENODE_IS(expr->data.diadic.left, EINTCONST) &&
+                !ENODE_IS(expr->data.diadic.right, EINTCONST)) {
+                CError_Error(330); // 3.0.1 message
+            }
+            if (ENODE_IS(expr->data.diadic.right, EINTCONST)) {
+                addr = expr->data.diadic.left;
+                cnst = expr->data.diadic.right;
+            } else {
+                if (negate) {
+                    CError_Error(331); // 3.0.1 message
+                }
+                addr = expr->data.diadic.right;
+                cnst = expr->data.diadic.left;
+            }
+            break;
+        default:
+            CError_Error(329); // 3.0.1 message
+            break;
+    }
+    if (cnst) {
+        *valptr = negate ? CInt64_Neg(cnst->data.intval) : cnst->data.intval;
+        if (!addr) {
+            return TRUE;
+        }
+    }
+    if (objptr && addr) {
+        switch (addr->type) {
+            case EINDIRECT:
+                if (CInit_RelocInitCheck(addr->data.monadic, objptr, &offset, TRUE)) {
+                    *valptr = CInt64_Add(*valptr, offset);
+                    return TRUE;
+                }
+                break;
+            case EOBJREF:
+                *objptr = addr->data.objref;
+                while ((*objptr)->datatype == DALIAS) {
+                    *objptr = (*objptr)->u.alias.object;
+                }
+                return TRUE;
+            case EOBJACCESS:
+                list = addr->data.objaccess.list;
+                if (list->object->otype != OT_OBJECT) {
+                    break;
+                }
+                if (list->next && list->next->object->otype == OT_OBJECT) {
+                    CError_Error(ERR_AMBIGUOUS_ACCESS_OVERLOADED_FUNCTION);
+                }
+                *objptr = OBJECT(addr->data.objaccess.list->object);
+                while ((*objptr)->datatype == DALIAS) {
+                    *objptr = (*objptr)->u.alias.object;
+                }
+                return TRUE;
+        }
+    }
+    CError_Error(ERR_ILLEGAL_ADDRESSING_MODE);
+    return FALSE;
+}
+#endif
 
 Boolean CExpr_ParseAsmExpr(Object** objptr, CInt64* valptr) {
     ENode* expr;

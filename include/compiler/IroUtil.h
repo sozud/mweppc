@@ -62,7 +62,20 @@ extern Boolean IRO_IsConstantNegativeOne(IROLinear* linear);
 extern void IRO_NopOut(IROLinear* linear);
 extern void IRO_NopNonSideEffects(IROLinear* linear, SInt32 level);
 typedef void (*IROWalkTreeFunc)(IROLinear* linear, Boolean isEntry);
+#if MWCCPS2
+// mwccps2 b210: the tree walk passes an argument along (callers push a
+// third, NULL, argument; it recurses through func_005531A0)
+typedef void (*IROWalkTreeArgFunc_ps2)(IROLinear* linear, Boolean isEntry, void* arg);
+extern void IRO_WalkTree_ps2(IROLinear* linear, IROWalkTreeArgFunc_ps2 func, void* arg);
+#define IRO_WalkTree(linear, func) IRO_WalkTree_ps2((linear), (IROWalkTreeArgFunc_ps2)(func), NULL)
+#elif MWCCPSP
+// 3.0.1 passes an argument through to the callback; callers that have none
+// pass NULL
+extern void IRO_WalkTree(IROLinear* linear, IROWalkTreeFunc func, void* arg);
+#define IRO_WalkTree(linear, func) (IRO_WalkTree)((linear), (func), NULL)
+#else
 extern void IRO_WalkTree(IROLinear* linear, IROWalkTreeFunc func);
+#endif
 extern void IRO_WalkInts(IROLinear* first, IROLinear* last, IROWalkTreeFunc func);
 extern void IRO_Paste(IROLinear* first, IROLinear* last, IROLinear* before);
 extern void IRO_PasteAfter(IROLinear* first, IROLinear* last, IROLinear* after);
@@ -122,7 +135,11 @@ extern Boolean IRO_IsAddressMultiply(IROLinear* linear);
 typedef struct IROAddressedLabel {
     struct IROAddressedLabel* next;
     CLabel* label;
+#if MWCCPS2
+    UInt32 unused[8]; // b210 allocates 0x28 bytes
+#else
     UInt32 unused[4];
+#endif
 } IROAddressedLabel;
 extern IROAddressedLabel* IRO_AddressedLabels;
 extern SInt32 IRO_NumAddressedLabels;

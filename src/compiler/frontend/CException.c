@@ -272,11 +272,19 @@ Boolean CExcept_ActionCompare(ExceptionAction* a, ExceptionAction* b) {
 }
 
 int CExcept_IsSubList(ExceptionAction* a, ExceptionAction* b) {
+#if MWCCPS2
+    int diff;
+    int i;
+    ExceptionAction* scan;
+    int count1;
+    int count2;
+#else
     int diff;
     int i;
     int count1;
     int count2;
     ExceptionAction* scan;
+#endif
 
     if (a == b) {
         return 0;
@@ -332,7 +340,7 @@ Boolean CExcept_ActionNeedsDestruction(ExceptionAction* action) {
         case EAT_ACTIVECATCHBLOCK:
             return TRUE;
         case EAT_UNK19:
-            return ((Boolean*)&action->data)[4]; // +8
+            return ((Boolean*)&action->data)[sizeof(void*)]; // +8 (natively the second slot)
         case EAT_NOP:
         case EAT_DESTROYLOCALPOINTER:
         case EAT_DESTROYMEMBER:
@@ -654,7 +662,11 @@ static Statement* CExcept_DestroyLocal(
 
     expr = CABI_DestroyObject(dtor, expr, CABIDestroyComplete, TRUE, FALSE);
 
+#if MWCCPS2
+    CError_ASSERT(744, expr->type == EFUNCCALL && expr->data.funccall.funcref->type == EOBJREF);
+#else
     CError_ASSERT(687, expr->type == EFUNCCALL && expr->data.funccall.funcref->type == EOBJREF);
+#endif
     if (expr->data.funccall.funcref->data.objref->datatype == DVFUNC) {
         expr->data.funccall.funcref->flags |= ENODE_FLAG_NONVIRTUAL;
     }
@@ -763,11 +775,28 @@ Statement* CExcept_ActionCleanup(ExceptionAction* ea, Statement* stmt) {
                 ea->data.destroy_local_array.element_size
             );
             break;
+#if MWCCPS2
+        case EAT_UNK18:
+            break;
+        case EAT_UNK19:
+            if (((Boolean*)&ea->data)[4]) {
+                ENode* expr = CExpr_NewTemplDepENode(0x19);
+                *(void**)&expr->data = *(void**)&ea->data;
+                stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+                stmt->expr = expr;
+                stmt->dobjstack = ea->prev;
+            }
+            break;
+#endif
         case EAT_ACTIVECATCHBLOCK:
             stmt = CExcept_EndCatch(ea, stmt);
             break;
         default:
+#if MWCCPS2
+            CError_FATAL(917);
+#else
             CError_FATAL(827);
+#endif
     }
 
     return stmt;
@@ -985,9 +1014,7 @@ void CExcept_ScanExceptionSpecification(TypeFunc* tfunc) {
         CError_Error(ERR_LPAREN_EXPECTED);
         return;
     }
-#if MWCCPSP
 
-#endif
 #if MWCCPSP
     // 3.0.1: throw(...) (an extension) allows anything
     if (copts.cpp_extensions && lookahead() == TK_ELLIPSIS) {
@@ -1001,7 +1028,9 @@ void CExcept_ScanExceptionSpecification(TypeFunc* tfunc) {
         return;
     }
 #endif
+#if MWCCPSP
 
+#endif
     if ((tk = lex()) != ')') {
         while (1) {
             memclrw(&di, sizeof(di));
@@ -1103,6 +1132,93 @@ static ENode* CExcept_CallCopyCtor(Object* object, TypeClass* tclass, ENode* exp
     return expr;
 }
 
+#if MWCCPS2
+extern ENode* getpointertomemberfunc301(ENode* expr, Type* type, Boolean a, Boolean b, Boolean c);
+
+// b210 (0x4EEA70): the thrown value; ScanThrowExpression and the template
+// instantiator (0x4B7410) call it
+ENode* CExcept_ThrowExpression(ENode* thrownExpr) {
+    ENode* expr;
+    Object* func;
+    ENode* resultExpr;
+    Object* obj;
+    ENode* tempExpr;
+
+    if (thrownExpr && CTemplTool_IsTemplDepExpr(thrownExpr)) {
+        expr = CExpr_NewTemplDepENode((TemplDepSubType)0x15);
+        expr->data.templdep.u.monadic = thrownExpr;
+        expr->flags |= ENODE_FLAG_VOLATILE;
+        return expr;
+    }
+
+    thrownExpr = pointer_generation(thrownExpr);
+    if (ENODE_IS(thrownExpr, EOBJACCESS) && thrownExpr->data.objaccess.nonstatic) {
+        thrownExpr = getpointertomemberfunc301(thrownExpr, NULL, FALSE, TRUE, FALSE);
+    }
+    obj = create_temp_object(thrownExpr->rtype);
+    if (IS_TYPE_CLASS(thrownExpr->rtype) &&
+        CExpr_IsTempConstruction(thrownExpr, thrownExpr->rtype, &expr)) {
+        CError_ASSERT(1418, ENODE_IS(thrownExpr, EINDIRECT));
+        resultExpr = thrownExpr->data.monadic;
+        *expr = *create_objectrefnode(obj);
+    } else {
+        tempExpr = create_objectrefnode(obj);
+        if (IS_TYPE_CLASS(thrownExpr->rtype) &&
+            (func = CClass_CopyConstructor(TYPE_CLASS(thrownExpr->rtype)))) {
+            resultExpr = CExcept_CallCopyCtor(
+                func, TYPE_CLASS(thrownExpr->rtype), tempExpr, getnodeaddress(thrownExpr, FALSE)
+            );
+        } else {
+            if (thrownExpr->rtype->size == 0) {
+                CError_Error(ERR_ILLEGAL_TYPE);
+            }
+            tempExpr = makemonadicnode(tempExpr, EINDIRECT);
+            tempExpr->rtype = thrownExpr->rtype;
+            resultExpr = makediadicnode(tempExpr, thrownExpr, EASS);
+            resultExpr = makediadicnode(resultExpr, create_objectrefnode(obj), ECOMMA);
+            resultExpr->rtype = TYPE(&void_ptr);
+        }
+    }
+
+    expr = CExcept_GetTypeID(thrownExpr->rtype, ENODE_QUALS(thrownExpr), TRUE);
+    if (IS_TYPE_CLASS(thrownExpr->rtype) &&
+        (func = CClass_Destructor(TYPE_CLASS(thrownExpr->rtype)))) {
+        expr = funccallexpr(
+            Xthrw_func,
+            expr,
+            resultExpr,
+            create_objectrefnode(CABI_GetDestructorObject(func, CABIDestroyComplete)),
+            NULL
+        );
+    } else {
+        expr = funccallexpr(Xthrw_func, expr, resultExpr, nullnode(), NULL);
+    }
+    expr->flags |= ENODE_FLAG_VOLATILE;
+    return expr;
+}
+
+// b210 (0x4EEA00)
+ENode* CExcept_ScanThrowExpression(void) {
+    ENode* expr;
+
+    if (!copts.exceptions) {
+        CError_Error(ERR_EXCEPTION_HANDLING_OPTION_DISABLED);
+    }
+
+    switch ((tk = lex())) {
+        case ')':
+        case ',':
+        case ':':
+        case ';':
+            expr = funccallexpr(Xthrw_func, nullnode(), nullnode(), nullnode(), NULL);
+            expr->flags |= ENODE_FLAG_VOLATILE;
+            return expr;
+        default:
+            return CExcept_ThrowExpression(assignment_expression());
+    }
+}
+
+#else
 ENode* CExcept_ScanThrowExpression(void) {
     ENode* expr;
     Object* func;
@@ -1171,6 +1287,10 @@ ENode* CExcept_ScanThrowExpression(void) {
     return expr;
 }
 
+#endif
+#if MWCCPSP
+
+#endif
 static Boolean CExcept_MightNeedDtor(Type* type) {
     if (type) {
         if (IS_TYPE_CLASS(type)) {
@@ -1229,9 +1349,11 @@ static void CExcept_PatchDObjStack(
         ea->type = EAT_CATCHBLOCK;
         ea->data.catch_block.catch_object = catchBlock->catch_object;
         ea->data.catch_block.catch_label = catchBlock->stmt->label;
+#if !MWCCPSP // 3.0.1 creates the type ids later (CExcept_SetupCatchTypeIDs)
         if (catchBlock->type) {
             ea->data.catch_block.catch_typeid = CExcept_TypeID(catchBlock->type, catchBlock->qual);
         }
+#endif
         ea->data.catch_block.catch_info_object = catch_info_object;
 
         if (!call_dtor && CExcept_MightNeedDtor(catchBlock->type)) {
@@ -2179,6 +2301,10 @@ static Statement* CExcept_DtorTransform(Statement* stmt) {
     return curStmt;
 }
 
+#if MWCCPS2 // b210's asserts here are 527 lines later
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 527
+#endif
 static void CExcept_TempTransform(Statement* stmt, Boolean discardValue, Boolean isCondition) {
     Statement* prevStmt;
     Statement copy;
@@ -2199,6 +2325,9 @@ static void CExcept_TempTransform(Statement* stmt, Boolean discardValue, Boolean
         cexcept_expandtrycatch = TRUE;
         if (cexcept_serialize) {
             next = stmt->next;
+#if MWCCPS2 // b210 (and mwccpsp) give the statement the actions in effect before it
+            stmt->dobjstack = cexcept_eabefore;
+#endif
             CInline_SerializeStatement(stmt);
             cexcept_prevstmt = stmt;
             last = stmt;
@@ -2266,6 +2395,10 @@ static void CExcept_TempTransform(Statement* stmt, Boolean discardValue, Boolean
         }
     }
 }
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 #if MWCCPSP
 
 #endif
@@ -2632,3 +2765,26 @@ void CExcept_ExceptionTansform(Statement* stmt) {
 }
 
 #pragma pack(2)
+#if MWCCPSP
+
+#endif
+#if MWCCPSP
+// 0x4E0C30: compares two declarations' exception specifications (nothing in
+// the release compiler)
+void func_004E0C30(TypeFunc* a, UInt32* aqual, TypeFunc* b, UInt32* bqual) {}
+
+// 0x4E1C10: a static local whose type depends on template arguments: an
+// action whose need for destruction (flag) is known only once instantiated
+void func_004E1C10(Object* obj, Boolean flag) {
+    ExceptionAction* action;
+
+    action = lalloc(sizeof(ExceptionAction));
+    memclrw(action, sizeof(ExceptionAction));
+    action->prev = cexcept_dobjstack;
+    cexcept_dobjstack = action;
+    action->type = EAT_UNK19;
+    action->data.destroy_local.local = obj;
+    ((Boolean*)&action->data)[sizeof(void*)] = flag; // +8
+    cexcept_hasdobjects = TRUE;
+}
+#endif

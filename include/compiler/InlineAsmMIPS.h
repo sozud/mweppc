@@ -21,10 +21,48 @@ typedef enum MOperandType {
     MOpnd_GCCImm = 6 // u.gcc: %N, its immediate operand
 } MOperandType;
 
-// an operand (0x10 bytes)
+// an operand (0x10 bytes; mwccps2: 0x14)
 typedef struct MAsmOperand {
     UInt8 type;
     UInt8 pad1[3];
+#if MWCCPS2
+    // mwccps2 b210: the immediate is a 16-byte CInt64 and a register's
+    // effect/rclass overlap its third word (op++ steps by 0x14 in
+    // InlineAsm_GetObjectOffset; func_00488D60 still reads effect at +0xC)
+    union {
+        union {
+            CInt64 imm;
+            struct {
+                SInt32 num;
+                struct Object* object;
+            } reg;
+            struct {
+                SInt32 offset;
+                struct Object* obj;
+            } obj;
+            struct {
+                struct CLabel* label;
+            } lab;
+            struct {
+                SInt32 num; // the GCC operand's index
+                SInt16 effect;
+                SInt16 rclass;
+                char xyzw; // b210: a VU0 field suffix (x 1, y 2, z 4, w 8)
+            } gcc;
+        } u;
+        struct {
+#if MWCCPSP_NATIVE
+            // natively reg.object is 8 bytes at +8: keep effect/rclass past it
+            UInt8 ps2_pad04[16];
+#else
+            UInt8 ps2_pad04[8];
+#endif
+            SInt16 effect; // a register's: 1 read, 2 written
+            SInt16 rclass;
+            char xyzw; // b210: a register's VU0 field suffix
+        };
+    };
+#else
     union {
         CInt64 imm;
         struct {
@@ -46,6 +84,7 @@ typedef struct MAsmOperand {
     } u;
     SInt16 effect; // a register's: 1 read, 2 written
     SInt16 rclass;
+#endif
 } MAsmOperand;
 
 // an instruction: 8 bytes and its operands

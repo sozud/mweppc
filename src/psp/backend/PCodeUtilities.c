@@ -37,6 +37,7 @@ extern MPCodeBlock* data_006246B4; // the block being generated
 // 0x480230: the access just made may be misaligned: split a doubleword load
 // or a word store into its left and right halves (unless it is relative to
 // the frame or $gp, or is aligned enough)
+#if !MWCCPS2 // mips.c has b210's version
 void func_00480230(SInt16 align, void* unk) {
     MPCode* pc;
     MPCode* npc;
@@ -44,13 +45,13 @@ void func_00480230(SInt16 align, void* unk) {
 
     pc = data_006246B4->last;
     switch (pc->op) {
-        case 0x562:
+        case MACRO_OP(0x4A):
             base = pc->args[2].reg;
             if (base == data_00625E3E || base == 28 || align >= 8) {
                 return;
             }
-            pc->op = copts.littleendian ? 0x567 : 0x566;
-            npc = func_00480420(copts.littleendian ? 0x566 : 0x567, 3);
+            pc->op = copts.littleendian ? MACRO_OP(0x4F) : MACRO_OP(0x4E);
+            npc = func_00480420(copts.littleendian ? MACRO_OP(0x4E) : MACRO_OP(0x4F), 3);
             npc->flags = pc->flags;
             npc->args[0] = pc->args[0];
             npc->args[0].flags |= 1;
@@ -60,13 +61,13 @@ void func_00480230(SInt16 align, void* unk) {
             insertpcodeafter(pc, npc);
             npc->args[1].value += 7;
             break;
-        case 0x56D:
+        case MACRO_OP(0x55):
             base = pc->args[2].reg;
             if (base == data_00625E3E || base == 28 || align >= 4) {
                 return;
             }
-            pc->op = copts.littleendian ? 0x573 : 0x572;
-            npc = func_00480420(copts.littleendian ? 0x572 : 0x573, 3);
+            pc->op = copts.littleendian ? MACRO_OP(0x5B) : MACRO_OP(0x5A);
+            npc = func_00480420(copts.littleendian ? MACRO_OP(0x5A) : MACRO_OP(0x5B), 3);
             npc->flags = pc->flags;
             npc->args[0] = pc->args[0];
             npc->args[0].flags |= 1;
@@ -76,11 +77,12 @@ void func_00480230(SInt16 align, void* unk) {
             insertpcodeafter(pc, npc);
             npc->args[1].value += 3;
             break;
-        case 0x575:
+        case MACRO_OP(0x5D):
             CError_FATAL(0x241);
             break;
     }
 }
+#endif
 
 // branch_always: an unconditional branch ends the block.
 void func_00480710(MPCodeLabel* label) {
@@ -140,6 +142,9 @@ MPCode* func_004808E0(SInt16 op, SInt16 reg, SInt16 base, Object* obj, SInt32 of
 }
 
 extern SInt16 data_00625E48; // move
+#if MWCCPS2
+extern SInt16 data_00625E74; // quadword move
+#endif
 
 // Load register reg from obj+offset addressed from base; a local that lives
 // in a register is just moved.
@@ -154,14 +159,25 @@ void func_00480B40(SInt16 op, SInt16 reg, SInt16 base, Object* obj, SInt32 offse
         vi = NULL;
     }
     if (vi && (home = vi->reg)) {
+#if MWCCPS2
+        // lq (0x467 macro, 0x1D1): a quadword local in a register
+        if (op == 0x467 || op == 0x1D1) {
+            emitpcode(data_00625E74, reg, home);
+        } else {
+            emitpcode(data_00625E48, reg, home);
+        }
+#else
         emitpcode(data_00625E48, reg, home);
+#endif
         return;
     }
 
     pc = func_00480420(op, 3);
     pc->args[0] = reg_operand(reg);
     pc->args[0].flags = 2;
-    if (op == (UInt16)((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x563 : 0x560)) {
+    if (op ==
+        (UInt16)((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B)
+                                                                 : MACRO_OP(0x48))) {
         pc->args[0].flags |= 0x8000;
         if (copts.mips_option1A) {
             pc->args[0].flags |= 0x20;
@@ -234,7 +250,9 @@ void func_00480A00(SInt16 op, SInt16 reg, SInt16 base, Object* obj, SInt32 offse
     pc->args[0].rclass = 1;
     pc->args[0].reg = reg;
     pc->args[0].flags = 2;
-    if (op == (UInt16)((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x563 : 0x560)) {
+    if (op ==
+        (UInt16)((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B)
+                                                                 : MACRO_OP(0x48))) {
         pc->args[0].flags |= 0x8000;
         if (copts.mips_option1A) {
             pc->args[0].flags |= 0x20;

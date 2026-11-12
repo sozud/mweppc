@@ -1,0 +1,20 @@
+# Cases the native mwccpsp doesn't reproduce yet (test.py: reported, not failed).
+# They fail the same way in sotn-decomp's own native build.
+dwarf_cpp.cpp -g -O0 -opt nointrinsics
+dwarf_cpp.cpp -g -Op -opt nointrinsics
+dwarf.c -g -O0 -opt nointrinsics
+dwarf.c -g -Op -opt nointrinsics
+exceptions_templ.cpp -O0 -opt nointrinsics
+exceptions_templ.cpp -O4,p -fl fastmath
+exceptions_templ.cpp -O4,p -fp off
+exceptions_templ.cpp -O4,p -opt nointrinsics
+exceptions_templ.cpp -O4,s -opt nointrinsics
+exceptions_templ.cpp -Op -opt intrinsics -fp single
+exceptions_templ.cpp -Op -opt nointrinsics
+initarray.c -O0 -opt nointrinsics
+initarray.c -O4,p -fl fastmath
+initarray.c -O4,p -fp off
+initarray.c -O4,p -opt nointrinsics
+initarray.c -O4,s -opt nointrinsics
+initarray.c -Op -opt intrinsics -fp single
+initarray.c -Op -opt nointrinsics

@@ -637,9 +637,18 @@ static int RecordBrowseInfo(File* file) {
 static int RecordObjectData(File* file) {
     const CWObjectFlags* cof = Plugin_CL_GetObjectFlags(file->compiler);
 
+#if MWCCPS2
+    if (file->objectOnDisk) {
+        DO_INTERNAL_ERROR(798, "Object data is flushed");
+    }
+    if (file->objectdata == NULL && !file->objectOnDisk) {
+        return TRUE;
+    }
+#else
     if (!file->objectdata) {
         return TRUE;
     }
+#endif
 
     if (!WriteObjectFile(
             file,
@@ -657,9 +666,18 @@ int StoreObjectFile(File* file) {
         return TRUE;
     }
 
+#if MWCCPS2
+    if (file->objectOnDisk) {
+        DO_INTERNAL_ERROR(820, "Object data flushed before storing?\n");
+    }
+    if (file->objectdata == NULL && file->browsedata == NULL) {
+        return TRUE;
+    }
+#else
     if (!file->objectdata && !file->browsedata) {
         return TRUE;
     }
+#endif
 
     if (GetOutputFile(file, CmdLineStageMask_Cg)) {
         if (!((file->writeToDisk | file->tempOnDisk) & CmdLineStageMask_Cg)) {
@@ -717,6 +735,33 @@ static int CompileFile(File* file) {
 #if MWCCPSP
     // 3.0.1: the plugin's kind says what it made; an object it wrote itself
     // (or one already written) counts; outside -c the object data is freed
+#if MWCCPS2
+    if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Cg)) {
+        ret = FALSE;
+    } else {
+        if (file->dropinflags & kGeneratesrsrcs) {
+            file->hasresources = TRUE;
+        } else if (file->dropinflags & kGeneratescode) {
+            file->hasobjectcode = TRUE;
+        }
+        if ((!file->hasobjectcode ||
+             (!file->objectdata &&
+              !file->objectOnDisk &&
+              !(file->wroteToDisk & CmdLineStageMask_Cg))) &&
+            (file->dropinflags & kGeneratescode) &&
+            (file->objectUsage & CmdLineStageMask_Cg)) {
+            CLReportError(CLStr96, "compiling", file->srcfilename);
+            ret = FALSE;
+        } else if (optsCmdLine.state == OptsCmdLineState_Compile) {
+            if (!StoreObjectFile(file)) {
+                ret = FALSE;
+            }
+        } else {
+            func_0041C200(file);
+        }
+    }
+    return ret;
+#else
     if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Cg)) {
         return FALSE;
     }
@@ -741,6 +786,7 @@ static int CompileFile(File* file) {
         func_0041C200(file);
     }
     return ret;
+#endif
 #endif
     if (!SendCompilerRequest(file->compiler, file, CmdLineStageMask_Cg)) {
         ret = FALSE;
@@ -886,11 +932,22 @@ static int CompileEntry(File* file, Boolean* compiled) {
     if (!(file->sourceUsage & CmdLineStageMask_Pp)) {
         if (file->mappingflags & kRsrcfile) {
             *compiled = TRUE;
+#if MWCCPS2
+            // b210: a resource file is its own output
+            file->outfss = file->srcfss;
+            if (!file->objectdata) {
+                file->objectOnDisk = TRUE;
+            }
+#endif
         }
         return TRUE;
     }
 
+#if MWCCPS2
+    OS_ASSERT(1169, file->compiler);
+#else
     OS_ASSERT(835, file->compiler);
+#endif
 
     *compiled = TRUE;
     beginWork = OS_GetMilliseconds();
@@ -1153,7 +1210,11 @@ int CompileFilesInProject(void) {
     }
 
     if (ignored > 0 && compiled == 0 && (gTarg->preLinker || gTarg->linker)) {
+#if MWCCPS2
+        CLReportWarning(CLStr29); // b210 (0x41DF50 +0x1BB): a warning
+#else
         CLReportError(CLStr29);
+#endif
     }
 
     if (failed) {

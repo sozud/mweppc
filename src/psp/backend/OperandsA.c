@@ -138,8 +138,18 @@ Boolean func_004A4490(Type* type, Float value) {
 // A local's offset from the stack pointer; locals in the parameter area are
 // past the aligned locals block.
 SInt32 func_004A4530(Object* obj) {
+#if MWCCPS2
+    SInt32 pad = 0;
+    SInt32 base;
+
+    if (copts.mips_long64) {
+        pad = ((data_00624FCC + (data_0062421C - 1)) & ~(data_0062421C - 1)) - data_00624FCC;
+    }
+    base = data_0062597C;
+#else
     SInt32 pad = ((data_00624FCC + (data_0062421C - 1)) & ~(data_0062421C - 1)) - data_00624FCC;
     SInt32 base = data_0062597C;
+#endif
 
     if (obj->u.var.info->flags & VarInfoFlag_ParamArea) {
         base = data_0062597C + pad;
@@ -155,7 +165,7 @@ int func_004A4580(VOperand* size) {
 
     if (size->kind == 3) {
         func_00480740(
-            0x5AE,
+            MACRO_OP(0x96),
             29,
             29,
             ((size->imm.lo ? size->imm.lo : 0) + (data_0062421C - 1)) & ~(data_0062421C - 1)

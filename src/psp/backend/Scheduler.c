@@ -48,7 +48,7 @@ typedef struct MachineInfo {
 
 extern SInt32 data_00625A98[7]; // next virtual register of each class
 extern SInt32 data_00624744[7]; // first virtual register of the class (after the physical ones)
-extern UInt8 data_0060FEE8[7][128]; // physical register use (2: dedicated)
+extern UInt8 data_0060FEE8[7][BE_MAX_CLASS_REGS]; // physical register use (2: dedicated)
 extern MPCodeBlock* data_00624FD0; // pcbasicblocks
 extern SInt32 data_0062482C; // registers are still virtual
 extern SInt32 func_00462160(char rclass); // registers available in the class

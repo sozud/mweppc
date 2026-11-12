@@ -30,6 +30,7 @@ extern void IRO_ComputeDom(void);
 // --- IroUtil.c ------------------------------------------------------------
 
 // 0x552E90: the expression a statement linear holds
+#if !MWCCPS2 // mwccps2 has it in IroUtil.c
 IROLinear* func_00552E90(IROLinear* nd) {
     switch (nd->type) {
         case IROLinearOperand:
@@ -63,6 +64,9 @@ IROLinear* func_00552E90(IROLinear* nd) {
             return NULL;
     }
 }
+#else
+extern IROLinear* func_00552E90(IROLinear* nd);
+#endif
 
 Boolean func_005551B0(IROLinear* a, IROLinear* b, int depth);
 
@@ -131,6 +135,9 @@ Boolean func_005551B0(IROLinear* a, IROLinear* b, int depth) {
     int argc;
     Boolean same;
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+    mask = 0xFDFF;
+#else
     if (a->type == IROLinearOp1Arg &&
         b->type == IROLinearOp1Arg &&
         a->nodetype == ETYPCON &&
@@ -139,6 +146,7 @@ Boolean func_005551B0(IROLinear* a, IROLinear* b, int depth) {
     } else {
         mask = 0xFDFF;
     }
+#endif
     if (a->type != b->type ||
         (a->nodeflags & mask) != (b->nodeflags & mask) ||
         !IRO_TypesEqual(a->rtype, b->rtype)) {

@@ -41,6 +41,42 @@ typedef long PtrInt;
 typedef SInt32 PtrInt;
 #endif
 
+// number of back-end opcodes (data_006115F8[]): mwccps2 b210 has fewer
+// (no VFPU); BE_EncodeAll compares against 0x40A where mwccpsp has 0x518
+#if MWCCPS2
+#define BE_NUM_OPCODES 0x40A
+#else
+#define BE_NUM_OPCODES 0x518
+#endif
+// macro opcodes are numbered right after the real ones (mwccpsp's 0x518+k is
+// mwccps2's 0x40A+k); tools/mwccps2/re/macro_ops.py writes them this way
+#if MWCCPS2
+// b210 lacks mwccpsp's eight VFPU load/store macros 0x9B..0xA2 (lv.s ..
+// lvi.s), so .start (0xA3) and everything after it come 8 earlier
+// b210 has no VFPU macros (mwccpsp 0x9B..0xA2): they map outside the opcode
+// range (unique case labels that never match); later macros sit 8 lower
+#define MACRO_OP(k) \
+    (((k) >= 0x9B && (k) <= 0xA2) ? 0x7F00 + (k) : BE_NUM_OPCODES + (k) - ((k) >= 0xA3 ? 8 : 0))
+#else
+#define MACRO_OP(k) (BE_NUM_OPCODES + (k))
+#endif
+// entries in the opcode table (real + macro): b210 0x4AF, mwccpsp 0x5C5
+// (regressvaluestate's bound); the last macros count from the end
+#if MWCCPS2
+#define BE_NUM_OPDEFS 0x4AF
+#else
+#define BE_NUM_OPDEFS 0x5C5
+#endif
+
+// registers per class in the register tables (data_0060EF70[class][...]):
+// mwccpsp sizes them for the VFPU's 128; mwccps2 b210 indexes rows of 32
+// (func_00462090: shl 5 where mwccpsp has shl 7)
+#if MWCCPS2
+#define BE_MAX_CLASS_REGS 32
+#else
+#define BE_MAX_CLASS_REGS 128
+#endif
+
 // An instruction operand. A constant is a CInt64 {hi, lo} in value/value2.
 // 3.0.1 also keeps pointers in them: a label in value (kind 6), the object of
 // a memory operand or the peephole's defining instruction in value2. The
@@ -60,6 +96,12 @@ typedef struct MOperand {
     };
     SInt32 value2; // a constant's low word; memory operands: the object
     SInt32 unk0C;
+#if MWCCPS2
+    // mwccps2 b210: 128-bit constants; the operand is 0x18 bytes (a block's
+    // operands step by 0x18: func_0048FAE0) and value2 stays at +8
+    // (func_00490400). What the two extra words hold is unverified.
+    SInt32 value_mid[2];
+#endif
 #if MWCCPSP_NATIVE
     void* ptr; // kind 6: the label
     void* obj; // the object (kind 4) or defining instruction
@@ -89,7 +131,11 @@ typedef struct VOperand {
     PtrInt object; // +0x14: Object*
     PtrInt unk18; // +0x18: bitfield type (TypeBitfield*)
     UInt32 flags; // +0x1C: 0x80 must be loaded
+#if MWCCPS2
+    SInt32 sel; // b210 +0x28: __sel's element (n + 1) / 0 for __fixed__8x8_vector
+#else
     UInt8 pad20[4];
+#endif
 } VOperand; // 0x24
 
 typedef struct MPCode {

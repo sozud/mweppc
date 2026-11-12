@@ -45,8 +45,10 @@ void Assembler(Object* func) {
     Statement* scan;
     MPCodeBlock* block;
 
+#if !MWCCPS2 // b210 (0x506800) does not save these
     save_cplusplus = copts.cplusplus;
     save_asmpoundcomment = copts.asmpoundcomment;
+#endif
     data_00624D84 = functionbodyoffset;
     data_00625008 = 0;
     func_004621F0();
@@ -60,8 +62,10 @@ void Assembler(Object* func) {
     ScanStatements('}');
     in_assembler = FALSE;
     cprep_eoltokens = FALSE;
+#if !MWCCPS2
     copts.cplusplus = save_cplusplus;
     copts.asmpoundcomment = save_asmpoundcomment;
+#endif
 
     CheckCLabels();
     if (fatalerrors) {
@@ -110,7 +114,11 @@ void Assembler(Object* func) {
                 }
                 break;
             default:
+#if MWCCPS2
+                CError_Internal("FuncLevelAsm.c", CError_B145_LINE(169)); // mwccps2: 0xA9
+#else
                 CError_FATAL(175);
+#endif
         }
     }
 

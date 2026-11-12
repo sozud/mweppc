@@ -516,6 +516,16 @@ OSErr __stdcall PBHSetFInfoSync(HParmBlkPtr paramBlock) {
     return err;
 }
 
+#if MWCCPS2
+// b210 takes DOS separators in the Pascal path, and its assert is 12 lines on
+#define FSSPEC_SEP '\\'
+#define FSSPEC_LINE 852
+#else
+#if MWCCPSP
+#define FSSPEC_SEP ':'
+#define FSSPEC_LINE 840
+#endif
+#endif
 OSErr __stdcall FSMakeFSSpec(SInt16 vRefNum, SInt32 dirID, ConstStringPtr pathName, FSSpec* fss) {
     OSSpec spec;
     int err;
@@ -538,7 +548,11 @@ OSErr __stdcall FSMakeFSSpec(SInt16 vRefNum, SInt32 dirID, ConstStringPtr pathNa
         }
         OS_PathSpecToString(&spec.path, path, sizeof(path));
     } else {
+#if MWCCPSP
+        OS_ASSERT(FSSPEC_LINE, vRefNum!=0);
+#else
         OS_ASSERT(840, vRefNum!=0);
+#endif
         dirfss.vRefNum = vRefNum;
         dirfss.parID = dirID == 0 ? 2 : dirID;
         dirfss.name[0] = 0;
@@ -550,11 +564,23 @@ OSErr __stdcall FSMakeFSSpec(SInt16 vRefNum, SInt32 dirID, ConstStringPtr pathNa
         OS_PathSpecToString(&spec.path, path, sizeof(path));
     }
 
+#if MWCCPSP
+    if (pstrchr(pathName, FSSPEC_SEP)) {
+#else
     if (pstrchr(pathName, ':')) {
+#endif
         idx = 1;
+#if MWCCPSP
+        if (pathName[1] != FSSPEC_SEP) {
+#else
         if (pathName[1] != ':') {
+#endif
             while (idx <= pathName[0]) {
+#if MWCCPSP
+                if (pathName[idx] == FSSPEC_SEP) {
+#else
                 if (pathName[idx] == ':') {
+#endif
                     break;
                 }
                 vol[idx - 1] = pathName[idx];
@@ -576,12 +602,21 @@ OSErr __stdcall FSMakeFSSpec(SInt16 vRefNum, SInt32 dirID, ConstStringPtr pathNa
 
         pptr = path + strlen(path);
         while (idx <= pathName[0]) {
+#if MWCCPSP
+            if (pathName[idx] == FSSPEC_SEP) {
+                if (idx < pathName[0] && pathName[idx + 1] == FSSPEC_SEP) {
+#else
             if (pathName[idx] == ':') {
                 if (idx < pathName[0] && pathName[idx + 1] == ':') {
+#endif
                     do {
                         pptr += sprintf(pptr, "..\\");
                         idx++;
+#if MWCCPSP
+                    } while (idx < pathName[0] && pathName[idx + 1] == FSSPEC_SEP);
+#else
                     } while (idx < pathName[0] && pathName[idx + 1] == ':');
+#endif
                 } else {
                     *(pptr++) = OS_PATHSEP;
                 }
@@ -610,3 +645,7 @@ OSErr __stdcall FSMakeFSSpec(SInt16 vRefNum, SInt32 dirID, ConstStringPtr pathNa
         return OS_OSErrorToMacError(err);
     }
 }
+#if MWCCPSP
+#undef FSSPEC_SEP
+#undef FSSPEC_LINE
+#endif

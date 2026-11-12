@@ -716,9 +716,13 @@ static void CSOM_GenerateOverrideIntroLists(SOMGenerator* gen, TypeClass* tclass
                         object->name == object2->name &&
                         object2->datatype == DVFUNC &&
                         !(TYPE_FUNC(object2->type)->flags & FUNC_OVERRIDE) &&
+#if MWCCPSP
+                        CCLASS_OVERRIDE(object, object2, FALSE) != 0) {
+#else
                         CClass_GetOverrideKind(
                             TYPE_FUNC(object->type), TYPE_FUNC(object2->type), FALSE
                         ) != 0) {
+#endif
                         ancestor = CSOM_FindAddAncestor(gen, tclass, vbase->base, NULL);
                         if ((override = ancestor->overrides)) {
                             override = lalloc(sizeof(SOMOverride));
@@ -1706,7 +1710,11 @@ void CSOM_InitAutoClass(Object* object) {
     Statement* stmt;
     Object* func;
 
+#if MWCCPS2
+    if ((func = CSOM_FindRTFunc("somReleaseObjectReference", "pp")) != NULL) {
+#else
     if ((func = CSOM_FindRTFunc("somReleaseObjectReference", "pp"))) {
+#endif
         type = object->type;
         object->type = CDecl_NewPointerType(type);
         TPTR_QUAL(object->type) = Q_REFERENCE;
@@ -1764,9 +1772,13 @@ static void CSOM_FindIntroClassOffset(
                     if (IS_TYPE_FUNC(scan->type) &&
                         scan->datatype == DVFUNC &&
                         !(TYPE_FUNC(scan->type)->flags & FUNC_OVERRIDE) &&
+#if MWCCPSP
+                        CCLASS_OVERRIDE(func, scan, FALSE)) {
+#else
                         CClass_GetOverrideKind(
                             TYPE_FUNC(func->type), TYPE_FUNC(scan->type), FALSE
                         )) {
+#endif
                         *resultClass = vbase->base;
                         *resultOffset = CSOM_GetTokenOffset(scan);
                         return;

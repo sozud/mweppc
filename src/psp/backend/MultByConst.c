@@ -73,29 +73,40 @@ static inline MultEntry* FindMultEntry(SInt32 value) {
 }
 
 // what the multiply instruction (or the runtime call) costs
+#if MWCCPS2
+__declspec(noinline) // b210 MultiplyByConstant calls it
+#endif
 static UInt32 MultCost(SInt32 value, Type* type) {
-    if (IS_64BIT_INT(type)) {
-        return 20;
-    }
+#if MWCCPS2 // b210: a 64-bit multiply is only expensive with mips_option25
     if (IS_64BIT_INT(type) && copts.mips_option25) {
+#else
+    if (IS_64BIT_INT(type) || (IS_64BIT_INT(type) && copts.mips_option25)) {
+#endif
         return 20;
     }
     if (value >= 0) {
-        if (value < 0x10000) {
-            return 6;
+        if (value >= 0x10000) {
+            return 10;
         }
-        return 10;
-    }
-    if (value > -0x10000) {
         return 6;
     }
-    return 10;
+    if (value <= -0x10000) {
+        return 10;
+    }
+    return 6;
 }
 
+#if MWCCPS2
+__declspec(noinline) // b210 MultiplyByConstant calls it
+#endif
 static void InitMultTable(VOperand* src) {
     MultEntry* one;
     MultEntry* neg;
+#if MWCCPS2
+    UInt32 i; // b210 compares unsigned (jb)
+#else
     int i;
+#endif
 
     for (i = 0; i < MULT_HASH; i++) {
         MultHash[i] = NULL;
@@ -111,6 +122,9 @@ static void InitMultTable(VOperand* src) {
     neg->cost = 1;
 }
 
+#if MWCCPS2
+__declspec(noinline) // b210 MultiplyByConstant calls it
+#endif
 static MultEntry* SearchMult(SInt32 value, UInt32 budget) {
     MultEntry* e;
     MultEntry* sub;
@@ -366,7 +380,12 @@ VOperand MultiplyByConstant(VOperand* src, SInt32 value, Type* type) {
     }
 
     cst = func_0047F660(value);
+#if MWCCPS2
+    // b210 (0x54F230): a long long multiplies in the 64-bit registers unless copts+0x25
+    if (IS_64BIT_INT(MultType) && copts.mips_option25) {
+#else
     if (IS_64BIT_INT(MultType) || (IS_64BIT_INT(MultType) && copts.mips_option25)) {
+#endif
         func_004A47E0(src, 1, 1);
         func_004A47E0(&cst, 1, 2);
         func_004A4A20(is_unsigned(MultType) ? rt_muldi3_2 : rt_muldi3);

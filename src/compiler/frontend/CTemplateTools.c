@@ -116,8 +116,44 @@ void CTemplTool_PopInstance(TemplStack* stack) {
 #endif
 
 #if MWCCPSP
-// 3.0.1: a member pointer template argument from a name lookup result
-extern ENode* func_004AF140(ENode* expr, Type* type, UInt32 qual);
+// 0x4AF140: a member pointer template argument from a name lookup result:
+// keep the member whose type matches the parameter's
+ENode* func_004AF140(ENode* expr, Type* type, UInt32 qual) {
+    NameSpaceObjectList* list;
+    NameSpaceObjectList* single;
+    Type* mtype;
+
+    CError_ASSERT(327, expr->type == EOBJACCESS);
+    CError_ASSERT(328, IS_TYPE_MEMBERPOINTER(type));
+    if (!copts.cpp_extensions &&
+        (!expr->data.objaccess.addressTaken || !expr->data.objaccess.is_qualified)) {
+        CError_Warning(ERR_ILLEGAL_IMPLICIT_MEMBER_POINTER_CONVERSION);
+    }
+
+    mtype = TYPE_MEMBER_POINTER(type)->ty1;
+    for (list = expr->data.objaccess.list; list; list = list->next) {
+        if (list->object->otype == OT_MEMBERVAR) {
+            if (!is_typeequal(OBJ_MEMBER_VAR(list->object)->type, mtype)) {
+                CError_Error(ERR_ILLEGAL_TYPE);
+            }
+            return expr;
+        }
+        if (list->object->otype == OT_OBJECT &&
+            is_memberpointerequal(OBJECT(list->object)->type, mtype)) {
+            if (expr->data.objaccess.list != list || list->next) {
+                single = galloc(sizeof(NameSpaceObjectList));
+                expr->data.objaccess.list = single;
+                *single = *list;
+                single->next = NULL;
+            }
+            break;
+        }
+    }
+    if (!list) {
+        CError_Error(ERR_ILLEGAL_IMPLICIT_MEMBER_POINTER_CONVERSION);
+    }
+    return expr;
+}
 #endif
 Boolean CTemplTool_InitDeduceInfo(
     DeduceInfo* info, TemplParam* params, TemplArg* args, Boolean checkUndeduced
@@ -1370,6 +1406,9 @@ static ENodeList* CTemplTool_DeduceExprList(TypeDeduce* deduce, ENodeList* list)
     return resultList;
 }
 
+#if MWCCPSP
+extern ENode* CExpr_TypeOpValue(UInt8 kind, Type* type, ENode* expr); // 0x516D60
+#endif
 ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
     TemplArg* arg;
     TemplClassInst* inst;
@@ -1442,6 +1481,31 @@ ENode* CTemplTool_DeduceExpr(TypeDeduce* deduce, ENode* expr) {
                     CError_FATAL(1582);
 
                 case TDE_SIZEOF:
+#if MWCCPSP
+                    // 3.0.1: any type operator, on a type or an expression
+                    if (expr->data.templdep.u.typeop.isexpr) {
+                        newExpr = CTemplTool_DeduceExpr(
+                            deduce, (ENode*)expr->data.templdep.u.typeop.operand
+                        );
+                        if (CTemplTool_IsTemplDepExpr(newExpr)) {
+                            expr = CEXPR_COPYENODE(expr);
+                            expr->data.templdep.u.typeop.operand = newExpr;
+                            return expr;
+                        }
+                        return CExpr_TypeOpValue(expr->data.templdep.u.typeop.kind, NULL, newExpr);
+                    }
+                    qual = 0;
+                    type = CTemplTool_DeduceTypeCopy(
+                        deduce, TYPE(expr->data.templdep.u.typeop.operand), &qual
+                    );
+                    if (CTemplTool_IsTemplateArgumentDependentType(type)) {
+                        newExpr = CEXPR_COPYENODE(expr);
+                        newExpr->data.templdep.u.typeop.operand = type;
+                        return newExpr;
+                    }
+                    CDecl_CompleteType(type);
+                    return CExpr_TypeOpValue(expr->data.templdep.u.typeop.kind, type, NULL);
+#endif
                     qual = 0;
                     type = CTemplTool_DeduceTypeCopy(
                         deduce, TYPE(expr->data.templdep.u.typeexpr.type), &qual
@@ -2364,12 +2428,99 @@ TemplClass* CTemplTool_GetTemplClass(TypeClass* tclass) {
     return (TemplClass*)tclass;
 }
 
+#if MWCCPS2
+// b210 0x4BB2C0 (b219 0x4AF6A0, real name unknown): TemplClass and
+// TemplClassInst embed a template header at +0x30 whose byte at +0xC marks a
+// class template; this maps a header back to its class template
+TemplClass* CTemplTool_TemplClassFromHeader(void* header) {
+    if (!header) {
+        return NULL;
+    }
+    CError_ASSERT(68, ((UInt8*)header)[0xC]);
+    return (TemplClass*)((char*)header - 0x30);
+}
+
+// b210 0x4BB290 (b219 0x4AF670): an instance's header points at its class
+// template's header
+TemplClassInst* CTemplTool_TemplClassInstFromHeader(void* header) {
+    if (!header) {
+        return NULL;
+    }
+    CError_ASSERT(80, (*(UInt8**)header)[0xC]);
+    return (TemplClassInst*)((char*)header - 0x30);
+}
+#endif
+
 // 3.0.1: the template of a class template instance, checked (0x4AF4D0; the
 // exe reaches it through a template header embedded in TemplClass)
+#if MWCCPS2
+inline static TemplClassInst* CTemplTool_GetTemplClassInst_inl(TypeClass* tclass) {
+    if (!tclass) {
+        return NULL;
+    }
+    CError_ASSERT(133, tclass->flags & CLASS_IS_TEMPL_INST);
+    return (TemplClassInst*)tclass;
+}
+
+inline static TemplClass* CTemplTool_TemplClassFromHeader_inl(void* header) {
+    if (!header) {
+        return NULL;
+    }
+    CError_ASSERT(68, ((UInt8*)header)[0xC]);
+    return (TemplClass*)((char*)header - 0x30);
+}
+
+// b210 0x4BB150 (b219 0x4AF530): a type as a class template instance, or NULL
+TemplClassInst* func_004AF530(Type* type) {
+    if (type == NULL) {
+        return NULL;
+    }
+    if (IS_TYPE_CLASS(type) && (TYPE_CLASS(type)->flags & CLASS_IS_TEMPL_INST)) {
+        return CTemplTool_GetTemplClassInst_inl(TYPE_CLASS(type));
+    }
+    return NULL;
+}
+
+// b210 0x4BB230 (b219 0x4AF610): checks that a header belongs to an instance
+void* func_004AF610(void* header) {
+    if (!header) {
+        return NULL;
+    }
+    CError_ASSERT(104, !(*(UInt8**)header)[0xC]);
+    return header;
+}
+
+// b210 0x4BB260 (b219 0x4AF640): checks that a header is not a class template's
+void* func_004AF640(void* header) {
+    if (!header) {
+        return NULL;
+    }
+    CError_ASSERT(92, !((UInt8*)header)[0xC]);
+    return header;
+}
+
+// b210 0x4BB2F0 (b219 0x4AF6D0): the nearest enclosing header that belongs to
+// a class template instance, as its class
+TemplClass* func_004AF6D0(void* header) {
+    for (;;) {
+        CError_ASSERT(51, header);
+        if ((*(UInt8**)header)[0xC]) {
+            return (TemplClass*)((char*)header - 0x30);
+        }
+        header = ((void**)header)[1];
+    }
+}
+
+// b210: the instance's header points at its class template's header
+TemplClass* CTemplTool_GetInstTemplate(TypeClass* tclass) {
+    return CTemplTool_TemplClassFromHeader_inl(CTemplTool_GetTemplClassInst_inl(tclass)->parent);
+}
+#else
 TemplClass* CTemplTool_GetInstTemplate(TypeClass* tclass) {
     CError_ASSERT(133, tclass->flags & CLASS_IS_TEMPL_INST);
     return TEMPL_CLASS_INST(tclass)->templ;
 }
+#endif
 
 // 3.0.1: a class as its template instance, checked (0x4AF590)
 TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass) {

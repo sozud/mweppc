@@ -25,7 +25,7 @@ extern SInt32 data_00624650; // locals size
 extern SInt32 data_0062597C; // frame size
 extern char data_00625EAE; // the frame pointer is used
 extern SInt32 data_00625478[7]; // registers used, per class ...
-extern SInt32 data_0060EF70[7][0x80]; // ... and which
+extern SInt32 data_0060EF70[7][BE_MAX_CLASS_REGS]; // ... and which
 extern SInt32 data_00624788; // size of a saved integer register
 extern SInt32 data_00625018; // integer save area
 extern SInt32 data_006250AC; // floating-point save area
@@ -47,7 +47,11 @@ void func_0048F630(MPCode* pc) {
     int i;
     SInt32 pad;
 
+#if MWCCPS2
+    pad = copts.mips_long64 ? ALIGN_FRAME(data_00624FCC) - data_00624FCC : 0;
+#else
     pad = ALIGN_FRAME(data_00624FCC) - data_00624FCC;
+#endif
     if (data_00625EA4 && (pc->flags & 8)) {
         return;
     }
@@ -99,12 +103,18 @@ void func_0048F260(Object* func) {
             continue;
         }
         if ((data_006241D8->intregs & (BIT32(i))) && ((BIT32(i)) & 0xC0FF0000)) {
+#if MWCCPS2
+            data_00625018 += 16; // b210 saves whole quadwords
+#else
             data_00625018 += data_00624788;
+#endif
         }
     }
+#if !MWCCPS2
     if (data_00625018) {
         data_00625018 = ALIGN_FRAME(data_00625018);
     }
+#endif
     if (copts.fp_library & 1) {
         for (i = 0; i < 32; i++) {
             if ((data_006241D8->fpregs & (BIT32(i))) && ((BIT32(i)) & 0xFFF00000)) {
@@ -150,7 +160,7 @@ void func_0048F260(Object* func) {
                 *(CInt64*)&pc->args[2].value = func_00458340(*(CInt64*)&pc->args[2].value, delta);
                 pc->unk38 = 0;
             }
-            if (pc->op >= 0x518) {
+            if (pc->op >= MACRO_OP(0x00)) {
                 data_00624D3C = 0;
                 func_0048B5D0(&pc, 0);
             }

@@ -331,7 +331,11 @@ static Object* CABI_FindZeroVirtualBaseMember(TypeClass* tclass, Object* obj) {
                 chk = OBJECT(nsol->object);
                 if (chk->otype == OT_OBJECT &&
                     chk->datatype == DVFUNC &&
+#if MWCCPSP
+                    CCLASS_OVERRIDE(chk, obj, FALSE) ==
+#else
                     CClass_GetOverrideKind(TYPE_FUNC(chk->type), TYPE_FUNC(obj->type), FALSE) ==
+#endif
                         1) {
                     return chk;
                 }
@@ -1337,7 +1341,9 @@ void CABI_MakeDefaultConstructor(TypeClass* tclass, Object* func) {
 
     CFunc_SetupNewFuncArgs(func, TYPE_FUNC(func->type)->args);
 
+#if !MWCCPS2
     ctor_chain = NULL;
+#endif
     if (tclass->flags & CLASS_HAS_VBASES) {
         arguments->next->object->name = CParser_GetUniqueName();
     }
@@ -1758,7 +1764,9 @@ void CABI_MakeDefaultCopyConstructor(TypeClass* tclass, Object* func) {
 
     CFunc_SetupNewFuncArgs(func, TYPE_FUNC(func->type)->args);
 
+#if !MWCCPS2
     ctor_chain = NULL;
+#endif
     if (tclass->flags & CLASS_HAS_VBASES) {
         arguments->next->object->name = CParser_GetUniqueName();
     }
@@ -2083,9 +2091,15 @@ void CABI_MakeDefaultDestructor(TypeClass* tclass, Object* func) {
     memclrw(&returnStmt, sizeof(Statement));
     returnStmt.type = ST_RETURN;
 
+#if MWCCPS2
+    CABI_TransDestructor(func, func, &firstStmt, tclass, CABIDestroyBase);
+
+    CFunc_CodeCleanup(&firstStmt);
+#else
     CFunc_CodeCleanup(&firstStmt);
 
     CABI_TransDestructor(func, func, &firstStmt, tclass, CABIDestroyBase);
+#endif
 
     CFunc_Gen(&firstStmt, func, 0);
 
@@ -2222,14 +2236,24 @@ ENode* CABI_DestroyObject(
             varg = 0;
             break;
         default:
+#if MWCCPS2
+            CError_FATAL(2977);
+#else
             CError_FATAL(2791);
+#endif
     }
 
+#if MWCCPS2
+    expr = CExpr_NewENode(EFUNCCALL);
+    expr->cost = 200;
+    expr->rtype = &stvoid;
+#else
     expr = lalloc(sizeof(ENode));
     expr->type = EFUNCCALL;
     expr->cost = 200;
     expr->flags = 0;
     expr->rtype = &stvoid;
+#endif
     expr->data.funccall.funcref = create_objectrefnode(dtor);
     if (nonvirtual) {
         expr->data.funccall.funcref->flags |= ENODE_FLAG_NONVIRTUAL;

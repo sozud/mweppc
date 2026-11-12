@@ -3254,11 +3254,15 @@ void CInit_InitializeData(Object* obj) {
         obj->datatype == DABSOLUTE) {
         CError_Error(ERR_DATA_OBJECT_REDEFINED, obj);
     }
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145: no __attribute__ after an initializer
+    CInit_StaticObject(obj, CInit_ParseInitRecord(obj->type, FALSE), NULL, FALSE);
+#else
     rec = CInit_ParseInitRecord(obj->type, FALSE);
     if (tk == TK_UU_ATTRIBUTE_UU) {
         func_00449980(obj);
     }
     CInit_StaticObject(obj, rec, NULL, FALSE);
+#endif
     if (!(obj->qual & Q_INLINE_DATA)) {
         obj->flags |= OBJECT_DEFINED;
     }
@@ -3520,6 +3524,10 @@ PooledString* CInit_DeclarePooledWString(char* data, SInt32 size) {
     return str;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -6 // b145 asserts
+#endif
 void CInit_RewriteString(ENode* expr, Boolean unused) {
     PooledString* str;
     Boolean is_wide;
@@ -3573,6 +3581,10 @@ void CInit_RewriteString(ENode* expr, Boolean unused) {
         );
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void CInit_DeclarePooledStrings(void) {
     SInt32 size;
@@ -3617,7 +3629,9 @@ void CInit_DeclarePooledStrings(void) {
         }
     }
 }
+#if MWCCPSP
 
+#endif
 #if MWCCPSP
 // 3.0.1: data declared while precompiling (and string literals) is kept in
 // a list and emitted at the end of the unit (CInit_DefineTentativeData).
@@ -3661,10 +3675,42 @@ static void CInit_DeferData(
         memcpy(d->data, data, obj->type->size);
     }
 }
-#endif
-#if MWCCPSP
+extern void func_0049F360(
+    Object* obj, Object* func, SInt32 index
+); // its "@STRING@" name (CMangler.c)
 
+// 0x504E90: a string literal of an inline function with external linkage
+// becomes a named object, so that every expansion shares it
+void func_00504E90(ENode* expr) {
+    Boolean wide;
+    Object* obj;
+    SInt32 size;
+    char* data;
+
+    CError_ASSERT(6880, IS_TYPE_POINTER_ONLY(expr->rtype));
+    wide = TPTR_TARGET(expr->rtype)->size != 1;
+    data = expr->data.string.data;
+    size = expr->data.string.size;
+    obj = CParser_NewCompilerDefDataObject();
+    obj->name = CParser_GetUniqueName();
+    if (wide) {
+        obj->type = CDecl_NewArrayType(CParser_GetWCharType(), size);
+    } else {
+        obj->type = CDecl_NewArrayType(
+            expr->data.string.ispascal ? TYPE(&stunsignedchar) : TYPE(&stchar), size
+        );
+    }
+    obj->qual |= Q_IMPLICIT_WEAK | Q_CONST;
+    if (copts.readonly_strings) {
+        obj->qual |= Q_CONST;
+    }
+    func_0049F360(obj, cscope_currentfunc, expr->data.string.inlineid - 1);
+    CInit_DeferData(obj, data, NULL, obj->type->size, FALSE, FALSE);
+    expr->type = EOBJREF;
+    expr->data.objref = obj;
+}
 #endif
+
 static void declaredata(
     Object* obj, void* data, OLinkList* list, SInt32 size, Boolean is_readonly
 ) {
@@ -3749,8 +3795,6 @@ void CInit_DefineTentativeData(void) {
 #endif
 #if MWCCPSP
 
-#endif
-#if MWCCPSP
 // ---------------------------------------------------------------------------
 // 3.0.1 initializer engine (being decompiled; the 2.4.7 code above is still
 // what our own callers use). An initializer is parsed into a record first
@@ -3790,34 +3834,32 @@ static CInitItem* CInit_ParseInitList(void);
 void CInit_CheckUninitialized(Object* obj, Boolean hasInit) {
     Type* type;
 
-    if (hasInit || obj->sclass == TK_EXTERN) {
-        return;
-    }
-
-    type = obj->type;
-    switch (type->type) {
-        case TYPEPOINTER:
-            if (TYPE_POINTER(type)->qual & Q_REFERENCE) {
-                CError_Error(ERR_CONST_AMPERSAND_VARIABLE_NEEDS_INITIALIZER);
-                return;
-            }
-            break;
-        case TYPEARRAY:
-            do {
-                type = TPTR_TARGET(type);
-            } while (type->type == TYPEARRAY);
-            if (type->type != TYPECLASS) {
+    if (!hasInit && obj->sclass != TK_EXTERN) {
+        type = obj->type;
+        switch (type->type) {
+            case TYPEPOINTER:
+                if (TYPE_POINTER(type)->qual & Q_REFERENCE) {
+                    CError_Error(ERR_CONST_AMPERSAND_VARIABLE_NEEDS_INITIALIZER);
+                    return;
+                }
                 break;
-            }
-        case TYPECLASS:
-            if (CClass_Constructor(TYPE_CLASS(type)) != NULL) {
+            case TYPEARRAY:
+                do {
+                    type = TPTR_TARGET(type);
+                } while (type->type == TYPEARRAY);
+                if (type->type != TYPECLASS) {
+                    break;
+                }
+            case TYPECLASS:
+                if (CClass_Constructor(TYPE_CLASS(type)) != NULL) {
+                    return;
+                }
                 return;
-            }
-            return;
-    }
+        }
 
-    if (copts.cplusplus && is_const_object(obj)) {
-        CError_Error(ERR_CONST_AMPERSAND_VARIABLE_NEEDS_INITIALIZER);
+        if (copts.cplusplus && is_const_object(obj)) {
+            CError_Error(ERR_CONST_AMPERSAND_VARIABLE_NEEDS_INITIALIZER);
+        }
     }
 }
 
@@ -5540,6 +5582,139 @@ extern Boolean func_00503C90(Type* type);
 // 0x5054F0: initialize a static object (`isLocal`: a static local, whose
 // dynamic initialization is guarded); the record comes from
 // CInit_ParseInitRecord. `stmt` is where a static local's statements go.
+#if MWCCPS2
+// b210 0x513A70: the same steps; the array element loop is a while loop, and
+// the record kinds are tested with ifs (`aggregate:` precedes the kind check)
+void CInit_StaticObject(Object* obj, CInitRecord* rec, Statement* stmt, Boolean isLocal) {
+    CInit_DataBuffer db;
+    CInitInfo ii;
+    CInitCursor cursor;
+    Type* type;
+    ENode* expr;
+    ENodeList* args;
+    Object* dtor;
+    Boolean flag;
+    Boolean ok;
+
+    CInit_CheckUninitialized(obj, rec != NULL);
+    memclrw(&ii, sizeof(CInitInfo));
+    ii.obj = obj;
+    ii.stmt = stmt;
+    ii.kind = isLocal ? CII_LOCALSTATIC : CII_STATIC;
+
+    type = obj->type;
+    if (IS_TYPE_POINTER_ONLY(type) && (TYPE_POINTER(type)->qual & Q_REFERENCE)) {
+        if ((expr = CInit_RecordExpr(rec, FALSE))) {
+            CInit_EmitExpr(&ii, CInit_ReferenceExpr(&ii, expr));
+            declaredata(obj, NULL, NULL, obj->type->size, FALSE);
+        }
+        goto finish;
+    }
+
+    if (IS_TYPE_CLASS(type) &&
+        (CClass_Constructor(TYPE_CLASS(type)) || CClass_Destructor(TYPE_CLASS(type)))) {
+        args = NULL;
+        flag = TRUE;
+        if (rec) {
+            switch (rec->kind) {
+                case CIR_EXPR:
+                    args = lalloc(sizeof(ENodeList));
+                    args->next = NULL;
+                    args->node = rec->data;
+                    flag = FALSE;
+                    break;
+                case CIR_ARGS:
+                    args = rec->data;
+                    break;
+                case CIR_LIST:
+                case CIR_BRACE:
+                    if (!func_00503C90(obj->type)) {
+                        CError_Error(ERR_ILLEGAL_INITIALIZATION);
+                        return;
+                    }
+                    goto aggregate;
+                default:
+                    CError_FATAL(3608);
+            }
+        }
+        CInit_InitClassObject(&ii, 0, TYPE_CLASS(obj->type), args, flag);
+        declaredata(obj, NULL, NULL, obj->type->size, FALSE);
+        goto finish;
+    }
+
+    type = obj->type;
+    if (IS_TYPE_ARRAY(type)) {
+        while (IS_TYPE_ARRAY(type)) {
+            type = TPTR_TARGET(type);
+        }
+        if (IS_TYPE_CLASS(type) &&
+            (CClass_Constructor(TYPE_CLASS(type)) || CClass_Destructor(TYPE_CLASS(type)))) {
+            if (!rec) {
+                CInit_InitClassArray(&ii, TYPE_CLASS(type));
+                declaredata(obj, NULL, NULL, obj->type->size, FALSE);
+                goto finish;
+            }
+            if (rec->kind == CIR_LIST || rec->kind == CIR_BRACE) {
+                if (rec->kind == CIR_LIST) {
+                    cursor.cur = rec->data;
+                    cursor.islist = TRUE;
+                } else {
+                    cursor.cur = NULL;
+                    cursor.islist = FALSE;
+                }
+                CInit_InitClassArrayList(
+                    &ii, 0, &cursor, TYPE_POINTER(obj->type), obj->qual, FALSE
+                );
+                CInit_CursorLeave(&cursor);
+                declaredata(obj, NULL, NULL, obj->type->size, FALSE);
+                goto finish;
+            }
+            CError_Error(ERR_ILLEGAL_INITIALIZATION);
+        }
+    }
+
+    if (!rec) {
+        if (copts.cplusplus && is_const_object(obj)) {
+            CError_Error(ERR_CONST_AMPERSAND_VARIABLE_NEEDS_INITIALIZER);
+        }
+        declaredata(obj, NULL, NULL, obj->type->size, FALSE);
+        return;
+    }
+
+    if (rec->kind == CIR_ARGS) {
+        args = rec->data;
+        if (!args || args->next) {
+            CError_Error(ERR_ILLEGAL_INITIALIZATION);
+            return;
+        }
+        expr = args->node;
+    } else if (rec->kind == CIR_EXPR) {
+        expr = rec->data;
+    } else {
+aggregate:
+        if (rec->kind != CIR_LIST && rec->kind != CIR_BRACE) {
+            CError_FATAL(3742);
+        }
+        if (rec->kind == CIR_LIST) {
+            cursor.cur = rec->data;
+            cursor.islist = TRUE;
+        } else {
+            cursor.cur = NULL;
+            cursor.islist = FALSE;
+        }
+        CInit_InitBuffer(&db, &cursor, obj->type, obj->qual, copts.cplusplus);
+        CInit_CursorLeave(&cursor);
+        if (IS_TYPE_CLASS(obj->type) && (dtor = CClass_Destructor(TYPE_CLASS(obj->type)))) {
+            func_00500ED0(obj->type, obj->type, obj->type, dtor->access, dtor, NULL);
+            CInit_EmitExpr(&ii, CInit_RegisterDtor(&ii, 0, dtor));
+        }
+        goto declare;
+    }
+
+    if (CInit_InlineConst(obj, expr)) {
+        return;
+    }
+#else
 void CInit_StaticObject(Object* obj, CInitRecord* rec, Statement* stmt, Boolean isLocal) {
     CInit_DataBuffer db;
     CInitInfo ii;
@@ -5673,6 +5848,7 @@ aggregate:
     if (CInit_InlineConst(obj, expr)) {
         return;
     }
+#endif
 
     type = obj->type;
     memclrw(&db, sizeof(CInit_DataBuffer));
@@ -6015,4 +6191,18 @@ aggregate:
     CInit_EmitExpr(&ii, result);
 }
 
+#endif
+#if MWCCPS2
+// b210 0x5142C0 (b219 0x505D30, not ported on the PSP side yet): a compound
+// literal (type){...}: its initializer list as an unnamed auto object
+ENode* func_00505D30(Type* type, UInt32 qual) {
+    CInit_DataBuffer db;
+    CInitCursor cursor;
+
+    cursor.cur = CInit_ParseInitList();
+    cursor.islist = TRUE;
+    CInit_InitBuffer(&db, &cursor, type, qual, TRUE);
+    tk = lex();
+    return CInit_AutoDataExpr(&db, NULL, type, qual, TRUE);
+}
 #endif

@@ -189,6 +189,25 @@ static int FindOrAdd(const OSPathSpec* path, unsigned int* vRefNum, unsigned int
     ptr = &pb[1];
     OS_ASSERT(267, *pb == OS_PATHSEP);
 
+#if MWCCPS2
+    // b210 also fails when the last component cannot be added
+    while (*ptr) {
+        st = ptr;
+        while ((ch = *ptr) && ch != OS_PATHSEP) {
+            ++ptr;
+        }
+
+        if (ch == OS_PATHSEP) {
+            *ptr = 0;
+            ++ptr;
+        }
+
+        level = FindOrAddDirRef(level, st);
+        if (!level) {
+            return FALSE;
+        }
+    }
+#else
     while (*ptr) {
         st = ptr;
         while ((ch = *ptr) && ch != OS_PATHSEP) {
@@ -207,6 +226,7 @@ static int FindOrAdd(const OSPathSpec* path, unsigned int* vRefNum, unsigned int
             return FALSE;
         }
     }
+#endif
 
     *dirID = level->dirID;
     return TRUE;
@@ -305,6 +325,7 @@ int __stdcall OS_OSPathSpec_To_VolDir(const OSPathSpec* spec, SInt16* vRefNum, S
     }
 }
 
+#if !MWCCPS2
 static int OS_ShortenSpec(OSSpec* spec) {
     char path[260];
     char shortpath[260];
@@ -323,12 +344,15 @@ static int OS_ShortenSpec(OSSpec* spec) {
     }
     return err;
 }
+#endif
 
 int __stdcall OS_OSSpec_To_FSSpec(const OSSpec* spec, FSSpec* fss) {
     int err;
     SInt16 vRefNum;
     SInt32 dirID;
+#if !MWCCPS2
     char* name;
+#endif
 
     err = OS_OSPathSpec_To_VolDir(&spec->path, &vRefNum, &dirID);
     fss->vRefNum = vRefNum;
@@ -337,6 +361,14 @@ int __stdcall OS_OSSpec_To_FSSpec(const OSSpec* spec, FSSpec* fss) {
         return err;
     }
 
+#if MWCCPS2
+    // b210: a name that does not fit an FSSpec is an error, not shortened
+    if (OS_NameSpecToString(&spec->name, stname, 64) != NULL) {
+        c2pstrcpy(fss->name, stname);
+        return 0;
+    }
+    return ERROR_BUFFER_OVERFLOW;
+#else
     name = OS_NameSpecToString(&spec->name, STSbuf, sizeof(STSbuf));
     if (!name || strlen(name) >= 64) {
         OSSpec shortened = *spec;
@@ -346,6 +378,7 @@ int __stdcall OS_OSSpec_To_FSSpec(const OSSpec* spec, FSSpec* fss) {
 
     c2pstrcpy(fss->name, name);
     return 0;
+#endif
 }
 
 int __stdcall OS_VolDir_To_OSNameSpec(
@@ -422,12 +455,16 @@ int __stdcall OS_FSSpec_To_OSSpec(const FSSpec* fss, OSSpec* spec) {
     }
 
     p2cstrcpy(stname, fss->name);
+#if MWCCPS2
+    return OS_MakeNameSpec(stname, &spec->name);
+#else
     err = OS_MakeNameSpec(stname, &spec->name);
     if (err) {
         return err;
     }
 
     return OS_CanonNameCase(spec);
+#endif
 }
 
 int __stdcall OS_GetRsrcOSSpec(const OSSpec* spec, OSSpec* rspec, Boolean create) {

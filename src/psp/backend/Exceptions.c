@@ -7,6 +7,7 @@
 #include "compiler/Exceptions.h"
 #include "compiler/objects.h"
 #include "compiler/CFunc.h"
+#include "compiler/CParser.h"
 
 // mwccpsp 3.0.1 exception tables for the MIPS backend: registers that the
 // unwinder needs, and the actions in effect at each call.
@@ -399,9 +400,7 @@ int func_0049DC10(void) {
 }
 
 extern Boolean data_00625EAE; // the function saves registers in its own way (interrupt)
-extern UInt8 data_00625478; // registers saved (count)
-extern SInt8 data_006250C6;
-extern SInt32 data_0062547C;
+extern SInt32 data_00625478[7]; // registers used, per class (RegClasses.c)
 extern SInt32 data_0062421C; // frame alignment
 extern SInt32 data_00624FCC;
 extern SInt32 data_0062597C; // frame size
@@ -415,18 +414,18 @@ extern SInt32 data_006242B4; // outgoing arguments' size
 void func_00540710(GList* list) {
     char flags;
 
-    flags = data_00625478;
+    flags = data_00625478[0];
     if (data_00625EAE) {
         flags |= 0x20;
     }
-    if ((data_006250C6 & 1) && data_0062547C) {
+    if ((copts.fp_library & 1) && data_00625478[1]) {
         flags |= 0x40;
     }
     AppendGListByte(list, flags);
     func_0049F100(((data_00624FCC + (data_0062421C - 1)) & ~(data_0062421C - 1)) + data_0062597C);
     func_0049F100(data_006242B4);
-    if ((data_006250C6 & 1) && data_0062547C) {
-        func_0049F100(data_0062547C);
+    if ((copts.fp_library & 1) && data_00625478[1]) {
+        func_0049F100(data_00625478[1]);
     }
 }
 #ifdef __MWERKS__

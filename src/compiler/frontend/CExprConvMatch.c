@@ -703,9 +703,18 @@ static Boolean CExpr_OverloadFuncMatch(
 }
 
 #if MWCCPSP
+#if MWCCPS2
+#define CExprConvMatch_LINE996 990
+#else
+#define CExprConvMatch_LINE996 996
+#endif
+
+#if MWCCPS2
+// b210 passes the qualifiers through untruncated (the callee reads the low byte)
+extern ENode* getpointertomemberfunc301(ENode* expr, Type* type, UInt32 a, Boolean b, Boolean c);
+#elif MWCCPSP
 extern ENode* getpointertomemberfunc301(ENode* expr, Type* type, Boolean a, Boolean b, Boolean c);
 #endif
-#if MWCCPSP
 
 #endif
 static Boolean CExpr_StandardConversionMatch(
@@ -983,7 +992,11 @@ static Boolean CExpr_StandardConversionMatch(
             Boolean isambigbase;
 
             CError_ASSERT(
+#if MWCCPSP
+                CExprConvMatch_LINE996,
+#else
                 996,
+#endif
                 IS_TYPE_CLASS(TYPE_MEMBER_POINTER(type2)->ty2) &&
                     IS_TYPE_CLASS(TYPE_MEMBER_POINTER(type1)->ty2)
             );
@@ -1541,6 +1554,10 @@ static inline ENode* CExpr_DerivedToBase(
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
+#endif
 static ENode* CExpr_ClassReferenceConversion(
     ENode* expr, Type* type2, UInt32 qual2, Boolean pathcheckflag
 ) {
@@ -1594,11 +1611,17 @@ static ENode* CExpr_ClassReferenceConversion(
 
     return NULL;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 #if MWCCPSP
 // 3.0.1 (0x538A10): binds to a function overload or an lvalue (or, unless
 // noRvalue, a class rvalue); the binding to a temporary copy is
 // CExpr_Convert's, so this returns NULL for it after the diagnostics
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
 ENode* CExpr_BindToReference(
     ENode* expr, Type* type2, UInt32 qual2, Boolean noRvalue
 ) { // 3.0.1: CInit.c calls it too
@@ -1653,6 +1676,8 @@ ENode* CExpr_BindToReference(
     }
     return NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static ENode* CExpr_BindToReference(ENode* expr, Type* type2, UInt32 qual2) {
     UInt32 cv;
@@ -2490,6 +2515,9 @@ static Object* CExpr_GetMatchObject(Match* match, HashNameNode* name) {
 
     object = lalloc(sizeof(Object));
     memclrw(object, sizeof(Object));
+#if MWCCPSP
+    object->otype = OT_OBJECT; // 3.0.1 lists built-in candidates in errors
+#endif
     object->name = name;
     object->datatype = DFUNC;
     object->nspace = cscope_root;
@@ -2523,7 +2551,13 @@ static Match* CExpr_FindBestMatch(
 
     if (!outList) {
         if (listHead) {
+#if MWCCPSP // 3.0.1 names the call and its arguments
+            CError_OverloadedFunctionError2(
+                CExpr_GetMatchObject(best, name), listHead, NULL, argExprs
+            );
+#else
             CError_OverloadedFunctionError(CExpr_GetMatchObject(best, name), listHead);
+#endif
         }
     } else {
         *outList = listHead;
@@ -3074,6 +3108,311 @@ static Boolean CExpr_MatchOperands(
     return TRUE;
 }
 
+#if MWCCPS2
+// b210 (3.0.1): CondOperatorMatch (0x545EE0) and OperatorMatch (0x544CF0)
+// call b210's 3.0.1 builtin matchers, operand matcher and overload
+// resolution; this file still has those in their 2.4.7 forms.
+extern Match* ps2_CExpr_FindBestMatch(
+    Match* matches, int count, HashNameNode* name, ObjectList** list, ENodeList* argexprs
+);
+extern Boolean ps2_CExpr_MatchOperands(
+    ENode* left,
+    Type* leftType,
+    UInt32 leftQual,
+    ENode* right,
+    Type* rightType,
+    UInt32 rightQual,
+    ImplicitConv* twoResults,
+    Boolean leftStandardOnly
+);
+extern Match* ps2_CExpr_BinaryBuiltin(Match* matches, ENode* left, short token, ENode* right);
+extern Match* ps2_CExpr_UnaryBuiltin(Match* matches, short token, ENode* expr);
+extern ENode* ps2_CExpr_FuncCall_533660(
+    void* a, void* b, Object* func, void* c, ENodeList* args, Boolean d
+);
+extern ENode* CExpr_GenericFuncCall301(
+    EObjAccess* acc, Object* func, ENodeList* args, Boolean a, Boolean checkAccess
+);
+
+static inline Type* CExpr_GetImplictObjectParamType301(Object* object, UInt32* qual) {
+    Type* type;
+
+    CError_ASSERT(94, IS_TYPE_FUNC(object->type));
+    CError_ASSERT(95, TYPE_FUNC(object->type)->flags & FUNC_METHOD);
+    CError_ASSERT(96, !TYPE_METHOD(object->type)->is_static);
+    CError_ASSERT(97, TYPE_METHOD(object->type)->args != NULL);
+
+    type = CDecl_NewRefPointerType(TYPE(TYPE_METHOD(object->type)->theclass));
+    *qual = TYPE_METHOD(object->type)->args->qual & Q_CV;
+    return type;
+}
+
+static inline Type* CExpr_GetParamType301(Object* object, int index, UInt32* qual) {
+    FuncArg* arg;
+
+    CError_ASSERT(116, IS_TYPE_FUNC(object->type));
+    CError_ASSERT(117, (arg = TYPE_FUNC(object->type)->args) != NULL);
+    if (IS_TYPEFUNC_NONSTATIC_METHOD(TYPE_FUNC(object->type))) {
+        CError_ASSERT(121, (arg = arg->next) != NULL);
+    }
+
+    while (index > 0) {
+        CError_ASSERT(125, (arg = arg->next) != NULL);
+        index--;
+    }
+
+    *qual = arg->qual & Q_CV;
+    return arg->type;
+}
+
+static inline Boolean CExpr_HasNParams301(Object* object, int count) {
+    FuncArg* arg;
+    int i;
+
+    CError_ASSERT(142, IS_TYPE_FUNC(object->type));
+    CError_ASSERT(143, (arg = TYPE_FUNC(object->type)->args) != NULL);
+    if (IS_TYPEFUNC_NONSTATIC_METHOD(TYPE_FUNC(object->type))) {
+        arg = arg->next;
+    }
+
+    i = 0;
+    while (arg) {
+        arg = arg->next;
+        i++;
+    }
+
+    return i == count;
+}
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
+Boolean CExpr_CondOperatorMatch(ENode* left, ENode* right, Conversion* conv) {
+    Match* match;
+
+    if ((match = ps2_CExpr_BinaryBuiltin(NULL, left, ':', right)) != NULL) {
+        match = ps2_CExpr_FindBestMatch(match, 1, GetHashNameNodeExport("operator?:"), NULL, NULL);
+        CError_ASSERT(3026, !match->object);
+
+        conv->expression = NULL;
+        conv->left = CExpr_Convert(left, match->type, match->qual, FALSE, TRUE);
+        conv->right = CExpr_Convert(right, match->type2, match->qual2, FALSE, TRUE);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
+Boolean CExpr_OperatorMatch(short token, ENode* left, ENode* right, Conversion* conv) {
+    HashNameNode* name;
+    ENodeList* argExprs;
+    int hasArg;
+    Match* matches;
+    Object* object;
+    Object* specialfunc;
+    NameSpaceObjectList* list;
+    Type* leftType;
+    UInt32 leftQual;
+    Type* rightType;
+    UInt32 rightQual;
+    EObjAccess acc;
+    NameResult pr;
+    Match myMatch;
+    NameSpaceObjectList myList;
+
+    if (!IS_TYPE_CLASS(left->rtype)) {
+        if (!IS_TYPE_ENUM(left->rtype)) {
+            if (!right || !(IS_TYPE_CLASS(right->rtype) || IS_TYPE_ENUM(right->rtype))) {
+                return FALSE;
+            }
+        }
+    } else {
+        CDecl_CompleteType(left->rtype);
+    }
+
+    name = CMangler_OperatorName(token);
+    memclrw(&acc, sizeof(EObjAccess));
+
+    argExprs = lalloc(sizeof(ENodeList));
+    argExprs->node = left;
+    if (right) {
+        argExprs->next = lalloc(sizeof(ENodeList));
+        argExprs->next->node = right;
+        argExprs->next->next = NULL;
+        hasArg = 1;
+    } else {
+        argExprs->next = NULL;
+        hasArg = 0;
+    }
+
+    matches = NULL;
+
+    if (IS_TYPE_CLASS(left->rtype) &&
+        CScope_FindClassMemberObject(TYPE_CLASS(left->rtype), &pr, name)) {
+        // 3.0.1: the class the name was found in at +0x18, the path at +0x1C
+        if (token != '=' || ((Type*)pr.basePath == left->rtype && (void*)pr.basePath == pr.unk1C)) {
+            if (pr.object) {
+                myList.next = NULL;
+                myList.object = pr.object;
+                pr.objects = &myList;
+            } else {
+                CError_ASSERT(3329, pr.objects);
+            }
+
+            for (list = pr.objects; list; list = list->next) {
+                object = OBJECT(list->object);
+                if (object->otype == OT_OBJECT && IS_TYPE_FUNC(object->type)) {
+                    if (TYPE_FUNC(object->type)->flags & FUNC_IS_TEMPL) {
+                        specialfunc = object;
+                        object = CTempl_DeduceFromFunctionCall(object, NULL, argExprs->next);
+                        if (!object) {
+                            continue;
+                        }
+                    } else {
+                        specialfunc = NULL;
+                    }
+
+                    leftType = CExpr_GetImplictObjectParamType301(object, &leftQual);
+                    if (right) {
+                        if (!CExpr_HasNParams301(object, 1)) {
+                            continue;
+                        }
+                        rightType = CExpr_GetParamType301(object, 0, &rightQual);
+                    } else {
+                        if (!CExpr_HasNParams301(object, 0)) {
+                            continue;
+                        }
+                    }
+
+                    if (ps2_CExpr_MatchOperands(
+                            left,
+                            leftType,
+                            leftQual,
+                            right,
+                            rightType,
+                            rightQual,
+                            myMatch.conv,
+                            TRUE
+                        )) {
+                        myMatch.object = object;
+                        myMatch.specialfunc = specialfunc;
+                        myMatch.next = matches;
+                        matches = lalloc(sizeof(Match));
+                        *matches = myMatch;
+                        acc.tclass = (TypeClass*)pr.basePath;
+                        acc.path = pr.unk1C;
+                    }
+                }
+            }
+        }
+    }
+
+    if (CScope_FindNonClassObject(cscope_current, &pr, name)) {
+        if (pr.object) {
+            myList.next = NULL;
+            myList.object = pr.object;
+            pr.objects = &myList;
+        }
+    } else {
+        pr.objects = NULL;
+    }
+
+    if (copts.arg_dep_lookup) {
+        pr.objects = CScope_ArgumentDependentNameLookup(pr.objects, name, argExprs, TRUE);
+    }
+
+    for (list = pr.objects; list; list = list->next) {
+        object = OBJECT(list->object);
+        if (object->otype == OT_OBJECT && IS_TYPE_NONMETHOD(object->type)) {
+            if (TYPE_FUNC(object->type)->flags & FUNC_IS_TEMPL) {
+                specialfunc = object;
+                object = CTempl_DeduceFromFunctionCall(object, NULL, argExprs);
+                if (!object) {
+                    continue;
+                }
+            } else {
+                specialfunc = NULL;
+            }
+
+            leftType = CExpr_GetParamType301(object, 0, &leftQual);
+            if (right) {
+                if (!CExpr_HasNParams301(object, 2)) {
+                    continue;
+                }
+                rightType = CExpr_GetParamType301(object, 1, &rightQual);
+            } else {
+                if (!CExpr_HasNParams301(object, 1)) {
+                    continue;
+                }
+            }
+
+            if (ps2_CExpr_MatchOperands(
+                    left, leftType, leftQual, right, rightType, rightQual, myMatch.conv, FALSE
+                )) {
+                myMatch.object = object;
+                myMatch.specialfunc = specialfunc;
+                myMatch.next = matches;
+                matches = lalloc(sizeof(Match));
+                *matches = myMatch;
+            }
+        }
+    }
+
+    if (right) {
+        matches = ps2_CExpr_BinaryBuiltin(matches, left, token, right);
+    } else {
+        matches = ps2_CExpr_UnaryBuiltin(matches, token, left);
+    }
+
+    if (matches) {
+        conv->expression = NULL;
+        conv->left = NULL;
+        conv->right = NULL;
+
+        matches = ps2_CExpr_FindBestMatch(matches, hasArg, name, NULL, argExprs);
+        object = matches->object;
+        if (!object) {
+            if (IS_TYPE_CLASS(left->rtype)) {
+                conv->left = CExpr_Convert(left, matches->type, matches->qual, FALSE, TRUE);
+            } else {
+                conv->left = left;
+            }
+
+            if (right) {
+                if (IS_TYPE_CLASS(right->rtype)) {
+                    conv->right = CExpr_Convert(right, matches->type2, matches->qual2, FALSE, TRUE);
+                } else {
+                    conv->right = right;
+                }
+            }
+
+            return TRUE;
+        }
+
+        if (IS_TYPEFUNC_NONSTATIC_METHOD(TYPE_FUNC(object->type))) {
+            CError_ASSERT(3451, acc.tclass);
+            acc.expr = argExprs->node;
+            left = CExpr_GenericFuncCall301(&acc, object, argExprs->next, FALSE, TRUE);
+        } else {
+            left = ps2_CExpr_FuncCall_533660(NULL, NULL, object, NULL, argExprs, FALSE);
+        }
+
+        conv->expression = checkreference(left);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#else
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
+#endif
 Boolean CExpr_CondOperatorMatch(ENode* left, ENode* right, Conversion* conv) {
     Match* match;
 
@@ -3089,6 +3428,10 @@ Boolean CExpr_CondOperatorMatch(ENode* left, ENode* right, Conversion* conv) {
 
     return FALSE;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 Boolean CExpr_OperatorMatch(short token, ENode* left, ENode* right, Conversion* conv) {
     HashNameNode* name;
@@ -3300,6 +3643,7 @@ Boolean CExpr_OperatorMatch(short token, ENode* left, ENode* right, Conversion* 
 
     return FALSE;
 }
+#endif
 
 static ENode* CExpr_ClassCopyInit(TypeClass* tclass, ENode* expr1, ENode* expr2) {
     Object* best;
@@ -3448,5 +3792,41 @@ ENode* func_00539280(
 
 Boolean func_0053A8F0(NameSpaceObjectList* list, TemplArg* templargs, Type* type, ENode** outExpr) {
     return CExpr_OverloadFuncMatch(list, templargs, type, outExpr);
+}
+
+// 0x535E10, a call through a class object. 3.0.1 picks among the
+// operator() members and surrogate calls through conversions to function
+// pointers, then calls the winner through an EOBJACCESS node. Until that
+// overload resolution is written, the native build hands every operator()
+// to the 3.0.1 call path, which resolves the overload itself; surrogate
+// calls are not supported.
+ENode* func_00535E10(ENode* funcexpr, ENodeList* args) {
+    NameResult pr;
+    ENode* expr;
+
+    CDecl_CompleteType(funcexpr->rtype);
+    if (CScope_FindClassMemberObject(
+            TYPE_CLASS(funcexpr->rtype), &pr, CMangler_OperatorName('(')
+        ) &&
+        (pr.objects ||
+         (pr.object && pr.object->otype == OT_OBJECT && IS_TYPE_FUNC(OBJECT(pr.object)->type)))) {
+        expr = CExpr_NewENode(EOBJACCESS);
+        expr->rtype = &stvoid;
+        expr->data.objaccess.tclass = (TypeClass*)pr.basePath;
+        expr->data.objaccess.path = pr.unk1C;
+        expr->data.objaccess.expr = funcexpr;
+        expr->data.objaccess.nonstatic = TRUE;
+        if (pr.objects) {
+            expr->data.objaccess.list = pr.objects;
+        } else {
+            expr->data.objaccess.list = galloc(sizeof(NameSpaceObjectList));
+            expr->data.objaccess.list->next = NULL;
+            expr->data.objaccess.list->object = pr.object;
+        }
+        return CExpr_MakeFunctionCall(expr, args);
+    }
+
+    CError_Error(ERR_CALL_NON_FUNCTION);
+    return nullnode();
 }
 #endif

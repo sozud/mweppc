@@ -17,8 +17,13 @@ extern "C" {
 // 3.0.1 (0x1E4 bytes, CMach_GetBackEndOptions 0x464D50): the first 0x144
 // bytes of copts and volatileasm
 struct CInlineBackendOptions {
+#if MWCCPS2
+    UInt8 copts[0x14C]; // b210: CMach_GetBackEndOptions (0x470220) saves 0x14C bytes
+    UInt8 unk14C[0x94];
+#else
     UInt8 copts[0x144];
     UInt8 unk144[0x9C];
+#endif
     UInt8 volatileasm; // +0x1E0
     UInt8 pad1E1[3];
 };
@@ -113,6 +118,9 @@ struct CI_Var {
     SInt32 uid;
     UInt8 sflags;
     SInt8 used;
+#if MWCCPS2
+    UInt8 unk12; // b210: unmodified is at +0x13 (CInline_PackActions)
+#endif
     SInt8 unmodified;
 };
 #else
@@ -126,6 +134,32 @@ struct CI_Var {
 };
 #endif
 
+#if MWCCPS2
+// b210 (CInline_PackSwitch 0x509A00): case ranges, then the template-dependent
+// cases (SwitchInfo.depcases) with their bound expressions
+struct CI_SwitchCase {
+    short labelID;
+    union {
+        struct {
+            CInt64 min;
+            CInt64 max;
+        } c;
+        struct {
+            ENode* min;
+            ENode* max;
+        } dep;
+    } u;
+};
+
+struct CI_Switch {
+    ENode* expr;
+    Type* exprtype;
+    short defaultlabelID;
+    short numcases;
+    short numdepcases;
+    CI_SwitchCase cases[1];
+};
+#else
 struct CI_SwitchCase {
     short labelID;
     CInt64 min;
@@ -138,6 +172,7 @@ struct CI_Switch {
     short numcases;
     CI_SwitchCase cases[1];
 };
+#endif
 
 struct CI_Statement {
     StatementType type;

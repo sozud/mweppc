@@ -1,4 +1,7 @@
 #include "compiler/CTemplateClass.h"
+#if MWCCPSP
+#include "compiler/CExpr.h" // pointer_generation returns a pointer
+#endif
 #include "compiler/CABI.h"
 #include "compiler/CBrowse.h"
 #include "compiler/CClass.h"
@@ -57,6 +60,18 @@ static void CTemplClass_AppendTemplateAction(TemplClass* tmclass, TemplateAction
         tmclass->actions = action;
     }
 }
+#if MWCCPSP
+
+#if MWCCPS2
+// b210: the deduce state holds the template header (+0x30) of the instance
+// being built; the instance and its class template are reached through it
+#define DEDUCE_TEMPL(d) CTemplTool_TemplClassFromHeader(*(void**)(d)->tmclass)
+#define DEDUCE_INST(d) CTemplTool_TemplClassInstFromHeader((d)->tmclass)
+#else
+#define DEDUCE_TEMPL(d) ((d)->tmclass)
+#define DEDUCE_INST(d) ((d)->inst)
+#endif
+#endif
 
 static DefAction* CTemplClass_NewDefAction(TypeDeduce* deduce, TemplateAction* action) {
     DefAction* defAction = lalloc(sizeof(DefAction));
@@ -202,6 +217,82 @@ void CTemplClass_CompleteClass(TemplClass* templ, ClassLayout* de) {
     templ->theclass.flags |= CLASS_COMPLETED;
 }
 
+#if MWCCPS2
+// b210: the instance goes on the list of the member template a nested copy
+// refers to; the instance's header points at that template's header and at
+// its parent instance's header
+static TemplClassInst* CTemplClass_NewInstance(
+    TemplClass* tmclass, TemplArg* inst_args, TemplArg* oargs
+) {
+    TemplClassInst* inst;
+    ObjTypeTag* tag;
+    NameSpace* nspace;
+    HashNameNode* name;
+    TemplClass* templ;
+
+    if (tmclass->inst_parent != NULL && tmclass->theclass.nspace == NULL) {
+        templ = CTemplTool_TemplClassFromHeader(tmclass->templ_parent);
+    } else {
+        templ = tmclass;
+    }
+
+    CError_ASSERT(276, templ->pspec_owner == NULL);
+
+    inst = galloc(sizeof(TemplClassInst));
+    memclrw(inst, sizeof(TemplClassInst));
+
+    inst->next = templ->instances;
+    templ->instances = inst;
+
+    if (templ->templ__params != NULL) {
+        name = CMangler_TemplateInstanceName(
+            templ->theclass.classname, oargs != NULL ? oargs : inst_args
+        );
+    } else {
+        name = templ->theclass.classname;
+    }
+
+    inst->inst_args = inst_args;
+    inst->oargs = oargs;
+    inst->templ = (TemplClass*)tmclass->inst_parent;
+
+    nspace = CScope_NewListNameSpace(name, TRUE);
+    nspace->theclass = TYPE_CLASS(inst);
+    if (templ->templ_parent != NULL && inst->templ != NULL) {
+        nspace->parent =
+            CTemplTool_TemplClassInstFromHeader(*(void**)&inst->templ)->theclass.nspace;
+    } else {
+        NameSpace* scan = templ->theclass.nspace->parent;
+        while (scan->is_templ) {
+            scan = scan->parent;
+        }
+        nspace->parent = scan;
+    }
+
+    inst->theclass.type = TYPECLASS;
+    inst->theclass.flags = CLASS_IS_TEMPL_INST;
+    inst->theclass.nspace = nspace;
+    inst->theclass.classname = templ->theclass.classname;
+    inst->theclass.mode = templ->theclass.mode;
+    inst->theclass.eflags = templ->theclass.eflags;
+    inst->parent = (TemplClassInst*)&templ->templ_parent;
+
+    if (templ->theclass.flags & 0x400) { // b210 class flag 0x400 (unnamed)
+        inst->theclass.classname = CParser_AppendUniqueNameFile(inst->theclass.classname->name);
+        nspace->name = inst->theclass.classname;
+    }
+
+    tag = galloc(sizeof(ObjTypeTag));
+    memclrw(tag, sizeof(ObjTypeTag));
+
+    tag->otype = OT_TYPETAG;
+    tag->access = ACCESSPUBLIC;
+    tag->type = TYPE(inst);
+    CScope_AddObject(nspace, templ->theclass.classname, OBJ_BASE(tag));
+
+    return inst;
+}
+#else
 static TemplClassInst* CTemplClass_NewInstance(
     TemplClass* templ, TemplArg* inst_args, TemplArg* oargs
 ) {
@@ -258,7 +349,33 @@ static TemplClassInst* CTemplClass_NewInstance(
 
     return inst;
 }
+#endif
 
+#if MWCCPS2
+// b210: a member template of a class template instance looks its instances
+// up in the member template it was copied from
+TemplClassInst* CTemplClass_GetInstance(TemplClass* tmclass, TemplArg* inst_args, TemplArg* oargs) {
+    TemplClassInst* inst;
+    TemplClass* templ;
+
+    if (tmclass->inst_parent != NULL && tmclass->theclass.nspace == NULL) {
+        templ = CTemplTool_TemplClassFromHeader(tmclass->templ_parent);
+    } else {
+        templ = tmclass;
+    }
+
+    for (inst = templ->instances; inst != NULL; inst = inst->next) {
+        CError_ASSERT(352, !oargs);
+
+        if (CTemplTool_EqualArgs(inst_args, inst->oargs ? inst->oargs : inst->inst_args) &&
+            TYPE(tmclass->inst_parent) == TYPE(inst->templ)) {
+            return inst;
+        }
+    }
+
+    return CTemplClass_NewInstance(tmclass, inst_args, oargs);
+}
+#else
 TemplClassInst* CTemplClass_GetInstance(TemplClass* tmclass, TemplArg* inst_args, TemplArg* oargs) {
     TemplClassInst* inst;
 
@@ -272,6 +389,7 @@ TemplClassInst* CTemplClass_GetInstance(TemplClass* tmclass, TemplArg* inst_args
 
     return CTemplClass_NewInstance(tmclass, inst_args, oargs);
 }
+#endif
 
 TemplateMember* CTemplClass_DefineMember(
     TemplClass* tmclass, Object* object, FileOffsetInfo* foi, TokenStream* stream
@@ -928,10 +1046,36 @@ static void CTemplClass_CopyNestedClass(TypeDeduce* deduce, TemplClass* templ) {
     tag->otype = OT_TYPETAG;
     tag->access = ACCESSPUBLIC;
 
+#if MWCCPS2
+    // b210: a nested class template becomes a header-only class template
+    // that refers to the original through its template header
+    if (templ->templ__params != NULL) {
+        TemplClass* copy = galloc(sizeof(TemplClass));
+        memclrw(copy, sizeof(TemplClass));
+
+        copy->theclass.type = TYPECLASS;
+        copy->theclass.flags = CLASS_IS_TEMPL;
+        copy->templ_parent = (TemplClass*)&templ->templ_parent;
+        copy->inst_parent = (TemplClassInst*)deduce->tmclass;
+        copy->is_templ_header = TRUE;
+
+        tag->type = TYPE(copy);
+    } else {
+        TemplClassInst* inst = CTemplClass_NewInstance(templ, NULL, NULL);
+        inst->templ = deduce->tmclass;
+        inst->theclass.nspace->parent = DEDUCE_INST(deduce)->theclass.nspace;
+
+        tag->type = TYPE(inst);
+    }
+#else
     if (!templ->templ__params) {
         TemplClassInst* inst = CTemplClass_NewInstance(templ, NULL, NULL);
         inst->parent = deduce->inst;
+#if MWCCPSP
+        inst->theclass.nspace->parent = DEDUCE_INST(deduce)->theclass.nspace;
+#else
         inst->theclass.nspace->parent = deduce->inst->theclass.nspace;
+#endif
 
         tag->type = TYPE(inst);
     } else {
@@ -955,8 +1099,15 @@ static void CTemplClass_CopyNestedClass(TypeDeduce* deduce, TemplClass* templ) {
 
         tag->type = TYPE(copy);
     }
+#endif
 
+#if MWCCPSP
+    CScope_AddObject(
+        DEDUCE_INST(deduce)->theclass.nspace, templ->theclass.classname, OBJ_BASE(tag)
+    );
+#else
     CScope_AddObject(deduce->inst->theclass.nspace, templ->theclass.classname, OBJ_BASE(tag));
+#endif
 }
 
 static void CTemplClass_CopyBaseClasses(
@@ -992,7 +1143,11 @@ static void CTemplClass_CopyBaseClasses(
         }
     }
 
+#if MWCCPSP
+    for (action = DEDUCE_TEMPL(deduce)->actions; action; action = action->next) {
+#else
     for (action = deduce->tmclass->actions; action; action = action->next) {
+#endif
         if (action->type == TAT_BASE) {
             TStreamElement* save;
 
@@ -1051,11 +1206,18 @@ static void CTemplClass_CopyBaseClasses(
 }
 
 static void CTemplClass_CopyEnum(TypeDeduce* deduce, TemplateAction* action) {
+#if MWCCPS2
+    TypeEnum* destenum;
+    TypeEnum* srcenum;
+    ObjEnumConst** destptr;
+    ObjEnumConst* src;
+#else
     TypeEnum* srcenum;
     TypeEnum* destenum;
     ObjEnumConst** destptr;
     ObjEnumConst* src;
     TemplateAction* scanaction;
+#endif
 
     srcenum = action->u.enumtype;
     destenum = galloc(sizeof(TypeEnum));
@@ -1063,13 +1225,25 @@ static void CTemplClass_CopyEnum(TypeDeduce* deduce, TemplateAction* action) {
 
     destenum->type = TYPEENUM;
     destenum->size = srcenum->size;
+#if MWCCPSP
+    destenum->nspace = DEDUCE_INST(deduce)->theclass.nspace;
+#else
     destenum->nspace = deduce->inst->theclass.nspace;
+#endif
     destenum->enumtype = srcenum->enumtype;
     destenum->enumname = srcenum->enumname;
 
+#if MWCCPS2
+    if (destenum->enumname) {
+        ObjTypeTag* tag =
+            CScope_DefineTypeTag(destenum->nspace, destenum->enumname, TYPE(destenum));
+        tag->access = srcenum->enumlist ? srcenum->enumlist->access : ACCESSPUBLIC;
+    }
+#else
     if (destenum->enumname) {
         CScope_DefineTypeTag(destenum->nspace, destenum->enumname, TYPE(destenum));
     }
+#endif
 
     src = srcenum->enumlist;
     destptr = &destenum->enumlist;
@@ -1081,13 +1255,23 @@ static void CTemplClass_CopyEnum(TypeDeduce* deduce, TemplateAction* action) {
 
         *destptr = dest;
         dest->next = NULL;
+#if !MWCCPSP // 3.0.1 keeps the type: a dependent value's TypeTemplDep is completed below
         dest->type = TYPE(destenum);
+#endif
+#if MWCCPSP
+        CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, dest->name, OBJ_BASE(dest));
+#else
         CScope_AddObject(deduce->inst->theclass.nspace, dest->name, OBJ_BASE(dest));
+#endif
 
         src = src->next;
         destptr = &(*destptr)->next;
     }
 
+#if MWCCPSP
+    // 3.0.1 (0x541BE0): the values are always completed later
+    CTemplClass_NewDefAction(deduce, action)->enumtype = destenum;
+#else
     for (scanaction = deduce->tmclass->actions; scanaction; scanaction = scanaction->next) {
         if (scanaction->type == TAT_ENUMERATOR &&
             (src = scanaction->u.enumerator.objenumconst)->type == TYPE(srcenum)) {
@@ -1095,8 +1279,46 @@ static void CTemplClass_CopyEnum(TypeDeduce* deduce, TemplateAction* action) {
             return;
         }
     }
+#endif
 }
 
+#if MWCCPSP
+// 0x541AD0: the values of the enumerators that depend on template arguments,
+// kept as a TypeTemplDep (dtype 7) holding the initializer
+static void CTemplClass_CompleteEnumType(
+    TypeDeduce* deduce, TemplateAction* action, TypeEnum* destenum
+) {
+    ObjEnumConst* oec;
+    ENode* expr;
+    TStreamElement* save;
+
+    CTemplClass_SetupActionErrorRef(action, &save);
+    expr = NULL;
+    for (oec = destenum->enumlist; oec; oec = oec->next) {
+        if (oec->type->type != TYPETEMPLATE) {
+            expr = NULL;
+            continue;
+        }
+        CError_ASSERT(1368, TYPE_TEMPLATE(oec->type)->dtype == 7);
+        if (TYPE_TEMPLATE(oec->type)->u.array.index) {
+            expr = pointer_generation(
+                CTemplTool_DeduceExpr(deduce, TYPE_TEMPLATE(oec->type)->u.array.index)
+            );
+            if (!ENODE_IS(expr, EINTCONST)) {
+                CError_Error(ERR_ILLEGAL_CONSTANT_EXPRESSION);
+                continue;
+            }
+        } else {
+            CError_ASSERT(1382, expr);
+            expr->data.intval = CInt64_Add(expr->data.intval, cint64_one);
+        }
+        oec->val = expr->data.intval;
+        oec->type = expr->rtype;
+    }
+    CTemplClass_RestoreActionErrorRef(&save);
+    CDecl_ComputeUnderlyingEnumType(destenum);
+}
+#else
 static void CTemplClass_CompleteEnumType(
     TypeDeduce* deduce, TemplateAction* action, TypeEnum* destenum
 ) {
@@ -1147,6 +1369,7 @@ static void CTemplClass_CompleteEnumType(
 
     CDecl_ComputeUnderlyingEnumType(destenum);
 }
+#endif
 
 static void CTemplClass_CopyObjMemberVarPath(TypeDeduce* deduce, ObjMemberVarPath* ivar) {
     ObjMemberVarPath* copy;
@@ -1154,12 +1377,24 @@ static void CTemplClass_CopyObjMemberVarPath(TypeDeduce* deduce, ObjMemberVarPat
     copy = galloc(sizeof(ObjMemberVarPath));
     *copy = *ivar;
 
+#if MWCCPSP
+    if (copy->path && copy->path->type == TYPE(DEDUCE_TEMPL(deduce))) {
+#else
     if (copy->path && copy->path->type == TYPE(deduce->tmclass)) {
+#endif
         copy->path = CClass_GetPathCopy(copy->path, TRUE);
+#if MWCCPSP
+        copy->path->type = TYPE(DEDUCE_INST(deduce));
+#else
         copy->path->type = TYPE(deduce->inst);
+#endif
     }
 
+#if MWCCPSP
+    CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, copy->name, OBJ_BASE(copy));
+#else
     CScope_AddObject(deduce->inst->theclass.nspace, copy->name, OBJ_BASE(copy));
+#endif
 }
 
 static void CTemplClass_CopyIVars(TypeDeduce* deduce, TemplClassInst* inst, TemplClass* templ) {
@@ -1182,7 +1417,18 @@ static void CTemplClass_CopyIVars(TypeDeduce* deduce, TemplClassInst* inst, Temp
         dest = galloc(sizeof(ObjMemberVar));
         *dest = *src;
 
+#if MWCCPS2
+        // b210's deduce state starts with a pointer to the class being instantiated
+        for (scanaction = DEDUCE_TEMPL(deduce)->actions; scanaction;
+             scanaction = scanaction->next) {
+#else
+#if MWCCPSP
+        for (scanaction = DEDUCE_TEMPL(deduce)->actions; scanaction;
+             scanaction = scanaction->next) {
+#else
         for (scanaction = deduce->tmclass->actions; scanaction; scanaction = scanaction->next) {
+#endif
+#endif
             if (scanaction->type == TAT_OBJECTDEF && scanaction->u.refobj == OBJ_BASE(src)) {
                 defAction = CTemplClass_NewDefAction(deduce, scanaction);
                 defAction->refobj = OBJ_BASE(dest);
@@ -1209,12 +1455,23 @@ static void CTemplClass_CopyIVars(TypeDeduce* deduce, TemplClassInst* inst, Temp
 }
 
 static void CTemplClass_CopyObjType(TypeDeduce* deduce, ObjType* src, HashNameNode* name) {
+#if MWCCPS2
+    ObjType* dest;
+    NameSpaceObjectList* newlist;
+    NameSpaceObjectList* list;
+    TemplateAction* scanaction;
+#else
     TemplateAction* scanaction;
     NameSpaceObjectList* list;
     NameSpaceObjectList* newlist;
     ObjType* dest;
+#endif
 
+#if MWCCPSP
+    for (scanaction = DEDUCE_TEMPL(deduce)->actions; scanaction; scanaction = scanaction->next) {
+#else
     for (scanaction = deduce->tmclass->actions; scanaction; scanaction = scanaction->next) {
+#endif
         if (scanaction->type == TAT_OBJECTDEF && scanaction->u.refobj == OBJ_BASE(src)) {
             break;
         }
@@ -1229,7 +1486,11 @@ static void CTemplClass_CopyObjType(TypeDeduce* deduce, ObjType* src, HashNameNo
         dest->type = CTemplTool_DeduceTypeCopy(deduce, dest->type, &dest->qual);
     }
 
+#if MWCCPSP
+    if ((list = CScope_FindName(DEDUCE_INST(deduce)->theclass.nspace, name)) &&
+#else
     if ((list = CScope_FindName(deduce->inst->theclass.nspace, name)) &&
+#endif
         list->object->otype == OT_TYPETAG) {
 #if MWCCPSP
         CError_ASSERT(1533, list->next == NULL);
@@ -1245,7 +1506,11 @@ static void CTemplClass_CopyObjType(TypeDeduce* deduce, ObjType* src, HashNameNo
         list->next = newlist;
         return;
     } else {
+#if MWCCPSP
+        CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, name, OBJ_BASE(dest));
+#else
         CScope_AddObject(deduce->inst->theclass.nspace, name, OBJ_BASE(dest));
+#endif
     }
 }
 
@@ -1256,7 +1521,11 @@ static void CTemplClass_CopyObjTypeTag(TypeDeduce* deduce, ObjTypeTag* src, Hash
     *dest = *src;
     dest->type = CTemplTool_DeduceTypeCopy(deduce, dest->type, &qual);
 
+#if MWCCPSP
+    CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, name, OBJ_BASE(dest));
+#else
     CScope_AddObject(deduce->inst->theclass.nspace, name, OBJ_BASE(dest));
+#endif
 }
 
 static void CTemplClass_CopyMemberTemplate(TypeDeduce* deduce, Object* src) {
@@ -1267,9 +1536,17 @@ static void CTemplClass_CopyMemberTemplate(TypeDeduce* deduce, Object* src) {
     DefAction* defAction;
 
     srctempl = src->u.func.u.templ;
+#if MWCCPS2
+    CError_ASSERT(1579, srctempl != NULL && srctempl->params != NULL);
+#else
     CError_ASSERT(1527, srctempl && srctempl->params);
+#endif
 
+#if MWCCPSP
+    for (action = DEDUCE_TEMPL(deduce)->actions; action; action = action->next) {
+#else
     for (action = deduce->tmclass->actions; action; action = action->next) {
+#endif
         if (action->type == TAT_OBJECTDEF && action->u.refobj == OBJ_BASE(src)) {
             break;
         }
@@ -1282,13 +1559,24 @@ static void CTemplClass_CopyMemberTemplate(TypeDeduce* deduce, Object* src) {
     ctempl_templatefuncs = desttempl;
 
     desttempl->original = srctempl;
+#if MWCCPS2
+    desttempl->unk04 = deduce->tmclass;
+#endif
 
     dest = galloc(sizeof(Object));
     *dest = *src;
 
     dest->u.func.u.templ = desttempl;
+#if MWCCPSP
+    dest->nspace = DEDUCE_INST(deduce)->theclass.nspace;
+#else
     dest->nspace = deduce->inst->theclass.nspace;
+#endif
 
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 53
+#endif
     CError_ASSERT(1552, !deduce->processingArgument);
     deduce->processingArgument = TRUE;
     deduce->nindex = srctempl->params->pid.nindex;
@@ -1308,14 +1596,26 @@ static void CTemplClass_CopyMemberTemplate(TypeDeduce* deduce, Object* src) {
 
     if ((TYPE_FUNC(dest->type)->flags & FUNC_IS_CTOR) && deduce->hasNewVBases && !action) {
         FuncArg* arg;
+#if MWCCPS2
+        CError_ASSERT(1571, TYPE_FUNC(dest->type)->args != NULL);
+#else
         CError_ASSERT(1571, TYPE_FUNC(dest->type)->args);
+#endif
         arg = CParser_NewFuncArg();
         arg->type = TYPE(&stsignedshort);
         arg->next = TYPE_FUNC(dest->type)->args->next;
         TYPE_FUNC(dest->type)->args->next = arg;
     }
 
+#if MWCCPSP
+    CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, dest->name, OBJ_BASE(dest));
+#else
     CScope_AddObject(deduce->inst->theclass.nspace, dest->name, OBJ_BASE(dest));
+#endif
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 }
 
 static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
@@ -1324,11 +1624,20 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
     Boolean inClassScope;
     DefAction* defAction;
 
-    inClassScope = TRUE;
-    if (src->nspace != deduce->tmclass->theclass.nspace) {
+#if MWCCPS2
+    if (src->sclass == TK_USING) {
+        return;
+    }
+#endif
 #if MWCCPSP
+
+#endif
+    inClassScope = TRUE;
+#if MWCCPSP
+    if (src->nspace != DEDUCE_TEMPL(deduce)->theclass.nspace) {
         CError_ASSERT(1656, src->datatype == DALIAS);
 #else
+    if (src->nspace != deduce->tmclass->theclass.nspace) {
         CError_ASSERT(1598, src->datatype == DALIAS);
 #endif
         inClassScope = FALSE;
@@ -1339,7 +1648,11 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
         return;
     }
 
+#if MWCCPSP
+    for (action = DEDUCE_TEMPL(deduce)->actions; action; action = action->next) {
+#else
     for (action = deduce->tmclass->actions; action; action = action->next) {
+#endif
         if (action->type == TAT_OBJECTDEF && action->u.refobj == OBJ_BASE(src)) {
             break;
         }
@@ -1357,11 +1670,18 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
     }
 
     if (inClassScope) {
+#if MWCCPSP
+        dest->object.nspace = DEDUCE_INST(deduce)->theclass.nspace;
+#else
         dest->object.nspace = deduce->inst->theclass.nspace;
+#endif
     }
 
     dest->object.qual |= Q_IS_TEMPLATED;
     dest->parent = src;
+#if MWCCPS2
+    dest->inststack = NULL;
+#endif
 
     if (IS_TYPE_FUNC(dest->object.type)) {
         TYPE_FUNC(dest->object.type)->flags &= ~FUNC_DEFINED;
@@ -1370,7 +1690,11 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
     switch (dest->object.datatype) {
         case DDATA:
             dest->object.u.data.linkname = NULL;
+#if MWCCPSP
+            for (action = DEDUCE_TEMPL(deduce)->actions; action; action = action->next) {
+#else
             for (action = deduce->tmclass->actions; action; action = action->next) {
+#endif
                 if (action->type == TAT_OBJECTINIT && action->u.objectinit.object == src) {
                     defAction = CTemplClass_NewDefAction(deduce, action);
                     defAction->refobj = OBJ_BASE(dest);
@@ -1387,7 +1711,13 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
             dest->object.u.func.linkname = NULL;
 #if MWCCPSP
             CError_ASSERT(1723, IS_TYPE_FUNC(dest->object.type));
+#if MWCCPS2
+            CError_ASSERT(
+                1724, dest->object.u.func.u.templ == NULL && dest->object.u.func.defargdata == NULL
+            );
+#else
             CError_ASSERT(1730, !dest->object.u.func.u.templ && !dest->object.u.func.defargdata);
+#endif
 #else
             CError_ASSERT(1661, IS_TYPE_FUNC(dest->object.type));
             CError_ASSERT(1662, !dest->object.u.func.u.templ && !dest->object.u.func.defargdata);
@@ -1397,10 +1727,14 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
                 deduce->hasNewVBases &&
                 !action) {
                 FuncArg* arg;
+#if MWCCPS2
+                CError_ASSERT(1730, TYPE_FUNC(dest->object.type)->args != NULL);
+#else
 #if MWCCPSP
                 CError_ASSERT(1724, TYPE_FUNC(dest->object.type)->args);
 #else
                 CError_ASSERT(1668, TYPE_FUNC(dest->object.type)->args);
+#endif
 #endif
                 arg = CParser_NewFuncArg();
                 arg->type = TYPE(&stsignedshort);
@@ -1430,11 +1764,26 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
             break;
 
         case DALIAS:
-            if (dest->object.u.alias.member &&
-                dest->object.u.alias.member->type == TYPE(deduce->tmclass)) {
-                dest->object.u.alias.member = CClass_GetPathCopy(dest->object.u.alias.member, TRUE);
-                dest->object.u.alias.member->type = TYPE(deduce->inst);
+#if MWCCPS2
+            // b210: the alias refers to the instance itself
+            if (dest->object.u.alias.member != NULL) {
+                dest->object.u.alias.member = (BClassList*)DEDUCE_INST(deduce);
             }
+#else
+            if (dest->object.u.alias.member &&
+#if MWCCPSP
+                dest->object.u.alias.member->type == TYPE(DEDUCE_TEMPL(deduce))) {
+#else
+                dest->object.u.alias.member->type == TYPE(deduce->tmclass)) {
+#endif
+                dest->object.u.alias.member = CClass_GetPathCopy(dest->object.u.alias.member, TRUE);
+#if MWCCPSP
+                dest->object.u.alias.member->type = TYPE(DEDUCE_INST(deduce));
+#else
+                dest->object.u.alias.member->type = TYPE(deduce->inst);
+#endif
+            }
+#endif
             break;
 
         case DLOCAL:
@@ -1453,7 +1802,11 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
 #endif
     }
 
+#if MWCCPSP
+    CScope_AddObject(DEDUCE_INST(deduce)->theclass.nspace, dest->object.name, OBJ_BASE(dest));
+#else
     CScope_AddObject(deduce->inst->theclass.nspace, dest->object.name, OBJ_BASE(dest));
+#endif
 }
 
 static void CTemplClass_CompleteObject(
@@ -1466,7 +1819,12 @@ static void CTemplClass_CompleteObject(
 
         if (OBJ_MEMBER_VAR(refobj)->type->size == 0) {
             CDecl_CompleteType(OBJ_MEMBER_VAR(refobj)->type);
+#if MWCCPS2
+            // b210: a trailing open array member is kept incomplete unless ANSI strict
+            if (copts.ANSIstrict ||
+#else
             if (!copts.experimental ||
+#endif
                 OBJ_MEMBER_VAR(refobj)->next ||
                 OBJ_MEMBER_VAR(refobj)->type->size != 0 ||
                 !IS_TYPE_ARRAY(OBJ_MEMBER_VAR(refobj)->type)) {
@@ -1524,10 +1882,14 @@ static void CTemplClass_CompleteObject(
             switch (dest->datatype) {
                 case DFUNC:
                 case DVFUNC:
+#if MWCCPS2
+                    CError_ASSERT(1848, IS_TYPE_FUNC(dest->type));
+#else
 #if MWCCPSP
                     CError_ASSERT(1865, IS_TYPE_FUNC(dest->type));
 #else
                     CError_ASSERT(1780, IS_TYPE_FUNC(dest->type));
+#endif
 #endif
                     if (TYPE_FUNC(dest->type)->flags & FUNC_CONVERSION) {
 #if MWCCPSP
@@ -1542,17 +1904,25 @@ static void CTemplClass_CompleteObject(
                                 TYPE_FUNC(dest->type)->functype, TYPE_FUNC(dest->type)->qual
                             );
                             CScope_AddObject(
+#if MWCCPSP
+                                DEDUCE_INST(deduce)->theclass.nspace, dest->name, OBJ_BASE(dest)
+#else
                                 deduce->inst->theclass.nspace, dest->name, OBJ_BASE(dest)
+#endif
                             );
                         }
                     }
 
                     if ((TYPE_FUNC(dest->type)->flags & FUNC_IS_CTOR) && deduce->hasNewVBases) {
                         FuncArg* arg;
+#if MWCCPS2
+                        CError_ASSERT(1865, TYPE_FUNC(dest->type)->args != NULL);
+#else
 #if MWCCPSP
                         CError_ASSERT(1848, TYPE_FUNC(dest->type)->args);
 #else
                         CError_ASSERT(1797, TYPE_FUNC(dest->type)->args);
+#endif
 #endif
                         arg = CParser_NewFuncArg();
                         arg->type = TYPE(&stsignedshort);
@@ -1627,7 +1997,13 @@ static void CTemplClass_CopyUsingDecl(TypeDeduce* deduce, TypeTemplDep* type, Ac
     }
 
     CDecl_CompleteType(TYPE(tclass));
+#if MWCCPSP
+    CScope_AddClassUsingDeclaration(
+        TYPE_CLASS(DEDUCE_INST(deduce)), tclass, type->u.qual.name, access
+    );
+#else
     CScope_AddClassUsingDeclaration(TYPE_CLASS(deduce->inst), tclass, type->u.qual.name, access);
+#endif
 }
 
 static void CTemplClass_CopyFriend(TypeDeduce* deduce, TemplateFriend* tfriend) {
@@ -1671,16 +2047,32 @@ static void CTemplClass_CopyFriend(TypeDeduce* deduce, TemplateFriend* tfriend) 
     }
 
     if (IS_TYPE_FUNC(di.thetype)) {
+#if MWCCPSP
+        nspace = CScope_FindGlobalNS(DEDUCE_INST(deduce)->theclass.nspace);
+#else
         nspace = CScope_FindGlobalNS(deduce->inst->theclass.nspace);
+#endif
         CScope_SetNameSpaceScope(nspace, &saveScope);
         funcobj = CDecl_GetFunctionObject(&di, NULL, &firstDecl, FALSE);
         CScope_RestoreScope(&saveScope);
 
         if (funcobj) {
+#if MWCCPSP
+            CDecl_AddFriend(TYPE_CLASS(DEDUCE_INST(deduce)), funcobj, NULL);
+#else
             CDecl_AddFriend(TYPE_CLASS(deduce->inst), funcobj, NULL);
+#endif
             if (tfriend->stream.tokens) {
                 CInline_AddInlineFunctionAction(
+#if MWCCPSP
+                    funcobj,
+                    TYPE_CLASS(DEDUCE_INST(deduce)),
+                    &tfriend->fileoffset,
+                    &tfriend->stream,
+                    FALSE
+#else
                     funcobj, TYPE_CLASS(deduce->inst), &tfriend->fileoffset, &tfriend->stream, FALSE
+#endif
                 );
             }
         } else {
@@ -1688,7 +2080,11 @@ static void CTemplClass_CopyFriend(TypeDeduce* deduce, TemplateFriend* tfriend) 
         }
     } else {
         CError_ASSERT(1974, IS_TYPE_CLASS(di.thetype));
+#if MWCCPSP
+        CDecl_AddFriend(TYPE_CLASS(DEDUCE_INST(deduce)), NULL, TYPE_CLASS(di.thetype));
+#else
         CDecl_AddFriend(TYPE_CLASS(deduce->inst), NULL, TYPE_CLASS(di.thetype));
+#endif
     }
 }
 

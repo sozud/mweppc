@@ -18,9 +18,9 @@ extern SInt32 data_00624670[7]; // allocation order length
 extern SInt32 data_00624744[7]; // registers in the class
 extern SInt32 data_006241E0[7];
 extern SInt32 data_00624C1C[7];
-extern SInt32 data_0060EF70[7][128]; // allocation order
-extern SInt32 data_0060E038[7][128];
-extern UInt8 data_0060FEE8[7][128]; // register in use
+extern SInt32 data_0060EF70[7][BE_MAX_CLASS_REGS]; // allocation order
+extern SInt32 data_0060E038[7][BE_MAX_CLASS_REGS];
+extern UInt8 data_0060FEE8[7][BE_MAX_CLASS_REGS]; // register in use
 extern SInt32 data_00625350;
 extern SInt32 data_0062482C;
 extern void bitvectorinitialize(UInt32* bv, UInt32 size, UInt32 initial);
@@ -55,6 +55,23 @@ SInt32 func_00462090(char rclass) {
     return reg;
 }
 
+#if MWCCPS2
+// b210: at most 32 registers per class, so the free set is one word
+UInt32 func_004620D0(char rclass) {
+    UInt32 mask;
+    SInt32 i;
+    SInt32 reg;
+
+    mask = 0;
+    for (i = 0; i < data_006241E0[rclass]; i++) {
+        reg = data_0060E038[rclass][i];
+        if (!data_0060FEE8[rclass][reg]) {
+            mask |= 1 << reg;
+        }
+    }
+    return mask;
+}
+#else
 UInt32* func_004620D0(char rclass) {
     UInt32* bv;
     SInt32 i;
@@ -70,6 +87,7 @@ UInt32* func_004620D0(char rclass) {
     }
     return bv;
 }
+#endif
 
 SInt32 func_00462160(char rclass) {
     SInt32 count;
@@ -102,7 +120,7 @@ void func_004621F0(void) {
     SInt32 i;
 
     for (rclass = 0; rclass < 7; rclass++) {
-        for (i = 0; i < 128; i++) {
+        for (i = 0; i < BE_MAX_CLASS_REGS; i++) { // b210: 32
             data_0060FEE8[rclass][i] = 0;
         }
     }
@@ -173,6 +191,279 @@ void func_00461DF0(Object* func) {
 // coprocessor 2 special. Marks the reserved registers (2), lists the
 // callee-saved ones (data_0060EF70) and then the caller-saved allocatable
 // ones (data_0060E038), which a call clobbers.
+#if MWCCPS2
+// b210 (0x472B50, in RegisterInfo.c): 32 registers in every class but 3
+// (16), VU0 floating-point registers (class 5) usable when copts+0x47 is set
+// (registers 9..31, at most copts+0x48 of them), 30% of each class kept back
+// for the allocator, and data objects declared in a register
+// (ps2_objgen_636288, CodeGen_UpdateObject) reserved here.
+typedef struct PS2RegVarNode {
+    struct PS2RegVarNode* next;
+    Object* object;
+    SInt32 unk8;
+    void* info; // VarInfo: requested class at +0x2E, register at +0x32
+} PS2RegVarNode;
+#define REGVAR_CLASS(vi) (*(char*)PS2_VARINFO_AT(vi, 0x2E))
+#define REGVAR_REG(vi) (*(SInt16*)PS2_VARINFO_AT(vi, 0x32))
+extern PS2RegVarNode* ps2_objgen_636288;
+extern SInt32 ps2_regquota_636150[7]; // registers kept back per class
+extern void func_004C5940(SInt32 err, ...); // MIPSError.c: an error
+extern void func_004C5890(SInt32 err, ...); // MIPSError.c: a warning
+
+inline char classletter(char rclass) {
+    switch (rclass) {
+        case 5:
+        case 6:
+            return 'v';
+        case 0:
+            return 'r';
+        case 1:
+            return 'f';
+        default:
+            CError_Internal("RegisterInfo.c", CError_B145_LINE(45));
+            return '?';
+    }
+}
+
+__declspec(noinline) void func_004B8C50(void) {
+    int i;
+    int j;
+    RegClass301 rclass;
+    SInt32 limit;
+    Boolean vu;
+    SInt32 nfree;
+    PS2RegVarNode* node;
+    void* vi;
+    char cls;
+    SInt32 reg;
+    SInt32 found;
+    SInt32 hit;
+    char name[2];
+
+    data_006242D8[0] = "GPR";
+    data_00625214[0] = "r%ld";
+    data_006242D8[1] = "FPR";
+    data_00625214[1] = "f%ld";
+    data_006242D8[2] = "SPECIAL";
+    data_00625214[2] = "#%ld";
+    data_006242D8[3] = "COPROC2_i";
+    data_00625214[3] = "vi%ld";
+    data_006242D8[4] = "COPROC2_ii";
+    data_00625214[4] = "vi%ld";
+    data_006242D8[5] = "COPROC2_f";
+    data_00625214[5] = "vf%ld";
+    data_006242D8[6] = "COPROC2_special";
+    data_00625214[6] = "COPROC2_%ld";
+
+    data_00624744[0] = 32;
+    data_00624744[1] = 32;
+    data_00624744[2] = 32;
+    data_00624744[3] = 16;
+    data_00624744[4] = 32;
+    data_00624744[5] = 32;
+    data_00624744[6] = 32;
+
+    limit = -1;
+    if (copts.mips_option43) {
+        limit = copts.function_align16;
+        if (limit < 0 || limit > 25) {
+            limit = 25;
+        }
+    }
+
+    data_0060FEE8[0][0] = 2; // $zero
+    data_0060FEE8[0][1] = 2; // $at
+    data_0060FEE8[0][26] = 2; // $k0
+    data_0060FEE8[0][27] = 2; // $k1
+    data_0060FEE8[0][28] = 2; // $gp
+    data_0060FEE8[0][29] = 2; // $sp
+    data_0060FEE8[0][31] = 2; // $ra
+    if (data_00625EAE) {
+        data_0060FEE8[0][30] = 2; // $fp
+        data_00625E3E = 30;
+    } else {
+        data_00625E3E = 29;
+    }
+    if (copts.mips_option08) {
+        data_0060FEE8[0][23] = 2; // $s7 base register
+    }
+
+    data_0060FEE8[3][0] = 2;
+    data_0060FEE8[4][0] = 2;
+    data_0060FEE8[5][0] = 2;
+    for (i = 1; i < data_00624744[3]; i++) {
+        data_0060FEE8[3][i] = 0;
+    }
+    data_00624670[3] = 0;
+    data_00624C1C[3] = 0;
+    for (i = 1; i < data_00624744[4]; i++) {
+        data_0060FEE8[4][i] = 0;
+    }
+    data_00624670[4] = 0;
+    data_00624C1C[4] = 0;
+    for (i = 1; i < data_00624744[5]; i++) {
+        data_0060FEE8[5][i] = 0;
+    }
+    data_00624670[5] = 0;
+    data_00624C1C[5] = 0;
+    for (i = 0; i < data_00624744[6]; i++) {
+        data_0060FEE8[6][i] = 2;
+    }
+    data_00624670[6] = 0;
+    data_00624C1C[6] = 0;
+    for (i = 0; i < data_00624744[1]; i++) {
+        data_0060FEE8[1][i] = 0;
+        if (!copts.floatsp32 && (i & 1)) {
+            data_0060FEE8[1][i] = 2; // odd halves of double pairs
+        }
+    }
+    for (i = 0; i < data_00624744[2]; i++) {
+        data_0060FEE8[2][i] = 2;
+    }
+
+    data_00624670[0] = 0;
+    data_0060EF70[0][data_00624670[0]++] = 16;
+    data_0060EF70[0][data_00624670[0]++] = 17;
+    data_0060EF70[0][data_00624670[0]++] = 18;
+    data_0060EF70[0][data_00624670[0]++] = 19;
+    data_0060EF70[0][data_00624670[0]++] = 20;
+    data_0060EF70[0][data_00624670[0]++] = 21;
+    data_0060EF70[0][data_00624670[0]++] = 22;
+    if (!copts.mips_option08) {
+        data_0060EF70[0][data_00624670[0]++] = 23;
+    }
+    if (!data_00625EAE) {
+        data_0060EF70[0][data_00624670[0]++] = 30;
+    }
+    data_00624C1C[0] = data_00624670[0];
+    data_00624670[1] = 0;
+    for (i = 20; i <= 31; i++) {
+        if (!data_0060FEE8[1][i]) {
+            data_0060EF70[1][data_00624670[1]++] = i;
+        }
+    }
+    data_00624C1C[1] = data_00624670[1];
+
+    vu = copts.mips_option43;
+    if (vu) {
+        // VU0 floating-point registers 9..31 are callee-saved candidates
+        data_00624670[5] = 0;
+        ps2_regquota_636150[5] = 17;
+        for (i = 9; i < 32; i++) {
+            if (!data_0060FEE8[5][i]) {
+                data_0060EF70[5][data_00624670[5]++] = i;
+            }
+        }
+        data_00624C1C[5] = data_00624670[5];
+        data_0060FEE8[6][1] = 0;
+        data_0060FEE8[6][2] = 0;
+        data_0060FEE8[6][4] = 0;
+        data_0060FEE8[6][3] = 0;
+        data_00624670[6] = 0;
+        ps2_regquota_636150[6] = data_00624744[6] * 30 / 100;
+        for (i = 0; i < ps2_regquota_636150[6]; i++) {
+            if (!data_0060FEE8[6][i]) {
+                data_0060EF70[6][data_00624670[6]++] = i;
+            }
+        }
+        data_00624C1C[6] = data_00624670[6];
+        ps2_regquota_636150[0] = data_00624670[0] ? data_00624670[0] * 30 / 100 : 0;
+        ps2_regquota_636150[1] = data_00624670[1] ? data_00624670[1] * 30 / 100 : 0;
+        ps2_regquota_636150[3] = data_00624670[3];
+        ps2_regquota_636150[4] = data_00624670[4];
+    }
+
+    for (rclass = 0; rclass < 7; rclass++) {
+        data_006241E0[rclass] = 0;
+        for (i = 0; i < data_00624744[rclass]; i++) {
+            if (data_0060FEE8[rclass][i]) {
+                continue;
+            }
+            for (j = 0; j < data_00624670[rclass]; j++) {
+                if (i == data_0060EF70[rclass][j]) {
+                    goto next;
+                }
+            }
+            data_0060E038[rclass][data_006241E0[rclass]++] = i;
+next:;
+        }
+    }
+
+    if (vu) {
+        nfree = 0;
+        for (node = ps2_objgen_636288; node; node = node->next) {
+            vi = node->info;
+            cls = REGVAR_CLASS(vi);
+            if (cls == 5 && !REGVAR_REG(vi)) {
+                continue;
+            }
+            if (!cls && !REGVAR_REG(vi)) {
+                continue;
+            }
+            reg = REGVAR_REG(vi);
+            if (data_0060FEE8[cls][reg]) {
+                name[0] = classletter(cls);
+                name[1] = 0;
+                func_004C5940(0x18, name, REGVAR_REG(node->info));
+                continue;
+            }
+            found = 0;
+            if (cls == 5) {
+                if (REGVAR_REG(vi) > limit) {
+                    func_004C5940(0x1B);
+                } else {
+                    data_0060FEE8[cls][reg] = 2;
+                    found = 1;
+                    hit = 0;
+                    vi = node->info;
+                    for (j = 0; j < data_00624670[REGVAR_CLASS(vi)]; j++) {
+                        if (REGVAR_REG(vi) == data_0060EF70[REGVAR_CLASS(vi)][j]) {
+                            data_00625478[REGVAR_CLASS(vi)]++;
+                            data_00624C1C[REGVAR_CLASS(node->info)]--;
+                            hit = 1;
+                            if (data_00624C1C[REGVAR_CLASS(node->info)] < 0) {
+                                data_00624C1C[REGVAR_CLASS(node->info)] = 0;
+                            }
+                            break;
+                        }
+                    }
+                    if (!hit) {
+                        nfree++;
+                    }
+                }
+            } else {
+                for (j = 0; j < data_00624670[cls]; j++) {
+                    if (REGVAR_REG(vi) == data_0060EF70[cls][j]) {
+                        if (data_00625478[REGVAR_CLASS(vi)] <
+                            ps2_regquota_636150[REGVAR_CLASS(vi)]) {
+                            data_0060FEE8[cls][reg] = 2;
+                            data_00625478[REGVAR_CLASS(node->info)]++;
+                            data_00624C1C[REGVAR_CLASS(node->info)]--;
+                            found = 1;
+                            if (data_00624C1C[REGVAR_CLASS(node->info)] < 0) {
+                                data_00624C1C[REGVAR_CLASS(node->info)] = 0;
+                            }
+                        } else {
+                            name[0] = classletter(cls);
+                            name[1] = 0;
+                            func_004C5940(
+                                0x1D, name, ps2_regquota_636150[REGVAR_CLASS(node->info)]
+                            );
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                func_004C5940(0x19);
+            }
+        }
+        if (nfree > 6) {
+            func_004C5890(0x1A);
+        }
+    }
+}
+#else
 void func_004B8C50(void) {
     int i;
     int j;
@@ -298,6 +589,7 @@ next:;
         }
     }
 }
+#endif
 
 // 0x461D60..0x462040 (same unit, before the functions above)
 
@@ -351,7 +643,11 @@ void func_00461FC0(void) {
     RegClass301 rclass;
 
     for (rclass = 0; rclass < 7; rclass++) {
+#if MWCCPS2
+        if (data_00625A98[rclass] < 0 || data_00625A98[rclass] >= 0x7FF8) {
+#else
         if (data_00625A98[rclass] < 0 || data_00625A98[rclass] > 0x7FF7) {
+#endif
             CError_Error(0x14F);
         }
     }
@@ -359,7 +655,11 @@ void func_00461FC0(void) {
         return;
     }
     for (rclass = 0; rclass < 7; rclass++) {
+#if MWCCPS2
+        if (data_00625A98[rclass] > data_00624588[rclass]) {
+#else
         if (data_00624588[rclass] < data_00625A98[rclass]) {
+#endif
             data_00624588[rclass] = data_00625A98[rclass];
         }
         if (data_00625A98[rclass] > 0x100) {

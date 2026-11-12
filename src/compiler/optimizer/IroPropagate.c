@@ -107,6 +107,43 @@ static void GetExprKills(IROLinear* linear, Boolean isFirst) {
     }
 }
 
+#if MWCCPS2
+// b210 inlines the bit test here and keeps this function out of line
+// (0x563DD0; b219 0x551820)
+inline static Boolean Bv_BitsInCommon_inl(const BitVector* a, const BitVector* b) {
+    UInt32 len;
+    UInt32 i;
+
+    len = a->size;
+    if (b->size < len) {
+        len = b->size;
+    }
+
+    for (i = 0; i < len; i++) {
+        if (a->data[i] & b->data[i]) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+extern void func_0056A2E0(
+    IROLinear* linear, Boolean isEntry
+); // IroVars.c, the same as GetExprKills
+
+// b210 does not inline it into func_00551740
+__declspec(noinline) static void CheckUnorderedRegionForDefs(
+    IROLinear* linear, BitVector* kills, BitVector* uses, Boolean* found
+) {
+    Bv_Clear(kills);
+    Bv_Clear(IRO_VarKills);
+    IRO_WalkTree(linear, func_0056A2E0);
+    Bv_Or(IRO_VarKills, kills);
+    if (Bv_BitsInCommon_inl(kills, uses)) {
+        *found = TRUE;
+    }
+}
+#else
 static void CheckUnorderedRegionForDefs(
     IROLinear* linear, BitVector* kills, BitVector* uses, Boolean* found
 ) {
@@ -118,6 +155,7 @@ static void CheckUnorderedRegionForDefs(
         *found = TRUE;
     }
 }
+#endif
 
 static void CheckUnorderedRegionsForDefs(
     IROLinear* nd, IROLinear* excluded, BitVector* kills, BitVector* uses, Boolean* found
@@ -156,9 +194,7 @@ static void CheckUnorderedRegionsForDefs(
             break;
     }
 }
-#if MWCCPSP
 
-#endif
 #if MWCCPSP
 // 0x551740: 3.0.1 also leaves a call's arguments out unless their order is
 // free (no #pragma opt_defineargorder and an argument order hook)
@@ -196,7 +232,9 @@ void func_00551740(
     }
 }
 #endif
+#if MWCCPSP
 
+#endif
 static Boolean PropagationHasDefsInUnorderedRegions(IROLinear* use, IROLinear* value) {
     IROLinear* father;
     BitVector* kills;
@@ -319,6 +357,16 @@ static void ClearAvailibilityOnNode(IRONode* node, UInt32 bit) {
         Bv_ClearBit(bit, scan->in);
     }
 }
+#if MWCCPSP
+
+#if MWCCPS2
+#define PROP_BIT(x) ((UInt32)(x)) // b210 shifts a bit number unsigned
+#define PROP_NOINLINE __declspec(noinline) // b210 calls func_0055C810
+#else
+#define PROP_BIT(x) (x)
+#define PROP_NOINLINE
+#endif
+#endif
 
 #if MWCCPSP
 extern Boolean func_00555B30(ENode* expr); // IroLogicalSelection.c: an integer constant
@@ -425,11 +473,11 @@ Boolean IRO_CopyAndConstantPropagation(void) {
                 Bv_Clear(IRO_VarKills);
                 IRO_GetKills(linear);
                 for (ass2 = IRO_FirstAssign; ass2; ass2 = ass2->next) {
-                    if (Bv_IsBitSet(ass2->varIndex, IRO_VarKills)) {
+                    if (Bv_IsBitSet(PROP_BIT(ass2->varIndex), IRO_VarKills)) {
                         Bv_SetBit(ass2->index, node->kill);
                         Bv_ClearBit(ass2->index, node->gen);
                     }
-                    if (ass2->var && Bv_IsBitSet(ass2->var->index, IRO_VarKills)) {
+                    if (ass2->var && Bv_IsBitSet(PROP_BIT(ass2->var->index), IRO_VarKills)) {
                         Bv_SetBit(ass2->index, node->kill);
                         Bv_ClearBit(ass2->index, node->gen);
                     }
@@ -485,7 +533,7 @@ Boolean IRO_CopyAndConstantPropagation(void) {
                 if ((var = IRO_FindVar(linear->u.monadic->u.node->data.objref, FALSE, TRUE))) {
                     for (ass2 = IRO_FirstAssign; ass2; ass2 = ass2->next) {
                         if (ass2->varIndex == var->index &&
-                            Bv_IsBitSet(ass2->index, avail) &&
+                            Bv_IsBitSet(PROP_BIT(ass2->index), avail) &&
                             (func_00555C60(ass2->linear2) ||
                              node->loopdepth <= ass2->node->loopdepth) &&
                             !func_00569790(linear, ass2->linear2) &&
@@ -540,7 +588,7 @@ Boolean IRO_CopyAndConstantPropagation(void) {
                         (var = IRO_FindVar(effects.operands[i].object, FALSE, TRUE))) {
                         for (ass2 = IRO_FirstAssign; ass2; ass2 = ass2->next) {
                             if (ass2->varIndex == var->index &&
-                                Bv_IsBitSet(ass2->index, avail) &&
+                                Bv_IsBitSet(PROP_BIT(ass2->index), avail) &&
                                 effects.operands[i].size == ass2->linear->rtype->size) {
                                 ENode* enode = NULL;
                                 if (ass2->varObj) {
@@ -564,10 +612,10 @@ Boolean IRO_CopyAndConstantPropagation(void) {
                 Bv_Clear(IRO_VarKills);
                 IRO_GetKills(linear);
                 for (ass2 = IRO_FirstAssign; ass2; ass2 = ass2->next) {
-                    if (Bv_IsBitSet(ass2->varIndex, IRO_VarKills)) {
+                    if (Bv_IsBitSet(PROP_BIT(ass2->varIndex), IRO_VarKills)) {
                         Bv_ClearBit(ass2->index, avail);
                     }
-                    if (ass2->var && Bv_IsBitSet(ass2->var->index, IRO_VarKills)) {
+                    if (ass2->var && Bv_IsBitSet(PROP_BIT(ass2->var->index), IRO_VarKills)) {
                         Bv_ClearBit(ass2->index, avail);
                     }
                 }
@@ -852,7 +900,7 @@ extern void func_0056AB70(
 extern VarRecord* IRO_FindAssigned301(IROLinear* linear, Boolean* isBitfield);
 
 // 0x550F30: the linear may kill variables (3.0.1 IsIntGenKillCandidate)
-Boolean func_00550F30(IROLinear* linear) {
+PROP_NOINLINE Boolean func_00550F30(IROLinear* linear) {
     return linear->type == IROLinearFunccall ||
         linear->type == IROLinearAsm ||
         ((linear->type == IROLinearOp1Arg || linear->type == IROLinearOp2Arg) &&
@@ -868,7 +916,7 @@ static inline Boolean IsEquivalentScalar(Type* type) {
 }
 
 // 0x55C810: a value of type b may stand for one of type a
-Boolean func_0055C810(Type* a, Type* b, Boolean isVar) {
+PROP_NOINLINE Boolean func_0055C810(Type* a, Type* b, Boolean isVar) {
     Boolean result;
 
     if (IS_TYPE_POINTER_ONLY(a) && IS_TYPE_POINTER_ONLY(b)) {
@@ -1020,7 +1068,7 @@ void IRO_ExpressionPropagation(void) {
                 (var = IRO_FindVar(linear->u.monadic->u.node->data.objref, FALSE, TRUE))) {
                 for (ass = IRO_FirstAssign; ass; ass = ass->next) {
                     if (ass->varIndex == var->index &&
-                        Bv_IsBitSet(ass->index, avail) &&
+                        Bv_IsBitSet(PROP_BIT(ass->index), avail) &&
                         !func_00569790(linear, ass->linear2) &&
                         func_0055C810(
                             linear->rtype, ass->linear->rtype, IRO_IsVariable(ass->linear2) != NULL
@@ -1089,13 +1137,17 @@ void IRO_ExpressionPropagation(void) {
                 Bv_Clear(IRO_VarKills);
                 IRO_GetKills(linear);
                 for (ass = IRO_FirstAssign; ass; ass = ass->next) {
-                    if (Bv_IsBitSet(ass->index, avail)) {
-                        if (Bv_IsBitSet(ass->varIndex, IRO_VarKills)) {
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                    { // b145 tests every assignment's kills, available or not
+#else
+                    if (Bv_IsBitSet(PROP_BIT(ass->index), avail)) {
+#endif
+                        if (Bv_IsBitSet(PROP_BIT(ass->varIndex), IRO_VarKills)) {
                             Bv_ClearBit(ass->index, avail);
                         }
                         if ((obj = IRO_IsVariable(ass->linear->u.diadic.right))) {
                             if ((var = IRO_FindVar(obj, FALSE, TRUE)) &&
-                                Bv_IsBitSet(var->index, IRO_VarKills)) {
+                                Bv_IsBitSet(PROP_BIT(var->index), IRO_VarKills)) {
                                 Bv_ClearBit(ass->index, avail);
                             }
                         } else {
@@ -1109,15 +1161,27 @@ void IRO_ExpressionPropagation(void) {
                     }
                 }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                // b145 gathers every assignment's dependences, available or not
                 for (ass = IRO_FirstAssign; ass; ass = ass->next) {
-                    if (ass->linear == linear && !Bv_IsBitSet(ass->index, avail)) {
+                    IRO_Depends = ass->depends;
+                    func_0056AB70(ass->linear->u.diadic.right, FALSE, FALSE, TRUE);
+                    if (ass->linear == linear &&
+                        !Bv_IsBitSet(PROP_BIT(ass->varIndex), ass->depends)) {
+                        Bv_SetBit(ass->index, avail);
+                    }
+                }
+#else
+                for (ass = IRO_FirstAssign; ass; ass = ass->next) {
+                    if (ass->linear == linear && !Bv_IsBitSet(PROP_BIT(ass->index), avail)) {
                         IRO_Depends = ass->depends;
                         func_0056AB70(ass->linear->u.diadic.right, FALSE, FALSE, TRUE);
-                        if (!Bv_IsBitSet(ass->varIndex, ass->depends)) {
+                        if (!Bv_IsBitSet(PROP_BIT(ass->varIndex), ass->depends)) {
                             Bv_SetBit(ass->index, avail);
                         }
                     }
                 }
+#endif
             }
 
             if (linear == node->last) {

@@ -17,7 +17,30 @@ extern void Bv_AllocVector(BitVector** bv, UInt32 size);
 extern void Bv_ClearBit(UInt32 bit, BitVector* bv);
 extern void Bv_And(const BitVector* a, BitVector* b);
 extern void Bv_Or(const BitVector* a, BitVector* b);
+#if MWCCPS2
+// mwccps2 b210 has no Bv_BitsInCommon: every caller inlines it (IroCSE
+// 0x575520 +0xE8, the loop-invariant and propagation passes)
+HEADER_INLINE Boolean Bv_BitsInCommon_ps2(const BitVector* a, const BitVector* b) {
+    UInt32 len;
+    UInt32 i;
+
+    len = a->size;
+    if (b->size < len) {
+        len = b->size;
+    }
+
+    for (i = 0; i < len; i++) {
+        if (a->data[i] & b->data[i]) {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+#define Bv_BitsInCommon Bv_BitsInCommon_ps2
+#else
 extern Boolean Bv_BitsInCommon(const BitVector* a, const BitVector* b);
+#endif
 extern Boolean Bv_Compare(const BitVector* a, const BitVector* b);
 extern void Bv_Minus(const BitVector* a, BitVector* b);
 extern void Bv_Copy(const BitVector* src, BitVector* dst);

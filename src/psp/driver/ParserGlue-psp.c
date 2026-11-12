@@ -86,7 +86,11 @@ TOOL_CALLBACK int MidParse(void) {
             pCmdLine.state = OptsCmdLineState_CompileAndLink;
         }
         if (parseopts.possibleFiles > 0 && useDefaultIncludes) {
+#if MWCCPS2
+            if ((env = GetEnvVar("MWCPSX2MIPSIncludes\0MWCIncludes\0", TRUE, &match))) {
+#else
             if ((env = GetEnvVar("MWCPSPMIPSIncludes\0MWCIncludes\0", TRUE, &match))) {
+#endif
                 if (!AddAccessPathList(env, ';', ':', 1, (char*)match, TRUE, -1, FALSE)) {
                     return FALSE;
                 }
@@ -96,6 +100,10 @@ TOOL_CALLBACK int MidParse(void) {
     return TRUE;
 }
 
+#if MWCCPS2
+extern Pragma ps2_targetPragmas[]; // defined at the end of this file
+#endif
+
 TOOL_CALLBACK int PostParse(void) {
     static const char* name = "(command-line defines)";
 
@@ -104,7 +112,14 @@ TOOL_CALLBACK int PostParse(void) {
             return FALSE;
         }
     } else {
+#if MWCCPS2
+        // the table at b210 0x5C9C44 (PSP 0x5B0C44, misnamed irPragmas in
+        // tools/mwccpsp/config/PSP_3_0_1/symbols.txt) is the target's: far_call, mips16.
+        // irPragmas itself is at 0x5DD984 (the GCC tool's PostParse).
+        if (!SetupPragmas(ps2_targetPragmas) || !SetupPragmas(warningPragmas)) {
+#else
         if (!SetupPragmas(irPragmas) || !SetupPragmas(warningPragmas)) {
+#endif
             return FALSE;
         }
         if (definesHandle) {
@@ -178,3 +193,12 @@ TOOL_CALLBACK int Dispatch_PostParse(void) {
 int RegisterStaticParserToolInfo(void) {
     return SetParserToolInfo(&parser_dispatch);
 }
+
+#if MWCCPS2
+// b210 0x5C9C44: the target pragmas the command line can set
+extern UInt8 data_00625B1A;
+extern UInt8 data_00625B1B;
+Pragma ps2_targetPragmas[] = {
+    {&data_00625B1A, "far_call", 0}, {&data_00625B1B, "mips16", 0}, {0, 0, 0}
+};
+#endif

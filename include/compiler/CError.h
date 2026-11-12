@@ -6,6 +6,25 @@
 
 #define CError_LINE_SHIFT 0
 #if MWCCPSP
+// mwccps2's sources have their own line numbers: functions whose asserts
+// name other lines set this around themselves under #if MWCCPS2
+#define CError_PS2_SHIFT 0
+// b145 (MWCCPS2_BUILD < 210) moves some asserts again: CError_B145_SHIFT is
+// added on top of CError_PS2_SHIFT there (set around a function like it)
+#define CError_B145_SHIFT 0
+// CError_B145_LINE(n) is for direct CError_Internal(file, n) calls (PS2-only
+// code written with b210's number): only the b145 shift applies
+#if MWCCPS2 && defined(MWCCPS2_BUILD) && MWCCPS2_BUILD < 210
+#define CError_B145_LINE(line) ((line) + CError_B145_SHIFT)
+#define CError_PS2_LINE(line) ((line) + CError_PS2_SHIFT + CError_B145_SHIFT)
+#elif MWCCPS2
+#define CError_PS2_LINE(line) ((line) + CError_PS2_SHIFT)
+#else
+#define CError_PS2_LINE(line) (line)
+#endif
+#ifndef CError_B145_LINE
+#define CError_B145_LINE(line) (line)
+#endif
 
 // mwccpsp 3.0.1 numbers its messages from 1 (2.4.7: from 100) and keeps the
 // same order: its message table in the exe lines up index for index with
@@ -14,6 +33,15 @@
 #define CError_MSG_BASE 10099 // message numbers shown to the user
 #endif
 
+#if MWCCPSP
+#define CError_ASSERT(line, cond) \
+    do { \
+        if (!(cond)) { \
+            CError_Internal(__FILE__, CError_PS2_LINE((line) + CError_LINE_SHIFT)); \
+        } \
+    } while (0)
+#define CError_FATAL(line) CError_Internal(__FILE__, CError_PS2_LINE((line) + CError_LINE_SHIFT))
+#else
 #define CError_ASSERT(line, cond) \
     do { \
         if (!(cond)) { \
@@ -21,6 +49,7 @@
         } \
     } while (0)
 #define CError_FATAL(line) CError_Internal(__FILE__, (line) + CError_LINE_SHIFT)
+#endif
 
 #ifdef __cplusplus
 extern "C" {

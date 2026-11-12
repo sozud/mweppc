@@ -22,6 +22,22 @@ static void MIPSError_VAErrorMessage(
     CError_ErrorMessageVA(code + 36000, format, list, isTerminal, isWarning);
 }
 
+#if MWCCPS2
+// 0x4C5890 (b210 0x4D2190): MIPSError_Warning, quiet inside a try or under
+// #pragma suppress_warnings
+void func_004C5890(int code, ...) {
+    va_list list;
+
+    if (trychain || copts.supress_warnings) {
+        return;
+    }
+
+    va_start(list, code);
+    MIPSError_VAErrorMessage(code, list, FALSE, TRUE);
+    va_end(list);
+}
+#endif
+
 // 0x4C5940: MIPSError_Error
 void func_004C5940(int code, ...) {
     va_list list;
@@ -38,3 +54,17 @@ void func_004C5940(int code, ...) {
         AssemblerError();
     }
 }
+
+#if !MWCCPS2 // b210: above, at its position
+// 0x4C5890: MIPSError_Warning
+void func_004C5890(int code, ...) {
+    va_list list;
+
+    if (trychain || copts.supress_warnings) {
+        return;
+    }
+    va_start(list, code);
+    MIPSError_VAErrorMessage(code, list, FALSE, TRUE);
+    va_end(list);
+}
+#endif

@@ -32,6 +32,9 @@ static MPCodeBlock* nextnonempty(MPCodeBlock* block) {
     return NULL;
 }
 
+#if MWCCPS2
+extern void ps2_padloop_4C2960(MPCodeBlock* block); // b210 only: #pragma padloop
+#endif
 void func_004B8240(MPCodeBlock* block) {
     MPCode* last;
     MPCodeBlock* target;
@@ -70,6 +73,13 @@ void func_004B8240(MPCodeBlock* block) {
     nop->flags |= 0x40000000;
     insertpcodebefore(last, nop);
     if (target && target->number == last->block->number && target->pcodecount <= 7) {
+#if MWCCPS2
+        // b210: #pragma padloop pads the short loop instead
+        if (copts.padloop) {
+            ps2_padloop_4C2960(block);
+            return;
+        }
+#endif
         insertpcodebefore(last, makepcode(func_004903F0()));
     }
 }
@@ -119,6 +129,9 @@ static void func_004B7AE0(MPCodeBlock* block) {
     MPCode* pc;
     MPCode* next;
     int moved;
+#if MWCCPS2
+    MPCodeBlock* lb;
+#endif
 
     last = block->last;
     moved = 0;
@@ -133,9 +146,22 @@ static void func_004B7AE0(MPCodeBlock* block) {
         target = LABEL_BLOCK(op);
         if (target->first && IS_JUMP(target->first)) {
             *op = *func_0048FAE0(target->first);
+#if MWCCPS2
+            link = block->successors;
+            while (1) {
+                lb = link->block;
+                if (lb->number != target->number) {
+                    link = link->next;
+                } else {
+                    break;
+                }
+            }
+            if (lb != LABEL_BLOCK(op)) {
+#else
             for (link = block->successors; link->block->number != target->number;
                  link = link->next) {}
             if (link->block != LABEL_BLOCK(op)) {
+#endif
                 link->block = LABEL_BLOCK(op);
                 changed = TRUE;
             }
@@ -190,10 +216,7 @@ static int func_004B7D10(MPCodeBlock* block) {
     if (!block->successors) {
         return 0;
     }
-    if (!block->successors->block) {
-        return 0;
-    }
-    if (block->successors->block->number == block->number) {
+    if (!block->successors->block || block->successors->block->number == block->number) {
         return 0;
     }
     if (IS_JUMP(last)) {
@@ -236,6 +259,171 @@ static MPCode* foldablejump(MPCode* pc, Boolean remove) {
 // instruction of the block, else (optimizing, not special) with the
 // target's first instruction (moved when the branch is its only way in,
 // copied otherwise; conditional branches become branch-likely), else a nop.
+#if MWCCPS2
+#include "compiler/CError.h"
+
+// b210 (0x4C3C50): the same delay-slot filler; the folded jump test is
+// inline, and on the way out a short loop (the branch back to its own
+// block, at most 7 instructions) is padded under #pragma padloop
+void func_004B7E20(MPCodeBlock* block, Boolean special) {
+    MPCode* br;
+    MPCode* pc;
+    MPCode* first;
+    MPCode* next;
+    MPCode* jump;
+    MPCodeBlock* target = NULL;
+    MPCodeBlock* follow;
+    MPBlockLink* pred;
+    int i;
+
+    if (block->flags2E & 0x4000) {
+        return;
+    }
+    if (!block->pcodecount) {
+        return;
+    }
+    br = block->last;
+    if (!(br->flags & 0x20000000)) {
+        return;
+    }
+    if ((IS_UNCOND_JUMP(br->op) || (br->flags & 0x10000000)) &&
+        br->unk38 == 0 &&
+        !(br->flags & 0x800000)) {
+        target = LABEL_BLOCK(func_0048FAE0(br));
+        for (follow = block->next; follow; follow = follow->next) {
+            if (follow->pcodecount) {
+                break;
+            }
+        }
+        if (follow && target->number == follow->number) {
+            deletepcode(br);
+            return;
+        }
+    }
+    if ((pc = func_004B88B0(block))) {
+        insertpcodebefore(br, pc);
+        goto done;
+    }
+    if (special || !copts.no_load_delay_nops) {
+        goto nop;
+    }
+    if (IS_UNCOND_JUMP(br->op)) {
+        target = LABEL_BLOCK(func_0048FAE0(br));
+        first = target->first;
+        if (!first || (first->flags & 0x48000000)) {
+            goto nop;
+        }
+        pred = target->predecessors;
+        if (pred && !pred->nextpred) {
+            deletepcode(first);
+            insertpcodebefore(br, first);
+            first->flags |= 0x40000000;
+        } else {
+            if (first->unk38 == 5 || first->unk38 == 6) {
+                goto nop;
+            }
+            pc = copypcode(first);
+            insertpcodebefore(br, pc);
+            pc->flags |= 0x40000000;
+            br->flags |= 0x4000000;
+            first->flags |= 0x8000000;
+        }
+        freeoheap();
+        func_004C34A0();
+        return;
+    }
+    if (!(br->flags & 0x10000000) || copts.no_branch_likely || (br->flags & 0x800000)) {
+        goto nop;
+    }
+    target = LABEL_BLOCK(func_0048FAE0(br));
+    first = target->first;
+    if (!first || (first->flags & 0x48000100)) {
+        goto nop;
+    }
+    pred = target->predecessors;
+    if (pred && !pred->nextpred) {
+        br->op++;
+        br->flags |= 0x800000;
+        next = first->next;
+        deletepcode(first);
+        insertpcodebefore(br, first);
+        first->flags |= 0x40000000;
+        if (!next) {
+            goto done;
+        }
+        if (next->op == 0x39 && next->args[0].value2 == 0) {
+            jump = next;
+            deletepcode(next);
+        } else if (next->op == 0xBA &&
+                   (next->flags & 0x40000000) &&
+                   (jump = next->next) &&
+                   jump->op == 0x39 &&
+                   jump->args[0].value2 == 0) {
+            deletepcode(next);
+            deletepcode(jump);
+        } else {
+            jump = NULL;
+        }
+        if (!jump) {
+            goto done;
+        }
+        for (i = 0; i < br->argcount; i++) {
+            if (br->args[i].kind == 6) {
+                MOP_SETLABEL(br->args[i], jump->args[0].ptr);
+                goto done;
+            }
+            CError_ASSERT(572, i < br->argcount);
+        }
+        goto done;
+    }
+    if (first->unk38 == 5 || first->unk38 == 6) {
+        goto nop;
+    }
+    pc = copypcode(first);
+    insertpcodebefore(br, pc);
+    pc->flags |= 0x40000000;
+    br->op++;
+    br->flags |= 0x4800000;
+    first->flags |= 0x8000000;
+    jump = first->next;
+    if (!jump) {
+        goto done;
+    }
+    if (jump->op == 0x39 && jump->args[0].value2 == 0) {
+    } else if (jump->op == 0xBA &&
+               (jump->flags & 0x40000000) &&
+               (jump = jump->next) &&
+               jump->op == 0x39 &&
+               jump->args[0].value2 == 0) {
+    } else {
+        jump = NULL;
+    }
+    if (!jump) {
+        goto done;
+    }
+    br->flags &= ~0x4000000;
+    for (i = 0; i < br->argcount; i++) {
+        if (br->args[i].kind == 6) {
+            MOP_SETLABEL(br->args[i], jump->args[0].ptr);
+            if ((first = ((MPCodeLabel*)jump->args[0].ptr)->block->first)) {
+                first->flags |= 0x8000000;
+            }
+            goto done;
+        }
+        CError_ASSERT(643, i < br->argcount);
+    }
+    goto done;
+
+nop:
+    pc = makepcode(func_004903F0());
+    pc->flags |= 0x40000000;
+    insertpcodebefore(br, pc);
+done:
+    if (copts.padloop && target && br->block->number == target->number && target->pcodecount <= 7) {
+        ps2_padloop_4C2960(block);
+    }
+}
+#else
 void func_004B7E20(MPCodeBlock* block, Boolean special) {
     MPCode* br;
     MPCode* pc;
@@ -360,6 +548,7 @@ nop:
     pc->flags |= 0x40000000;
     insertpcodebefore(br, pc);
 }
+#endif
 
 void BE_InsertNops(Object* func, int scheduled, Boolean special) {
     MPCodeBlock* block;
@@ -455,7 +644,7 @@ void func_004B83A0(MPCodeBlock* block) {
         nops = 0;
         extra = nops;
         next = pc->next;
-        if (pc->op >= 0x518 || !next) {
+        if (pc->op >= MACRO_OP(0x00) || !next) {
             continue;
         }
         if (pc->flags & 2) {
@@ -467,13 +656,33 @@ void func_004B83A0(MPCodeBlock* block) {
                 nops++;
             }
         } else if (data_006115F8[pc->op].flags2 & 0x4000) {
+#if MWCCPS2
+            // b210 tests the hazard but never pads it
+#else
             if (feeds(pc, next) && copts.mips_isa < 4) {
                 nops++;
             }
+#endif
         } else if (data_006115F8[pc->op].flags2 & 0x5000) {
             if (feeds(pc, next)) {
                 nops++;
             }
+#if MWCCPS2
+        } else if (data_006115F8[pc->op].flags2 & 0x20000) {
+            // b210: an instruction two ahead (or the delay slot) of kind
+            // 0x10000 needs a nop after the next one (or after this one)
+            if (next->next && (data_006115F8[next->next->op].flags2 & 0x10000)) {
+                extra++;
+            } else if (!next->next && delay && (data_006115F8[delay->op].flags2 & 0x10000)) {
+                nops++;
+            }
+        } else if (data_006115F8[pc->op].flags2 & 0x80000) {
+            if (next->next && (data_006115F8[next->next->op].flags2 & 0x40000)) {
+                extra++;
+            } else if (!next->next && delay && (data_006115F8[delay->op].flags2 & 0x40000)) {
+                nops++;
+            }
+#endif
         } else if (pc->flags & 0x1000000) {
             if (feeds(pc, next)) {
                 nops++;
@@ -495,8 +704,8 @@ void func_004B83A0(MPCodeBlock* block) {
 
     // the last real instruction before the block's closing pseudo-ops
     last = block->last;
-    if (last && last->op >= 0x5BB) {
-        for (pc = last->prev; pc && pc->op >= 0x518; pc = pc->prev) {}
+    if (last && last->op >= MACRO_OP(0xA3)) {
+        for (pc = last->prev; pc && pc->op >= MACRO_OP(0x00); pc = pc->prev) {}
     } else {
         pc = last;
     }

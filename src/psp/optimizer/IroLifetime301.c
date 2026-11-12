@@ -43,9 +43,6 @@ enum {
 
 extern VarRecord* IRO_FindAssigned301(IROLinear* linear, Boolean* isBitfield);
 extern Boolean IRO_FunctionCallMightThrowException(IROLinear* linear);
-extern void PointerAnalysis_LookupGotoTargets(
-    Object* func, IROLinear* linear, IROListNode** list
-); // 0x4CEAB0
 extern void Bv_AllocVectorLocal(BitVector** bv, UInt32 size);
 
 BitVector* data_00608CD0; // the variables live at the current linear
@@ -159,7 +156,7 @@ void func_00595880(IROLinear* call, BitVector* skip, BitVector* out) {
     callee = call->u.funccall.callee;
     if (callee && copts.opt_pointer_analysis && callee->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, callee, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, callee, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail) {

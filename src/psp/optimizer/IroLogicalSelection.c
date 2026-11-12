@@ -33,8 +33,16 @@ typedef Boolean (*ENodeWalkFunc)(ENode** ep, int phase, void* arg);
 
 // --- IroUtil.c ------------------------------------------------------------
 
+#if MWCCPS2
+#line 38 "IroUtil.c" // b210 names these in its asserts
+#endif
 // 0x54F380: visit the tree at *ep; phase 1 before a node's operands (a FALSE
 // return skips them), phase 2 after, as flags asks
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -58 // b145 asserts
+#if !MWCCPS2
+#line 39 "IroUtil.c"
+#endif
 void func_0054F380(ENode** ep, ENodeWalkFunc func, int flags, void* arg) {
     ENode* expr;
     ENodeList* list;
@@ -137,9 +145,16 @@ void func_0054F380(ENode** ep, ENodeWalkFunc func, int flags, void* arg) {
         func(ep, 2, arg);
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#if !MWCCPS2
+#line 142 "IroLogicalSelection.c"
+#endif
 
 // 0x552F00: func(operand, TRUE, arg) for each operand of an IROLinear
 #include "compiler/IroLinearForm.h"
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
 void func_00552F00(
     IROLinear* nd, void (*func)(IROLinear* linear, Boolean isEntry, void* arg), void* arg
 ) {
@@ -190,8 +205,29 @@ void func_00552F00(
             break;
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#if MWCCPS2
+#line 194 "IroLogicalSelection.c"
+#endif
 static Boolean HasSideEffectNode(ENode** ep, int phase, void* arg) {
+#if MWCCPS2
+    ENode* expr = *ep;
+    Boolean* result = (Boolean*)arg;
+
+    if (!(expr->flags & 2)) {
+        if (expr->type == EOBJREF && is_volatile_object(expr->data.objref)) {
+            goto found;
+        }
+        if (!IRO_IsAssignOp[expr->type] && (UInt8)(expr->type - EFUNCCALL) > 1) {
+            return TRUE;
+        }
+    }
+found:
+    *result = TRUE;
+    return FALSE;
+#else
     ENode* expr = *ep;
 
     if (!(expr->flags & 2)) {
@@ -205,9 +241,13 @@ static Boolean HasSideEffectNode(ENode** ep, int phase, void* arg) {
 found:
     *(Boolean*)arg = TRUE;
     return FALSE;
+#endif
 }
 
 // 0x54F2F0: does the tree assign, call or read a volatile
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0056D580)
+#endif
 Boolean func_0054F2F0(ENode* expr) {
     Boolean found = FALSE;
 
@@ -224,7 +264,11 @@ Boolean func_0054F500(ENode* a, ENode* b) {
     ENodeList* la;
     ENodeList* lb;
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+    mask = 0xFDFF;
+#else
     mask = (a->type == ETYPCON && b->type == ETYPCON) ? 0xFD7F : 0xFDFF;
+#endif
     if (a->type != b->type || (a->flags & mask) != (b->flags & mask)) {
         return FALSE;
     }
@@ -341,6 +385,17 @@ static Boolean CopyNode(ENode** ep, int phase, void* arg) {
     ENode* copy;
     UInt8 type;
 
+#if MWCCPS2
+    if (phase & 1) {
+        type = (*ep)->type;
+        copy = lalloc(sizeof(ENode));
+        memset(copy, 0, sizeof(ENode));
+        copy->type = type;
+        *copy = **ep;
+        *ep = copy;
+    }
+    return TRUE;
+#else
     if (!(phase & 1)) {
         return TRUE;
     }
@@ -351,26 +406,43 @@ static Boolean CopyNode(ENode** ep, int phase, void* arg) {
     *copy = **ep;
     *ep = copy;
     return TRUE;
+#endif
 }
 
 // 0x552810: a copy of the tree (argument lists are shared)
 ENode* func_00552810(ENode* expr) {
+#if MWCCPS2
+    ENode* copy = expr;
+
+    func_0054F380(&copy, CopyNode, 1, NULL);
+    return copy;
+#else
     func_0054F380(&expr, CopyNode, 1, NULL);
     return expr;
+#endif
 }
 
 // 0x555B30: an integer constant of an integral type
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0056DF60)
+#endif
 Boolean func_00555B30(ENode* expr) {
     Type* type = expr->rtype;
 
-    return type &&
+    if (type &&
         type->type == TYPEINT &&
         TYPE_INTEGRAL(type)->integral < IT_17 &&
-        expr->type == EINTCONST;
+        expr->type == EINTCONST) {
+        return TRUE;
+    }
+    return FALSE;
 }
 
 // --- IroType.c ------------------------------------------------------------
 
+#if MWCCPS2
+#line 409 "IroType.c" // b210 names these in its asserts
+#endif
 // 0x55CA90: the unsigned type of the same size, from the type's own size up
 Type* func_0055CA90(Type* type) {
     if (!(type->type == TYPEENUM ||
@@ -473,6 +545,9 @@ from_longlong:
     goto fail;
 }
 
+#if MWCCPS2
+#line 503 "IroLogicalSelection.c"
+#endif
 // 0x55A620: the integral promotion of type (an enum by its base type)
 Type* func_0055A620(Type* type) {
     if (type->type == TYPEENUM) {
@@ -481,7 +556,10 @@ Type* func_0055A620(Type* type) {
     if (TYPE_INTEGRAL(type)->integral >= IT_INT) {
         return type;
     }
-    return is_unsigned(type) ? TYPE(&stunsignedint) : TYPE(&stsignedint);
+    if (is_unsigned(type)) {
+        return TYPE(&stunsignedint);
+    }
+    return TYPE(&stsignedint);
 }
 
 // --- IroTransform.c -------------------------------------------------------
@@ -598,6 +676,8 @@ Boolean func_0056DE70(BitTestSet* set, ENode* expr, CInt64 value) {
 
 // 0x56DD80: when max - min overflows, swap them and move the negative
 // values after the others
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -19 // b145 asserts
 void func_0056DD80(BitTestSet* set) {
     CInt64 tmp;
     BitTestValue* last;
@@ -621,6 +701,8 @@ void func_0056DD80(BitTestSet* set) {
         last->next = NULL;
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x56DCE0: how many width-bit windows the values need
 SInt32 func_0056DCE0(BitTestSet* set, SInt32 width) {
@@ -651,6 +733,9 @@ SInt32 func_0056DCE0(BitTestSet* set, SInt32 width) {
 
 // 0x56DC10: IsLogicalSelectionBitTestBeneficial; *wide is set when the
 // 64-bit form is allowed and needs fewer windows
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0056D580)
+#endif
 Boolean func_0056DC10(BitTestSet* set, Boolean* wide) {
     SInt32 n32;
     SInt32 n64;
@@ -799,6 +884,10 @@ ENode* func_0056D720(BitTestSet* set, Boolean wide) {
     return result;
 }
 
+#if MWCCPS2
+extern Type* func_0055C960(void); // IroType.c: the type of a comparison
+#endif
+
 // 0x56D580: from op (whose right operand compares expr with value), take in
 // the comparisons of the same expression to its left; *rest is what is left
 // of the chain (NULL when all of it was taken)
@@ -850,11 +939,20 @@ ENode* func_0056D580(ENode* op, ENode** rest, ENode* expr, CInt64 value) {
     test = func_0056D720(&set, wide);
     if (*rest == node) {
         test = makediadicnode(parent->data.diadic.left, test, set.op->type);
+#if MWCCPS2
+        test->rtype = func_0055C960(); // b210 calls IroType.c's copy
+#else
         test->rtype = CParser_GetBoolType();
+#endif
     }
     return test;
 }
 
+#if MWCCPS2 // b210 builds this from IroTransform.c (its assert names it)
+#line 878 "IroTransform.c"
+#endif
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -19 // b145 asserts
 static Boolean CollapseLogicalSelection(ENode** ep, int phase, void* arg) {
     ENode* op = *ep;
     ENode* expr;
@@ -864,21 +962,38 @@ static Boolean CollapseLogicalSelection(ENode** ep, int phase, void* arg) {
     if (op->flags & 2) {
         return FALSE;
     }
+#if MWCCPS2
+    if ((UInt8)(op->type - ELAND) > 1 || !func_0056DF60(op, op->data.diadic.right, &expr, &value)) {
+        return TRUE;
+    }
+#else
     if (op->type != ELAND && op->type != ELOR) {
         return TRUE;
     }
     if (!func_0056DF60(op, op->data.diadic.right, &expr, &value)) {
         return TRUE;
     }
+#endif
 #if MWCCPSP_NATIVE
     rest = op; // 3.0.1 reads it uninitialized when the expression has side effects
 #endif
     *ep = func_0056D580(op, &rest, expr, value);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -19 // b145 asserts
     CError_ASSERT(5386, *ep);
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
     return rest != NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#if MWCCPS2
+#line 909 "IroLogicalSelection.c"
+#endif
 
 // 0x56D490
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -19 // b145 asserts
 void IRO_CollapseLogicalSelections(Statement* stmt) {
     Statement* next;
 
@@ -898,3 +1013,5 @@ void IRO_CollapseLogicalSelections(Statement* stmt) {
     }
     IRO_CheckForUserBreak();
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0

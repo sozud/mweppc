@@ -558,6 +558,16 @@ int __stdcall OS_IsFullPath(const char* path) {
         }
     }
     if (!prefixed) {
+#if MWCCPS2
+        // b210: a path from the cygwin root (MW_CYGWIN_ROOT) counts as full
+        rooted = FALSE;
+        if (cygwin_root && ustrncmp(path, "/", 1) == 0 && ustrncmp(path, "//", 2) != 0) {
+            rooted = TRUE;
+        }
+        if (!rooted) {
+            cyg = FALSE;
+        }
+#else
         rooted = FALSE;
         letter = FALSE;
         slashes = path[0] == '/' && path[1] == '/';
@@ -570,6 +580,7 @@ int __stdcall OS_IsFullPath(const char* path) {
         if (!rooted) {
             cyg = FALSE;
         }
+#endif
     }
     return !!cyg;
 }
@@ -1052,12 +1063,21 @@ void __stdcall OS_UnlockHandle(OSHandle* hand) {
 }
 
 int __stdcall OS_FreeHandle(OSHandle* hand) {
+#if MWCCPS2
+    if (GlobalFree(hand->addr) == NULL) {
+        hand->addr = NULL;
+        hand->used = 0;
+        return 0;
+    }
+    return GetLastError();
+#else
     if (GlobalFree(hand->addr)) {
         return GetLastError();
     }
     hand->addr = NULL;
     hand->used = 0;
     return 0;
+#endif
 }
 
 int __stdcall OS_GetHandleSize(OSHandle* hand, UInt32* size) {
@@ -1146,7 +1166,11 @@ void __stdcall OS_TimeToMac(OSTime sectm, UInt32* secs) {
 
     year = st.wYear - 1904;
     days = year * 365;
+#if MWCCPS2
+    days += (year + 3) / 4 - (year + 4) / 100 + (year + 303) / 400;
+#else
     days += (year + 3) / 4 - (year + 4) / 100 + (year - 296) / 400;
+#endif
 
     if (st.wYear % 4 == 0 && (st.wYear % 100 != 0 || st.wYear % 400 == 0)) {
         monthdays[1] = 29;
@@ -1184,7 +1208,11 @@ void __stdcall OS_MacToTime(UInt32 secs, OSTime* sectm) {
     yday = days % 365;
     year = days / 365;
     st.wYear = year + 1904;
+#if MWCCPS2
+    greg = year + 303;
+#else
     greg = year - 296;
+#endif
     yday -= (year + 3) / 4 - (year + 4) / 100 + greg / 400;
     if (st.wYear % 4) {
         monthdays[1] = 28;

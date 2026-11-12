@@ -237,6 +237,9 @@ struct FuncArg {
     UInt32 qual;
     SInt16 sclass;
     Boolean is_array;
+#if MWCCPSP
+    Boolean is_deferred; // 3.0.1: the default argument is parsed later
+#endif
 };
 
 struct TypeFunc {

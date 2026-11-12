@@ -428,6 +428,13 @@ union ENodeUnion {
             } sourceref;
             ENode* monadic;
             Object* obj;
+#if MWCCPSP
+            struct {
+                void* operand; // the type, or the expression when isexpr
+                UInt8 kind; // CExpr_TypeOpValue's: 0 sizeof, 1 __alignof__, ...
+                UInt8 isexpr;
+            } typeop; // 3.0.1 TDE_SIZEOF
+#endif
         } u;
 #if MWCCPSP
         UInt8 pad[0x10];

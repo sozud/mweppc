@@ -127,7 +127,13 @@ HEADER_INLINE void IRO_FNodeWorkStack_Add(IRONodes* nodes, UInt16 index) {
         nodes->indices[(nodes->base + nodes->num) % IRO_NumNodes] = index;
         nodes->num++;
     } else {
+#if MWCCPS2
+        CError_FATAL(127); // mwccps2 b210's line
+#elif MWCCPSP
+        CError_Internal("IroFlowgraph.h", 127); // 3.0.1's header
+#else
         CError_FATAL(93);
+#endif
     }
 }
 

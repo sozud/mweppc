@@ -220,6 +220,202 @@ ArgInfo* func_004A8C00(ENode* skip, ENodeList* args, FuncArg* argtypes) {
     return list;
 }
 
+#if MWCCPS2
+// b210 (0x4B4C80): the argument list for -mips_long64 (64-bit registers):
+// every scalar, long long and double included, takes one register; $a0-$t3
+// and $f12-$f19 (o32 bounds $a3/$f15 when long is 32 bits)
+#define LIST_LAST_GPR ((UInt8)(copts.mips_long64 ? 11 : 7))
+#define LIST_LAST_FPR ((UInt8)(copts.mips_long64 ? 19 : 15))
+#define LIST_STACK(tail) \
+    do { \
+        (tail)->flags |= ArgInfoFlag_Stack; \
+        data_00625EA7 = 1; \
+        (tail)->offset = offset; \
+        offset += data_00624788; \
+    } while (0)
+
+ArgInfo* func_004A9100(ENode* skip, ENodeList* args, FuncArg* argtypes) {
+    ArgInfo* list = NULL;
+    int gpr = 4;
+    int fpr = 12;
+    SInt32 offset = 0;
+    ArgInfo* tail;
+    ENode* expr;
+    Type* type;
+
+    while (args) {
+        expr = args->node;
+        if (expr == skip) {
+            args = args->next;
+            argtypes = argtypes->next;
+            continue;
+        }
+        type = expr->rtype;
+        if (list) {
+            tail->next = new_arginfo(expr);
+            tail = tail->next;
+        } else {
+            tail = new_arginfo(expr);
+            list = tail;
+        }
+
+        if (type->type == TYPEFLOAT || func_00464B40(type)) {
+            if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
+                if (gpr > LIST_LAST_GPR) {
+                    LIST_STACK(tail);
+                } else {
+                    tail->flags |= ArgInfoFlag_GPR;
+                    tail->gpr = gpr;
+                    gpr++;
+                }
+            } else if (!argtypes || argtypes == &oldstyle || argtypes == &elipsis) {
+                if (fpr > LIST_LAST_FPR) {
+                    LIST_STACK(tail);
+                } else {
+                    tail->flags |= ArgInfoFlag_FPR;
+                    tail->fpr = fpr;
+                    fpr++;
+                }
+            } else {
+                if (fpr > LIST_LAST_FPR) {
+                    LIST_STACK(tail);
+                } else {
+                    tail->flags |= ArgInfoFlag_FPR;
+                    tail->fpr = fpr;
+                    fpr++;
+                }
+            }
+        } else if (type->type == TYPEINT ||
+                   type->type == TYPEENUM ||
+                   type->type == TYPEPOINTER ||
+                   (type->type == TYPEMEMBERPOINTER && type->size == 4)) {
+            if (!argtypes || argtypes == &elipsis || argtypes == &oldstyle) {
+                if (type->size < 4) {
+                    tail->flags |= ArgInfoFlag_Promote;
+                }
+            }
+            if (gpr > LIST_LAST_GPR) {
+                LIST_STACK(tail);
+            } else {
+                tail->flags |= ArgInfoFlag_GPR;
+                tail->gpr = gpr;
+                gpr++;
+            }
+        } else {
+            if (type->size > data_00624788) {
+                CError_FATAL(410);
+            }
+            if (gpr > LIST_LAST_GPR) {
+                LIST_STACK(tail);
+            } else {
+                tail->flags |= ArgInfoFlag_GPR;
+                tail->gpr = gpr;
+                gpr++;
+            }
+        }
+
+        args = args->next;
+        if (argtypes && argtypes != &elipsis && argtypes != &oldstyle) {
+            argtypes = argtypes->next;
+        }
+    }
+
+    offset = offset > data_006242B4 ? offset : data_006242B4;
+    data_006242B4 = (offset + (data_0062421C - 1)) & ~(data_0062421C - 1);
+
+    return list;
+}
+#undef LIST_STACK
+#else
+// 0x4A9100: the argument registers with 64-bit longs: every argument takes
+// one register (a0-a7, f12-f19) or one stack slot
+ArgInfo* func_004A9100(ENode* skip, ENodeList* args, FuncArg* argtypes) {
+    ArgInfo* list = NULL;
+    int gpr = 4;
+    int fpr = 12;
+    SInt32 offset = 0;
+    ArgInfo* tail;
+    ENode* expr;
+    Type* type;
+
+#define ARG_GPR() \
+    if (gpr > 11) { \
+        tail->flags |= ArgInfoFlag_Stack; \
+        data_00625EA7 = 1; \
+        tail->offset = offset; \
+        offset += data_00624788; \
+    } else { \
+        tail->flags |= ArgInfoFlag_GPR; \
+        tail->gpr = gpr; \
+        gpr++; \
+    }
+#define ARG_FPR() \
+    if (fpr > 19) { \
+        tail->flags |= ArgInfoFlag_Stack; \
+        data_00625EA7 = 1; \
+        tail->offset = offset; \
+        offset += data_00624788; \
+    } else { \
+        tail->flags |= ArgInfoFlag_FPR; \
+        tail->fpr = fpr; \
+        fpr++; \
+    }
+
+    while (args) {
+        expr = args->node;
+        if (expr == skip) {
+            args = args->next;
+            argtypes = argtypes->next;
+            continue;
+        }
+        type = expr->rtype;
+        if (list) {
+            tail->next = new_arginfo(expr);
+            tail = tail->next;
+        } else {
+            list = tail = new_arginfo(expr);
+        }
+
+        if (type->type == TYPEFLOAT || func_00464B40(type)) {
+            if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
+                ARG_GPR();
+            } else if (!argtypes || argtypes == &oldstyle || argtypes == &elipsis) {
+                ARG_FPR();
+            } else {
+                ARG_FPR();
+            }
+        } else if (type->type == TYPEINT ||
+                   type->type == TYPEENUM ||
+                   type->type == TYPEPOINTER ||
+                   (type->type == TYPEMEMBERPOINTER && type->size == 4)) {
+            if (!argtypes || argtypes == &elipsis || argtypes == &oldstyle) {
+                if (type->size < 4) {
+                    tail->flags |= ArgInfoFlag_Promote;
+                }
+            }
+            ARG_GPR();
+        } else {
+            if (type->size > data_00624788) {
+                CError_FATAL(410);
+            }
+            ARG_GPR();
+        }
+
+        args = args->next;
+        if (argtypes && argtypes != &elipsis && argtypes != &oldstyle) {
+            argtypes = argtypes->next;
+        }
+    }
+#undef ARG_GPR
+#undef ARG_FPR
+
+    offset = offset > data_006242B4 ? offset : data_006242B4;
+    data_006242B4 = (offset + (data_0062421C - 1)) & ~(data_0062421C - 1);
+
+    return list;
+}
+#endif
+
 typedef struct UsedRegs3 {
     SInt32 codewords;
     UInt32 intregs;
@@ -228,7 +424,7 @@ typedef struct UsedRegs3 {
 
 extern SInt16 data_00625E48; // move
 extern SInt32 data_006241E0[7]; // caller-saved registers of each class: count
-extern SInt32 data_0060E038[7][128]; // ... and their numbers
+extern SInt32 data_0060E038[7][BE_MAX_CLASS_REGS]; // ... and their numbers
 extern UsedRegs3* data_006241D8; // registers the function uses
 extern Statement* data_00625070; // current_statement
 extern struct Alias* worst_case_func;
@@ -402,7 +598,11 @@ void func_004A8840(ArgInfo* info) {
         if (info->opnd.kind) {
             func_004A64C0(&info->opnd, type, 0);
         }
+#if MWCCPS2 // b210: a long long is one 64-bit register
+        if (0) {
+#else
         if (IS_LONGLONG(type)) {
+#endif
             if (copts.littleendian) {
                 func_004808E0(data_00625E4C, info->opnd.reg, 29, NULL, info->offset);
                 func_004808E0(
@@ -426,19 +626,47 @@ void func_004A8840(ArgInfo* info) {
         }
         if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
             if (IS_SINGLE(type) && !(info->flags & ArgInfoFlag_FloatStack)) {
-                func_004808E0(0x58F, info->opnd.reg, 29, NULL, info->offset);
+#if MWCCPS2 // b210: big-endian puts a single in the slot's second word
+                func_004808E0(
+                    MACRO_OP(0x77),
+                    info->opnd.reg,
+                    29,
+                    NULL,
+                    copts.littleendian ? info->offset : info->offset + 4
+                );
+#else
+                func_004808E0(MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset);
+#endif
+#if MWCCPS2 // b210: a double in one 64-bit register (sd)
+            } else if (IS_DOUBLE(type)) {
+                func_004808E0(MACRO_OP(0x6F), info->opnd.reg, 29, NULL, info->offset);
+#endif
             } else if (copts.littleendian) {
-                func_004808E0(0x58F, info->opnd.reg, 29, NULL, info->offset);
-                func_004808E0(0x58F, info->opnd.regHi, 29, NULL, info->offset + data_00624788);
+                func_004808E0(MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset);
+                func_004808E0(
+                    MACRO_OP(0x77), info->opnd.regHi, 29, NULL, info->offset + data_00624788
+                );
             } else {
-                func_004808E0(0x58F, info->opnd.regHi, 29, NULL, info->offset);
-                func_004808E0(0x58F, info->opnd.reg, 29, NULL, info->offset + data_00624788);
+                func_004808E0(MACRO_OP(0x77), info->opnd.regHi, 29, NULL, info->offset);
+                func_004808E0(
+                    MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset + data_00624788
+                );
             }
         } else if (IS_SINGLE(type) && !(info->flags & ArgInfoFlag_FloatStack)) {
-            func_004807C0(0x591, info->opnd.reg, 29, NULL, info->offset);
+#if MWCCPS2
+            func_004807C0(
+                MACRO_OP(0x79),
+                info->opnd.reg,
+                29,
+                NULL,
+                copts.littleendian ? info->offset : info->offset + 4
+            );
+#else
+            func_004807C0(MACRO_OP(0x79), info->opnd.reg, 29, NULL, info->offset);
+#endif
         } else {
             func_004807C0(
-                (copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x588 : 0x584,
+                (copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x70) : MACRO_OP(0x6C),
                 info->opnd.reg,
                 29,
                 NULL,
@@ -469,9 +697,6 @@ void func_004A8840(ArgInfo* info) {
 extern SInt16 data_00625E74; // 16-byte register move
 extern SInt32 data_00625010; // word size - 1
 extern SInt32 data_0062504C; // log2 of the word size
-extern ArgInfo* func_004A9100(
-    ENode* skip, ENodeList* args, FuncArg* argtypes
-); // the 64-bit long ABI
 extern void func_00480B40(SInt16 op, SInt16 reg, SInt16 base, Object* obj, SInt32 offset); // load
 extern void func_00480230(SInt16 align, void* unk);
 extern VOperand func_0047FAA0(
@@ -498,7 +723,19 @@ static inline int is_aggregate(Type* type) {
     return structlike || (t == TYPEMEMBERPOINTER && type->size == 12);
 }
 
+#if MWCCPS2
+// b210: o32 passes arguments in $a0-$a3, the 64-bit ABI in $a0-$t3
+#define LAST_ARG_GPR ((UInt8)(copts.mips_long64 ? 11 : 7))
+// b210 returns a long long or double in one register
+#define RESULT_PAIR(t) 0
+#else
+#define LAST_ARG_GPR 11
+#define RESULT_PAIR(t) (IS_LONGLONG(t) || ((t)->type == TYPEFLOAT && IS_DOUBLE(t)))
+#endif
+
 // call_function: pass the arguments, call, and give the result's registers.
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -4 // b145 asserts
 void func_004A7400(ENode* expr, VOperand* out) {
     UInt32 masks[7];
     VOperand fop;
@@ -524,7 +761,11 @@ void func_004A7400(ENode* expr, VOperand* out) {
     funcref = expr->data.funccall.funcref;
     rettype = expr->data.funccall.functype->functype;
     thisexpr = NULL;
-    load = 0x56D;
+#if MWCCPS2
+    load = MACRO_OP(0x4A); // ld: the argument registers are 64 bits
+#else
+    load = MACRO_OP(0x55);
+#endif
     for (i = 0; i < 7; i++) {
         masks[i] = 0;
     }
@@ -570,7 +811,7 @@ void func_004A7400(ENode* expr, VOperand* out) {
     }
     for (info = list; info; info = info->next) {
         if ((info->flags & 7) == (ArgInfoFlag_GPR | ArgInfoFlag_Stack)) {
-            for (r = info->gpr, off = 0; r <= 11; r++, off += data_00624788) {
+            for (r = info->gpr, off = 0; r <= LAST_ARG_GPR; r++, off += data_00624788) {
                 func_00480B40(load, r, 29, NULL, info->offset + off);
             }
         }
@@ -585,7 +826,7 @@ void func_004A7400(ENode* expr, VOperand* out) {
         kind = info->flags & 7;
         type = info->expr->rtype;
         if (kind == (ArgInfoFlag_GPR | ArgInfoFlag_Stack)) {
-            for (r = info->gpr; r <= 11; r++) {
+            for (r = info->gpr; r <= LAST_ARG_GPR; r++) {
                 func_00480B40(load, r, 29, NULL, (r - info->gpr) * data_00624788 + info->offset);
                 masks[0] |= BIT32(r);
             }
@@ -602,12 +843,17 @@ void func_004A7400(ENode* expr, VOperand* out) {
                 CError_FATAL(1235);
             } else {
                 words = (type->size >> data_0062504C) + ((type->size & data_00625010) != 0);
-                if (type->size > 2) {
-                    op = 0x56D;
+#if MWCCPS2
+                if (type->size > 4) {
+                    op = MACRO_OP(0x4A);
+                } else
+#endif
+                    if (type->size > 2) {
+                    op = MACRO_OP(0x55);
                 } else if (type->size > 1) {
-                    op = 0x569;
+                    op = MACRO_OP(0x51);
                 } else {
-                    op = 0x568;
+                    op = MACRO_OP(0x50);
                 }
                 for (i = 0; i < words; i++) {
                     func_00480B40(
@@ -630,6 +876,13 @@ void func_004A7400(ENode* expr, VOperand* out) {
             }
             switch (info->opnd.kind) {
                 case 0:
+#if MWCCPS2 // b210: a long long is in one 64-bit register
+                    emitpcode(
+                        type->size > 8 ? data_00625E74 : data_00625E48, info->gpr, info->opnd.reg
+                    );
+                    masks[0] |= BIT32(info->gpr);
+                    break;
+#endif
                     t = info->expr->rtype;
                     if (IS_LONGLONG(t) || (t->type == TYPEFLOAT && IS_DOUBLE(t))) {
                         if (copts.littleendian) {
@@ -699,7 +952,7 @@ void func_004A7400(ENode* expr, VOperand* out) {
             if (info->opnd.kind) {
                 func_004A64C0(&info->opnd, t, 0);
             }
-            emitpcode(IS_SINGLE(t) ? 0x5B1 : 0x5B2, info->fpr, info->opnd.reg);
+            emitpcode(IS_SINGLE(t) ? MACRO_OP(0x99) : MACRO_OP(0x9A), info->fpr, info->opnd.reg);
             masks[1] |= BIT32(info->fpr);
         }
     }
@@ -709,6 +962,9 @@ void func_004A7400(ENode* expr, VOperand* out) {
             CParser_IsVirtualFunction(funcref->data.objref, &tclass, &vindex)) {
             thisreg = (rettype && is_aggregate(rettype)) ? 5 : 4;
             tclass = TFUNC_CLASS(funcref->data.objref->type);
+#if MWCCPS2 // b210 loads the vtable and the function pointer with lw
+            load = MACRO_OP(0x55);
+#endif
             if (TCLASS_FLAGS(tclass) & 1) {
                 func_00480B40(load, 0x19, thisreg, NULL, 0);
                 func_00480B40(load, 0x19, 0x19, NULL, TCLASS_VTABLE(tclass)->offset);
@@ -749,20 +1005,18 @@ void func_004A7400(ENode* expr, VOperand* out) {
             if (t->type == TYPESTRUCT || t->type == TYPECLASS) {
                 t = func_00464BE0(t);
             }
-            *out = func_0047FAA0(IS_SINGLE(t) ? 0x5B1 : 0x5B2, 1, 0);
+            *out = func_0047FAA0(IS_SINGLE(t) ? MACRO_OP(0x99) : MACRO_OP(0x9A), 1, 0);
         } else if ((UInt8)(rc - 2) <= 1) {
+#if MWCCPS2 // b210 tests copts+0x41 (its function_align16 role)
+            if (copts.mips_option41) {
+#else
             if (copts.function_align16) {
+#endif
                 *out = func_0047FAA0(
-                    rettype->size > 8 ? data_00625E74 : data_00625E48,
-                    0,
-                    IS_LONGLONG(rettype) || (rettype->type == TYPEFLOAT && IS_DOUBLE(rettype))
+                    rettype->size > 8 ? data_00625E74 : data_00625E48, 0, RESULT_PAIR(rettype)
                 );
             } else {
-                *out = func_0047FAA0(
-                    data_00625E48,
-                    0,
-                    IS_LONGLONG(rettype) || (rettype->type == TYPEFLOAT && IS_DOUBLE(rettype))
-                );
+                *out = func_0047FAA0(data_00625E48, 0, RESULT_PAIR(rettype));
             }
         } else if (rc == 1) {
             out->kind = 3;
@@ -772,3 +1026,5 @@ void func_004A7400(ENode* expr, VOperand* out) {
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0

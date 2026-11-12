@@ -34,13 +34,25 @@ static AsmRegister* asm_registers[0x200]; // 0x606070
 
 // the mnemonic's record (from its name field), or NULL
 void* func_0053E980(char* name) {
+#if MWCCPS2
+    int h;
+#endif
     AsmMnemonic* m;
 
-    for (m = asm_mnemonics[(UInt8)CHash(name)]; m; m = m->next) {
+#if MWCCPS2
+    h = CHash(name);
+    for (m = asm_mnemonics[(UInt8)h]; m; m = m->next) {
         if (!strcmp(m->name, name)) {
             return &m->name;
         }
     }
+#else
+    for (m = asm_mnemonics[CHash(name) & 0xFF]; m; m = m->next) {
+        if (!strcmp(m->name, name)) {
+            return &m->name;
+        }
+    }
+#endif
     return NULL;
 }
 
@@ -52,7 +64,7 @@ void* func_0053E9C0(char* name, SInt32 opcode) {
     SInt32 n;
     SInt32 i;
 
-    bucket = &asm_mnemonics[(UInt8)CHash(name)];
+    bucket = &asm_mnemonics[CHash(name) & 0xFF];
     for (m = *bucket; m; m = m->next) {
         if (!strcmp(m->name, name)) {
             if (m->count == m->capacity) {
@@ -92,6 +104,17 @@ void func_0053EB40(void) {
 // the register's record (from its name field), or NULL
 void* func_0053EBB0(char* name) {
     AsmRegister* r;
+#if MWCCPS2
+    char** pname;
+
+    for (r = asm_registers[CHash(name) & 0x1FF]; r != NULL; r = r->next) {
+        pname = &r->name;
+        if (!strcmp(*pname, name)) {
+            return pname;
+        }
+    }
+    return NULL;
+#else
 
     for (r = asm_registers[CHash(name) & 0x1FF]; r; r = r->next) {
         if (!strcmp(r->name, name)) {
@@ -99,6 +122,7 @@ void* func_0053EBB0(char* name) {
         }
     }
     return NULL;
+#endif
 }
 
 void func_0053EC00(char* name, SInt16 rclass, SInt16 num, void* extra) {

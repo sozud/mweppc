@@ -9,7 +9,17 @@ extern "C" {
 
 extern void CClass_Init(void);
 extern void CClass_GenThunks(void);
+#if MWCCPS2
+// mwccps2 b210 passes the two function objects and checks their types
+extern UInt8 CClass_GetOverrideKind(Object* a, Object* b, Boolean errorflag);
+#define CCLASS_OVERRIDE(a, b, f) CClass_GetOverrideKind((a), (b), (f))
+#else
 extern UInt8 CClass_GetOverrideKind(TypeFunc* a, TypeFunc* b, Boolean errorflag);
+#if MWCCPSP
+#define CCLASS_OVERRIDE(a, b, f) \
+    CClass_GetOverrideKind(TYPE_FUNC((a)->type), TYPE_FUNC((b)->type), (f))
+#endif
+#endif
 extern Boolean CClass_IsEmpty(TypeClass* tclass);
 extern Object* CClass_DefaultConstructor(TypeClass* tclass);
 extern Object* CClass_DummyDefaultConstructor(TypeClass* tclass);

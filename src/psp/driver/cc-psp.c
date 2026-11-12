@@ -66,8 +66,14 @@ static CWPLUGIN_ENTRY(CWPlugin_GetDefaultMappingList)(const CWExtMapList** defau
 
 static CWPLUGIN_ENTRY(CWPlugin_GetPanelList)(const CWPanelList** panelList) {
     // clang-format off
+#if MWCCPS2
+    // b210 0x5D9218
+    static const char* sPanelNames[5] = {"C/C++ Compiler", "C/C++ Warnings", "PS2 MIPS CodeGen", "MIPS Bare Project",
+                                         "PS2 Global Optimizer"};
+#else
     static const char* sPanelNames[5] = {"C/C++ Compiler", "C/C++ Warnings", "PSP MIPS CodeGen", "PSP Project",
                                          "PSP Global Optimizer"};
+#endif
     // clang-format on
     static CWPanelList sPanelList = {kCurrentCWPanelListVersion, 5, sPanelNames};
 
@@ -147,7 +153,11 @@ static CWPLUGIN_ENTRY(Linker_GetDropInFlags)(const DropInFlags** flags, SInt32* 
 }
 
 static CWPLUGIN_ENTRY(Linker_GetDropInName)(const char** dropinName) {
+#if MWCCPS2
+    const char* name = "mwldps2";
+#else
     const char* name = "mwldpsp";
+#endif
 
     *dropinName = name;
     return cwNoErr;
@@ -161,7 +171,14 @@ static CWPLUGIN_ENTRY(Linker_GetDisplayName)(const char** displayName) {
 }
 
 static CWPLUGIN_ENTRY(Linker_GetPanelList)(const CWPanelList** panelList) {
+#if MWCCPS2
+    // b210 0x5D9350
+    static const char* lsPanelNames[3] = {
+        "PS2 MIPS CodeGen", "MIPS Bare Linker Panel", "MIPS Bare Project"
+    };
+#else
     static const char* lsPanelNames[3] = {"PSP MIPS CodeGen", "PSP Linker Panel", "PSP Project"};
+#endif
     static CWPanelList lsPanelList = {kCurrentCWPanelListVersion, 3, lsPanelNames};
 
     *panelList = &lsPanelList;

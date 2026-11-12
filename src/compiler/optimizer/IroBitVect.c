@@ -85,6 +85,7 @@ void Bv_Or(const BitVector* a, BitVector* b) {
     }
 }
 
+#if !MWCCPS2 // b210 inlines it (BitVector.h)
 Boolean Bv_BitsInCommon(const BitVector* a, const BitVector* b) {
     UInt32 len;
     UInt32 i;
@@ -102,6 +103,7 @@ Boolean Bv_BitsInCommon(const BitVector* a, const BitVector* b) {
 
     return FALSE;
 }
+#endif
 
 #if MWCCPSP
 // 3.0.1: the longer vector's extra words must be zero

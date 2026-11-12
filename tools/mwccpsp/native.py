@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Native 64-bit build of tools/mwccpsp/src.
 
-    native.py [--only CPrep] [-j N] [-v] [--arch x86_64|arm64]
+    native.py [--only CPrep] [-j N] [-v] [--arch x86_64|arm64] [--ps2]
 
 Compiles every unit with the host clang, as a
 64-bit program against the host C library (which replaces MSL). Objects go to
@@ -11,6 +11,11 @@ errors.
 Flags: -fwrapv -fno-strict-aliasing -fsigned-char (the
 original assumes x86's signed char), and -fshort-enums because 3.0.1 was
 built with minimal enums.
+
+--ps2 builds the PS2 compiler (mwccps2.exe 3.0.1 b210) from the same sources
+with -DMWCCPS2=1 into build/PS2_3_0_1/native/; its generated data units are
+src/native/ps2/*.c (tools/mwccps2/native_ps2.py) in place of the
+PSP ones.
 """
 
 import argparse
@@ -55,6 +60,37 @@ SANITIZE = [
 ]
 
 
+# PS2 mode (--ps2): set by configure()
+PS2 = False
+# generated from the exe: PS2 mode takes these from src/native/ps2/
+GENERATED = {"exe_data.c", "parser_tables.c", "strings.c"}
+# the PS2 build traces which functions run (MWCCPS2_NATIVE_TRACE): every
+# function gets an entry hook (src/native/ps2/trace.c)
+# MWCCPS2_BUILD picks the PS2 compiler build (default 210, as build_ps2.py)
+PS2_FLAGS = [
+    "-DMWCCPS2=1",
+    f"-DMWCCPS2_BUILD={int(os.environ.get('MWCCPS2_BUILD', '210'))}",
+    "-finstrument-functions-after-inlining",
+]
+
+
+def configure(ps2):
+    global PS2
+    PS2 = ps2
+
+
+def name():
+    return "mwccps2" if PS2 else "mwccpsp"
+
+
+def exe_path():
+    return (
+        os.path.join(REPO, "orig", "PS2_3_0_1", "mwccps2.exe")
+        if PS2
+        else os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe")
+    )
+
+
 def arch_flags(arch):
     # macOS clang takes -arch; elsewhere build for the host (or a target triple)
     if sys.platform == "darwin":
@@ -64,7 +100,7 @@ def arch_flags(arch):
 
 
 def out_dir(arch, asan=False):
-    return os.path.join(REPO, "build", "PSP_3_0_1", "native", arch + ("-asan" if asan else ""))
+    return os.path.join(REPO, "build", "PS2_3_0_1" if PS2 else "PSP_3_0_1", "native", arch + ("-asan" if asan else ""))
 
 
 def all_units(only=None):
@@ -72,8 +108,13 @@ def all_units(only=None):
     # host-only units of the native build
     for f in sorted(os.listdir(os.path.join(TOP, "src", "native"))):
         rel = "src/native/" + f
-        if f.endswith(".c") and (not only or only in rel):
+        if f.endswith(".c") and (not only or only in rel) and not (PS2 and f in GENERATED):
             todo.append((rel, {}))
+    if PS2:
+        for f in sorted(os.listdir(os.path.join(TOP, "src", "native", "ps2"))):
+            rel = "src/native/ps2/" + f
+            if f.endswith(".c") and (not only or only in rel):
+                todo.append((rel, {}))
     return todo
 
 
@@ -90,6 +131,8 @@ def compile_unit(src, s, arch, asan=False):
     obj = obj_path(src, arch, asan)
     lang = ["-xc++", "-std=gnu++17"] if src.endswith(".cpp") else ["-xc"]
     args = ["clang", *arch_flags(arch), "-c", *FLAGS, *(SANITIZE if asan else []), *lang]
+    if PS2:
+        args += [f for f in PS2_FLAGS if not (src.startswith("src/native/") and f.startswith("-finstrument"))]
     if lang[0] == "-xc++":
         args = [a for a in args if a not in ("-std=gnu17", "-fgnu89-inline")]
     if src.startswith("src/driver/"):
@@ -111,7 +154,9 @@ def main():
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--arch", default="x86_64")
     ap.add_argument("--asan", action="store_true", help="AddressSanitizer + UBSan build")
+    ap.add_argument("--ps2", action="store_true", help="the PS2 compiler (mwccps2.exe b210)")
     a = ap.parse_args()
+    configure(a.ps2)
     os.makedirs(os.path.join(out_dir(a.arch, a.asan), "obj"), exist_ok=True)
     todo = all_units(a.only)
     ok, failed = 0, []

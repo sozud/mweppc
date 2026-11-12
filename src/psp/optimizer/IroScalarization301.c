@@ -32,9 +32,6 @@
 
 extern Boolean is_volatile_object(Object* obj);
 extern Boolean IRO_FunctionCallMightThrowException(IROLinear* linear);
-extern void PointerAnalysis_LookupGotoTargets(
-    Object* func, IROLinear* linear, IROListNode** list
-); // 0x4CEAB0
 extern void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* arg);
 extern IROLinear* func_00558810(
     IROLinear* nd, Boolean* isBitfield
@@ -104,6 +101,7 @@ Boolean func_005810B0(
 );
 
 // 0x57FA80
+#if !MWCCPS2 // b210: IroVars.c has the dispatcher, the classic pass and the address checks
 void IRO_ScalarizeClassDataMembers(void) {
     Boolean done = FALSE;
 
@@ -114,6 +112,7 @@ void IRO_ScalarizeClassDataMembers(void) {
         func_005804A0();
     }
 }
+#endif
 
 // 0x57FAA0: scalarize per web; FALSE when the use-def records are not built
 Boolean func_0057FAA0(void) {
@@ -431,6 +430,7 @@ void func_005802F0(IROUse301* use, int depth) {
     }
 }
 
+#if !MWCCPS2 // b210: IroVars.c (MWCCPS2) has these
 // 0x5804A0: 2.4.7's pass over whole variables
 void func_005804A0(void) {
     IROLinear* nd;
@@ -531,7 +531,7 @@ Boolean func_005809C0(IROLinear* indirect) {
         indirect->pointsToFunction &&
         FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, indirect, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, indirect, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail) {
@@ -581,6 +581,7 @@ Boolean func_005809C0(IROLinear* indirect) {
 }
 
 // 0x580E00 (inside 0x580B20's extent): an object destroyed at the throw may be addressed
+#line 567 "IroScalarization.c"
 static void MarkAddressedAtThrow301(Object* obj, void* arg) {
     VarRecord* var = IRO_FindVar(obj, TRUE, TRUE);
     if (!var) {
@@ -590,6 +591,7 @@ static void MarkAddressedAtThrow301(Object* obj, void* arg) {
         *(Boolean*)arg = TRUE;
     }
 }
+#line 577 "IroScalarization301.c"
 
 // the call kills or uses an addressed variable among the list's objects
 static inline Boolean AnyAddressedVar301(ObjectList* list, int line) {
@@ -644,7 +646,7 @@ Boolean func_00580B20(IROLinear* funccall) {
     funcnd = funccall->u.funccall.callee;
     if (funcnd && copts.opt_pointer_analysis && funcnd->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, funcnd, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, funcnd, &resultList);
 
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
@@ -919,3 +921,4 @@ Boolean func_005810B0(
     LastRecord = rp;
     return TRUE;
 }
+#endif

@@ -124,11 +124,19 @@ int bitvectorcount(UInt32* vec, int len) {
     };
     // clang-format on
 
+#if MWCCPS2
+    int i = (len + 31) >> 5;
+    int total = 0;
+    UInt32 v;
+
+    for (; i != 0; i--) {
+#else
     UInt32 v;
     int i = (len + 31) >> 5;
     int total = 0;
 
     while (i--) {
+#endif
         if ((v = *vec)) {
             total += nbits[v & 0xFF];
             total += nbits[(v >> 8) & 0xFF];

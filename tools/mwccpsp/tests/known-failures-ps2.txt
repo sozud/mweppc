@@ -1,0 +1,195 @@
+# Cases the native mwccps2 doesn't reproduce (test.py --ps2: reported, not failed).
+
+# not PS2 input: the original rejects them too (VFPU and PSP-only assembler, escapes)
+escapes.c -O0 -opt nointrinsics
+escapes.c -O2 -opt nointrinsics
+escapes.c -O4,p -fl fastmath
+escapes.c -O4,p -fp off
+escapes.c -O4,p -inline auto
+escapes.c -O4,p -opt nointrinsics
+escapes.c -O4,s -opt nointrinsics
+escapes.c -Op -opt intrinsics -fp single
+escapes.c -Op -opt nointrinsics
+inlineasm.c -O0 -opt nointrinsics
+inlineasm.c -O2 -opt nointrinsics
+inlineasm.c -O4,p -fl fastmath
+inlineasm.c -O4,p -fp off
+inlineasm.c -O4,p -inline auto
+inlineasm.c -O4,p -opt nointrinsics
+inlineasm.c -O4,s -opt nointrinsics
+inlineasm.c -Op -opt intrinsics -fp single
+inlineasm.c -Op -opt nointrinsics
+inlineasm2.c -O0 -opt nointrinsics
+inlineasm2.c -O2 -opt nointrinsics
+inlineasm2.c -O4,p -fl fastmath
+inlineasm2.c -O4,p -fp off
+inlineasm2.c -O4,p -inline auto
+inlineasm2.c -O4,p -opt nointrinsics
+inlineasm2.c -O4,s -opt nointrinsics
+inlineasm2.c -Op -opt intrinsics -fp single
+inlineasm2.c -Op -opt nointrinsics
+
+# C++ and debug-info paths the Persona 4 corpus (C only) never reaches: not implemented,
+# internal errors, or different objects; and initarray.c, which the PSP build gets wrong too
+aliases.cpp -O0 -opt nointrinsics
+aliases.cpp -O2 -opt nointrinsics
+aliases.cpp -O4,p -fl fastmath
+aliases.cpp -O4,p -fp off
+aliases.cpp -O4,p -inline auto
+aliases.cpp -O4,p -opt nointrinsics
+aliases.cpp -O4,s -opt nointrinsics
+aliases.cpp -Op -opt intrinsics -fp single
+aliases.cpp -Op -opt nointrinsics
+calls.cpp -O0 -opt nointrinsics
+calls.cpp -O2 -opt nointrinsics
+calls.cpp -O4,p -fl fastmath
+calls.cpp -O4,p -fp off
+calls.cpp -O4,p -inline auto
+calls.cpp -O4,p -opt nointrinsics
+calls.cpp -O4,s -opt nointrinsics
+calls.cpp -Op -opt intrinsics -fp single
+calls.cpp -Op -opt nointrinsics
+dwarf_cpp.cpp -g -O0 -opt nointrinsics
+dwarf_cpp.cpp -g -Op -opt nointrinsics
+dwarf.c -g -O0 -opt nointrinsics
+dwarf.c -g -Op -opt nointrinsics
+errors.cpp diag
+exceptions_templ.cpp -O0 -opt nointrinsics
+exceptions_templ.cpp -O2 -opt nointrinsics
+exceptions_templ.cpp -O4,p -fl fastmath
+exceptions_templ.cpp -O4,p -fp off
+exceptions_templ.cpp -O4,p -inline auto
+exceptions_templ.cpp -O4,p -opt nointrinsics
+exceptions_templ.cpp -O4,s -opt nointrinsics
+exceptions_templ.cpp -Op -opt intrinsics -fp single
+exceptions_templ.cpp -Op -opt nointrinsics
+inherit.cpp -O0 -opt nointrinsics
+inherit.cpp -O2 -opt nointrinsics
+inherit.cpp -O4,p -fl fastmath
+inherit.cpp -O4,p -fp off
+inherit.cpp -O4,p -inline auto
+inherit.cpp -O4,p -opt nointrinsics
+inherit.cpp -O4,s -opt nointrinsics
+inherit.cpp -Op -opt intrinsics -fp single
+inherit.cpp -Op -opt nointrinsics
+initarray.c -O0 -opt nointrinsics
+initarray.c -O2 -opt nointrinsics
+initarray.c -O4,p -fl fastmath
+initarray.c -O4,p -fp off
+initarray.c -O4,p -inline auto
+initarray.c -O4,p -opt nointrinsics
+initarray.c -O4,s -opt nointrinsics
+initarray.c -Op -opt intrinsics -fp single
+initarray.c -Op -opt nointrinsics
+memberaccess.cpp -O0 -opt nointrinsics
+memberaccess.cpp -O2 -opt nointrinsics
+memberaccess.cpp -O4,p -fl fastmath
+memberaccess.cpp -O4,p -fp off
+memberaccess.cpp -O4,p -inline auto
+memberaccess.cpp -O4,p -opt nointrinsics
+memberaccess.cpp -O4,s -opt nointrinsics
+memberaccess.cpp -Op -opt intrinsics -fp single
+memberaccess.cpp -Op -opt nointrinsics
+memberptr.cpp -O0 -opt nointrinsics
+memberptr.cpp -O2 -opt nointrinsics
+memberptr.cpp -O4,p -fl fastmath
+memberptr.cpp -O4,p -fp off
+memberptr.cpp -O4,p -inline auto
+memberptr.cpp -O4,p -opt nointrinsics
+memberptr.cpp -O4,s -opt nointrinsics
+memberptr.cpp -Op -opt intrinsics -fp single
+memberptr.cpp -Op -opt nointrinsics
+objaccess.cpp -O0 -opt nointrinsics
+objaccess.cpp -O2 -opt nointrinsics
+objaccess.cpp -O4,p -fl fastmath
+objaccess.cpp -O4,p -fp off
+objaccess.cpp -O4,p -inline auto
+objaccess.cpp -O4,p -opt nointrinsics
+objaccess.cpp -O4,s -opt nointrinsics
+objaccess.cpp -Op -opt intrinsics -fp single
+objaccess.cpp -Op -opt nointrinsics
+oldcasts.cpp -O0 -opt nointrinsics
+oldcasts.cpp -O2 -opt nointrinsics
+oldcasts.cpp -O4,p -fl fastmath
+oldcasts.cpp -O4,p -fp off
+oldcasts.cpp -O4,p -inline auto
+oldcasts.cpp -O4,p -opt nointrinsics
+oldcasts.cpp -O4,s -opt nointrinsics
+oldcasts.cpp -Op -opt intrinsics -fp single
+oldcasts.cpp -Op -opt nointrinsics
+operators_ambig.cpp diag
+operators.cpp -O0 -opt nointrinsics
+operators.cpp -O2 -opt nointrinsics
+operators.cpp -O4,p -fl fastmath
+operators.cpp -O4,p -fp off
+operators.cpp -O4,p -inline auto
+operators.cpp -O4,p -opt nointrinsics
+operators.cpp -O4,s -opt nointrinsics
+operators.cpp -Op -opt intrinsics -fp single
+operators.cpp -Op -opt nointrinsics
+overloadptr_ambig.cpp diag
+overloadptr.cpp -O0 -opt nointrinsics
+overloadptr.cpp -O2 -opt nointrinsics
+overloadptr.cpp -O4,p -fl fastmath
+overloadptr.cpp -O4,p -fp off
+overloadptr.cpp -O4,p -inline auto
+overloadptr.cpp -O4,p -opt nointrinsics
+overloadptr.cpp -O4,s -opt nointrinsics
+overloadptr.cpp -Op -opt intrinsics -fp single
+overloadptr.cpp -Op -opt nointrinsics
+primary.cpp -O0 -opt nointrinsics
+primary.cpp -O2 -opt nointrinsics
+primary.cpp -O4,p -fl fastmath
+primary.cpp -O4,p -fp off
+primary.cpp -O4,p -inline auto
+primary.cpp -O4,p -opt nointrinsics
+primary.cpp -O4,s -opt nointrinsics
+primary.cpp -Op -opt intrinsics -fp single
+primary.cpp -Op -opt nointrinsics
+statements.cpp -O0 -opt nointrinsics
+statements.cpp -O2 -opt nointrinsics
+statements.cpp -O4,p -fl fastmath
+statements.cpp -O4,p -fp off
+statements.cpp -O4,p -inline auto
+statements.cpp -O4,p -opt nointrinsics
+statements.cpp -O4,s -opt nointrinsics
+statements.cpp -Op -opt intrinsics -fp single
+statements.cpp -Op -opt nointrinsics
+templates2.cpp -O0 -opt nointrinsics
+templates2.cpp -O2 -opt nointrinsics
+templates2.cpp -O4,p -fl fastmath
+templates2.cpp -O4,p -fp off
+templates2.cpp -O4,p -inline auto
+templates2.cpp -O4,p -opt nointrinsics
+templates2.cpp -O4,s -opt nointrinsics
+templates2.cpp -Op -opt intrinsics -fp single
+templates2.cpp -Op -opt nointrinsics
+templinst_poi.cpp diag
+templinst.cpp -O0 -opt nointrinsics
+templinst.cpp -O2 -opt nointrinsics
+templinst.cpp -O4,p -fl fastmath
+templinst.cpp -O4,p -fp off
+templinst.cpp -O4,p -inline auto
+templinst.cpp -O4,p -opt nointrinsics
+templinst.cpp -O4,s -opt nointrinsics
+templinst.cpp -Op -opt intrinsics -fp single
+templinst.cpp -Op -opt nointrinsics
+templmangle.cpp -O0 -opt nointrinsics
+templmangle.cpp -O2 -opt nointrinsics
+templmangle.cpp -O4,p -fl fastmath
+templmangle.cpp -O4,p -fp off
+templmangle.cpp -O4,p -inline auto
+templmangle.cpp -O4,p -opt nointrinsics
+templmangle.cpp -O4,s -opt nointrinsics
+templmangle.cpp -Op -opt intrinsics -fp single
+templmangle.cpp -Op -opt nointrinsics
+typenames.cpp diag
+unary.cpp -O0 -opt nointrinsics
+unary.cpp -O2 -opt nointrinsics
+unary.cpp -O4,p -fl fastmath
+unary.cpp -O4,p -fp off
+unary.cpp -O4,p -inline auto
+unary.cpp -O4,p -opt nointrinsics
+unary.cpp -O4,s -opt nointrinsics
+unary.cpp -Op -opt intrinsics -fp single
+unary.cpp -Op -opt nointrinsics

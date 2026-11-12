@@ -7,7 +7,7 @@
 #include "compiler/IroUtil.h"
 #include "compiler/IroVars.h"
 
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2 // b210: IroVars.c (MWCCPS2) has it
 void IRO_RewriteBitFieldTemps(void) {
     IROLinear* nd;
     IROLinear* replacement;
@@ -19,12 +19,12 @@ void IRO_RewriteBitFieldTemps(void) {
         if ((obj = IRO_IsVariable(nd)) && (nd->flags & IROLF_BitfieldIndirect)) {
             var = IRO_FindVar(obj, FALSE, TRUE);
             if (!var) {
-                CError_Internal("IroScalarization.c", 197);
+                CError_Internal("IroScalarization.c", CError_B145_LINE(197));
             }
 
             replacement = var->bitFieldReplacement;
             if (!replacement) {
-                CError_Internal("IroScalarization.c", 203);
+                CError_Internal("IroScalarization.c", CError_B145_LINE(203));
             }
 
             IRO_InitList(&list);

@@ -27,10 +27,21 @@ sys.path.insert(0, HERE)
 from gen_parser_psp import literal, load_symbols  # noqa: E402
 from pe import PE  # noqa: E402
 
+# the PS2 build (tools/mwccps2/native_ps2.py) sets these: its exe,
+# the PS2 address of each PSP address below, PS2 address -> name, the output,
+# the prefix of unnamed addresses, and whether the VFPU tables exist
+EXE = os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe")
+AT = None
+SYMS = None
+DST = os.path.join(TOP, "src", "native", "exe_data.c")
+PREFIX = ""
+VFPU = True
+
 
 def main():
-    pe = PE(os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe"))
-    syms = load_symbols()
+    pe = PE(EXE)
+    syms = SYMS if SYMS is not None else load_symbols()
+    at = AT or (lambda va: va)
     relocs = pe.relocations()
     refs = {}
 
@@ -43,7 +54,7 @@ def main():
     def ref(va, kind):
         if not va:
             return "NULL"
-        name = syms.get(va) or (f"func_{va:08X}" if kind == "func" else f"data_{va:08X}")
+        name = syms.get(va) or (f"{PREFIX}func_{va:08X}" if kind == "func" else f"{PREFIX}data_{va:08X}")
         ident = "r_" + name.replace("$", "_")
         refs[ident] = (name, kind)
         return f"(void*){ident}" if kind == "data" else ident
@@ -63,7 +74,8 @@ def main():
     body = []
 
     # TypePointer {TypeType type; SInt32 size; Type* target; UInt32 qual}
-    t, size, target, qual = pe.read(0x5CCB34, 1)[0], u32(0x5CCB38), u32(0x5CCB3C), u32(0x5CCB40)
+    cp = at(0x5CCB34)
+    t, size, target, qual = pe.read(cp, 1)[0], u32(cp + 4), u32(cp + 8), u32(cp + 12)
     body.append(
         "struct { unsigned char type; int size; void* target; unsigned int qual; } "
         f'char_ptr_def __asm__(SYM("char_ptr")) = {{{t}, {size}, {ref(target, "data")}, {qual}}};'
@@ -80,7 +92,7 @@ def main():
 
     rows = []
     for i in range(16):
-        e = 0x5CBED8 + 16 * i
+        e = at(0x5CBED8) + 16 * i
         rows.append(f"    {{{cstr(u32(e))}, 0x{u32(e + 4):X}, {ref(u32(e + 8), 'data')}, {ref(u32(e + 12), 'data')}}},")
     body.append(
         "struct { char* name; unsigned int flags; void* type; void* object; } "
@@ -90,9 +102,10 @@ def main():
     body.append("};")
     body.append("")
 
-    for va, n in ((0x5CEE74, 38), (0x5CED74, 32)):
+    for va, n in ((0x5CEE74, 38), (0x5CED74, 32)) if VFPU else ():
         rows = [
-            f"    {{{cstr(u32(va + 8 * i))}, {struct.unpack('<i', pe.read(va + 8 * i + 4, 4))[0]}}}," for i in range(n)
+            f"    {{{cstr(u32(at(va) + 8 * i))}, {struct.unpack('<i', pe.read(at(va) + 8 * i + 4, 4))[0]}}},"
+            for i in range(n)
         ]
         body.append(f'struct {{ char* name; int value; }} named_{va:08X}[{n}] __asm__(SYM("data_{va:08X}")) = {{')
         body += rows
@@ -101,14 +114,14 @@ def main():
 
     # the optimizer's C library descriptors: {name, header, handler, evaluate}
     # sorted by name; the headers {name, enabled} are only reached through them
-    hbase, hend = 0x5D33A8, 0x5D3468
+    hbase, hend = at(0x5D33A8), at(0x5D3468)
     nh = (hend - hbase) // 8
     body.append(f"static struct {{ char* name; unsigned char enabled; }} iro_headers[{nh}] = {{")
     body += [f"    {{{cstr(u32(hbase + 8 * i))}, {pe.read(hbase + 8 * i + 4, 1)[0]}}}," for i in range(nh)]
     body.append("};")
     rows = []
     for i in range(480):
-        e = 0x5D3468 + 16 * i
+        e = hend + 16 * i
         h = u32(e + 4)
         hdr = f"&iro_headers[{(h - hbase) // 8}]" if h else "NULL"
         rows.append(
@@ -122,7 +135,7 @@ def main():
     body.append("};")
     body.append("")
 
-    va, n = 0x5D0140, 0
+    va, n = at(0x5D0140), 0
     while va + 4 * n in relocs:
         n += 1
     fns = [ref(u32(va + 4 * i), "func") for i in range(n)]
@@ -137,7 +150,7 @@ def main():
             out.append(f'extern void {ident}(void) __asm__(SYM("{name}"));')
     out.append("")
     out += body
-    dst = os.path.join(TOP, "src", "native", "exe_data.c")
+    dst = DST
     open(dst, "w").write("\n".join(out) + "\n")
     print(f"wrote {dst}: {len(refs)} references")
 

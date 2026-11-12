@@ -49,6 +49,9 @@ typedef struct IROLoopAccessList {
 
 // 0x5575F0: obj is a local that may live in a register (3.0.1's
 // IRO_IsRegable, IroUtil.c)
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0059CBF0)
+#endif
 Boolean func_005575F0(Object* obj) {
     if (obj->datatype == DLOCAL && obj->u.var.info) {
         return obj->u.var.info->noregister == 0;

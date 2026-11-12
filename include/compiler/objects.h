@@ -215,7 +215,20 @@ struct Object {
                     SInt32 size;
                 } switchtable;
             } u;
-#if MWCCPSP
+#if MWCCPS2
+            // mwccps2 b210: sizeof(Object) is 0x44; the value is a 16-byte
+            // CInt64, so CPrec_GetObjectPatch and CMangler_GetLinkName read a
+            // data link name at +0x38 (a function's stays at +0x30) and
+            // add_aliased_locals_to_worst_case reads islocalstatic at +0x40.
+            // info at +0x3c is unverified.
+            HashNameNode* linkname;
+            union {
+                VarInfo* info;
+                struct InterruptGenerationRecord* interruptInfo;
+            };
+            Boolean islocalstatic;
+            UInt8 ps2_pad41[3]; // CParser_NewObject allocates 0x44
+#elif MWCCPSP
             // 3.0.1: the link name follows the value (CMangler_GetLinkName
             // reads it at +0x30, a switch table's size is at +0x2C); there
             // is no register info (CParser_UpdateObject does not copy it).
@@ -303,7 +316,10 @@ struct VarInfo {
     SInt16 varnumber;
     Boolean noregister;
     Boolean used;
-#if MWCCPSP
+#if MWCCPS2
+    UInt8 unk24
+        [4]; // mwccps2 b210: rclass +0x31, reg +0x32 (func_0049DE40), 2 bytes more than mwccpsp
+#elif MWCCPSP
     UInt8 unk24
         [2]; // 3.0.1: flags at +0x26, rclass +0x27, reg +0x28, regHi +0x2A (Coloring.c, RegClasses.c)
 #endif
@@ -311,11 +327,23 @@ struct VarInfo {
     UInt8 rclass;
     SInt16 reg;
     SInt16 regHi;
-#if MWCCPSP
+#if MWCCPS2
+    UInt8 unk2C[2]; // mwccps2 b210: CodeGen_GetNewVarInfo allocates 0x38
+#elif MWCCPSP
     UInt8 unk2C[4]; // 3.0.1: CodeGen_GetNewVarInfo allocates 0x30
 #endif
 };
 #pragma pack(pop)
+#if MWCCPS2
+// b210 code addresses VarInfo's tail by its x86 offsets (0x2C..0x37: the
+// register-variable record's class at +0x2E, register at +0x32); natively
+// the struct has 8-byte pointers, so they are taken from unk24
+#if MWCCPSP_NATIVE
+#define PS2_VARINFO_AT(vi, x86off) ((char*)(vi) + offsetof(VarInfo, unk24) + ((x86off) - 0x2C))
+#else
+#define PS2_VARINFO_AT(vi, x86off) ((char*)(vi) + (x86off))
+#endif
+#endif
 enum {
     VarInfoFlag_ParamArea = 1,
     VarInfoFlag_InReg = 2,

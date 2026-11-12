@@ -271,8 +271,13 @@ void func_0059CE30(IRONaturalLoop* loop, IROLinear* pre) {
         if (expr->linear->type == IROLinearOp2Arg && expr->linear->nodetype == ESHL) {
             expr->linear->nodetype = EMUL;
             factor->u.node->data.intval = CInt64_Shl(cint64_one, factor->u.node->data.intval);
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 keeps the qualified type
+            factor->u.node->rtype = expr->linear->rtype;
+            factor->rtype = expr->linear->rtype;
+#else
             factor->u.node->rtype = IRO_UnqualifiedType(expr->linear->rtype);
             factor->rtype = IRO_UnqualifiedType(expr->linear->rtype);
+#endif
         }
         for (scan = done; scan; scan = scan->next) {
             if (IRO_ExprsSame(expr->linear, scan->linear)) {
@@ -297,9 +302,20 @@ typedef struct IROTreeSearch {
 
 // 0x59E720: walker callback, the tree holds the target
 void func_0059E720(IROLinear* linear, Boolean isFirst, void* arg) {
+#if MWCCPS2
+    IROTreeSearch* search;
+
+    if (isFirst) {
+        search = arg;
+        if (linear == search->target) {
+            search->found = TRUE;
+        }
+    }
+#else
     if (isFirst && linear == ((IROTreeSearch*)arg)->target) {
         ((IROTreeSearch*)arg)->found = TRUE;
     }
+#endif
 }
 
 static inline Boolean IsDivOrShr(IROLinear* nd) {
@@ -325,6 +341,8 @@ static inline IROLinear* AssignTemp(Object* temp, Type* type, IROLinear* value, 
 // 0x59D500: reduce expr (indOperand * factor) to a temporary set before the
 // loop (pre) and stepped with the counter (2.4.7's CreateRIS); expr goes on
 // the done list
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 39 // b145 asserts
 IROExpr* func_0059D500(
     IROExpr* expr,
     IROLinear* indOperand,
@@ -458,7 +476,11 @@ IROExpr* func_0059D500(
          nd->rtype->type == TYPEPOINTER)) {
         search.target = nd;
         search.found = FALSE;
+#if MWCCPS2
+        IRO_WalkTree_ps2(ind->nd, func_0059E720, &search); // b210 walks with the argument walker
+#else
         func_005531A0(ind->nd, func_0059E720, TRUE, &search);
+#endif
     }
     if (search.found && !(ind->nd->flags & IROLF_Reffed)) {
         IRO_PasteAfter(list2.head, list2.tail, ind->nd);
@@ -471,6 +493,8 @@ IROExpr* func_0059D500(
     *done = expr;
     return expr;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 static inline IROLinear* StripSafeConversions(IROLinear* nd) {
     while (nd->type == IROLinearOp1Arg && nd->nodetype == ETYPCON && func_0055A3F0(nd)) {
@@ -528,6 +552,40 @@ static inline IROLinear* ScaledVariable(IROLinear* nd, IROLinear** shl) {
     return IRO_IsVariable(x) ? x : NULL;
 }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+// b145's scaled operand s (x * c or x << c, c constant): a shift becomes the
+// multiply at once; x is a variable or a safe conversion of one
+#define SCALED_145(s) \
+    do { \
+        if (!func_00555C60((s)->u.diadic.right)) { \
+            return FALSE; \
+        } \
+        if ((s)->nodetype == ESHL) { \
+            (s)->nodetype = EMUL; \
+            (s)->u.diadic.right->u.node->data.intval = \
+                CInt64_Shl(cint64_one, (s)->u.diadic.right->u.node->data.intval); \
+        } \
+        if ((s)->u.diadic.left->type != IROLinearOp1Arg) { \
+            return FALSE; \
+        } \
+        if (IRO_IsVariable((s)->u.diadic.left)) { \
+            *indOperand = (s)->u.diadic.left; \
+            indirect = (s)->u.diadic.left; \
+            *factor = (s)->u.diadic.right; \
+        } else if ((s)->u.diadic.left->nodetype == ETYPCON && \
+                   IRO_IsVariable((s)->u.diadic.left->u.monadic) && \
+                   func_0055A3F0((s)->u.diadic.left)) { \
+            *indOperand = (s)->u.diadic.left; \
+            indirect = (s)->u.diadic.left->u.monadic; \
+            *factor = (s)->u.diadic.right; \
+        } else { \
+            return FALSE; \
+        } \
+    } while (0)
+#endif
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 48 // b145 asserts
 // 0x59DB80: nd is an expression of an induction variable that strength
 // reduction can keep in a temporary: *indOperand * *factor, *var the
 // induction record (2.4.7's Reducable)
@@ -553,6 +611,131 @@ Boolean func_0059DB80(
     CInt64 r;
     IROTreeSearch search;
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    // b145: one conversion stripped per side (tested where it is kept), a
+    // scaled operand's shift becomes the multiply at once (no range check),
+    // and a variable under a conversion is matched as such
+    if (nd->type == IROLinearOp2Arg && nd->nodetype == EADD && IsIntOrPtrType(nd->rtype)) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (left->type == IROLinearOp1Arg && left->nodetype == ETYPCON) {
+            leftTypcon = TRUE;
+            leftInvariant = (left->flags & IROLF_LoopInvariant) != 0;
+            left = left->u.monadic;
+        }
+        if (right->type == IROLinearOp1Arg && right->nodetype == ETYPCON) {
+            rightTypcon = TRUE;
+            rightInvariant = (right->flags & IROLF_LoopInvariant) != 0;
+            right = right->u.monadic;
+        }
+        if (((left->flags & IROLF_LoopInvariant) || leftInvariant) && IRO_IsVariable(right)) {
+            if (CheapAddend(left, leftInvariant)) {
+                return FALSE;
+            }
+            if (rightTypcon) {
+                if (!func_0055A3F0(nd->u.diadic.right)) {
+                    return FALSE;
+                }
+                *indOperand = nd->u.diadic.right;
+            } else {
+                *indOperand = right;
+            }
+            indirect = right;
+            type = nd->u.diadic.right->rtype;
+            *factor = IRO_NewIntConst(
+                cint64_one, type->type == TYPEPOINTER ? nd->u.diadic.left->rtype : type
+            );
+        } else if (((left->flags & IROLF_LoopInvariant) || leftInvariant) &&
+                   right->type == IROLinearOp2Arg &&
+                   !rightTypcon &&
+                   (right->nodetype == EMUL || right->nodetype == ESHL)) {
+            SCALED_145(right);
+        } else if (((right->flags & IROLF_LoopInvariant) || rightInvariant) &&
+                   left->type == IROLinearOp2Arg &&
+                   !leftTypcon &&
+                   (left->nodetype == EMUL || left->nodetype == ESHL)) {
+            SCALED_145(left);
+        } else if ((right->flags & IROLF_LoopInvariant) || rightInvariant) {
+            if (!IRO_IsVariable(left)) {
+                return FALSE;
+            }
+            if (CheapAddend(right, rightInvariant)) {
+                return FALSE;
+            }
+            if (leftTypcon) {
+                if (!func_0055A3F0(nd->u.diadic.left)) {
+                    return FALSE;
+                }
+                *indOperand = nd->u.diadic.left;
+            } else {
+                *indOperand = left;
+            }
+            indirect = left;
+            type = nd->u.diadic.left->rtype;
+            *factor = IRO_NewIntConst(
+                cint64_one, type->type == TYPEPOINTER ? nd->u.diadic.right->rtype : type
+            );
+        } else {
+            return FALSE;
+        }
+    } else if (nd->type == IROLinearOp2Arg &&
+               (nd->nodetype == EMUL || nd->nodetype == ESHL) &&
+               IsIntOrPtrType(nd->rtype)) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (func_00555C60(right) && IRO_IsVariable(left)) {
+            *indOperand = left;
+            indirect = left;
+            *factor = right;
+        } else if (func_00555C60(nd->u.diadic.right) &&
+                   left->type == IROLinearOp1Arg &&
+                   left->nodetype == ETYPCON &&
+                   IRO_IsVariable(left->u.monadic) &&
+                   func_0055A3F0(left)) {
+            *indOperand = left;
+            indirect = left->u.monadic;
+            *factor = right;
+        } else {
+            if (nd->type == IROLinearOp2Arg && nd->nodetype == ESHL) {
+                return FALSE;
+            }
+            if (nd->u.diadic.right->flags & IROLF_LoopInvariant) {
+                if (IRO_IsVariable(left)) {
+                    *indOperand = left;
+                    indirect = left;
+                    *factor = right;
+                } else if (left->type == IROLinearOp1Arg &&
+                           left->nodetype == ETYPCON &&
+                           IRO_IsVariable(left->u.monadic) &&
+                           func_0055A3F0(left)) {
+                    *indOperand = left;
+                    indirect = left->u.monadic;
+                    *factor = right;
+                } else {
+                    return FALSE;
+                }
+            } else if (nd->u.diadic.left->flags & IROLF_LoopInvariant) {
+                if (IRO_IsVariable(right)) {
+                    *indOperand = right;
+                    indirect = right;
+                    *factor = left;
+                } else if (right->type == IROLinearOp1Arg &&
+                           right->nodetype == ETYPCON &&
+                           IRO_IsVariable(right->u.monadic) &&
+                           nd->type == IROLinearOp2Arg &&
+                           nd->nodetype == EMUL &&
+                           func_0055A3F0(right)) {
+                    *indOperand = right;
+                    indirect = right->u.monadic;
+                    *factor = left;
+                } else {
+                    return FALSE;
+                }
+            } else {
+                return FALSE;
+            }
+        }
+#else
     if (nd->type == IROLinearOp2Arg && nd->nodetype == EADD && IsIntOrPtrType(nd->rtype)) {
         left = nd->u.diadic.left;
         right = nd->u.diadic.right;
@@ -657,6 +840,7 @@ Boolean func_0059DB80(
                 return FALSE;
             }
         }
+#endif
     } else if (nd->type == IROLinearOp2Arg && (nd->nodetype == EDIV || nd->nodetype == ESHR)) {
         if (!(nd->rtype->type == TYPEINT && TYPE_INTEGRAL(nd->rtype)->integral < IT_17)) {
             return FALSE;
@@ -731,7 +915,13 @@ Boolean func_0059DB80(
     if (nd->type == IROLinearOp2Arg && nd->nodetype == EADD && IsIntOrPtrType(nd->rtype)) {
         search.target = nd;
         search.found = FALSE;
+#if MWCCPS2
+        IRO_WalkTree_ps2(
+            (*pind)->nd, func_0059E720, &search
+        ); // b210 walks with the argument walker
+#else
         func_005531A0((*pind)->nd, func_0059E720, TRUE, &search);
+#endif
         if (search.found && ((*pind)->nd->flags & IROLF_Reffed)) {
             return FALSE;
         }
@@ -740,6 +930,7 @@ Boolean func_0059DB80(
     if (Bv_BitsInCommon(loop->xC, IRO_Depends)) {
         return FALSE;
     }
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 rewrote the shift where it found it
     if (shl) {
         shl->nodetype = EMUL;
         shl->u.diadic.right->u.node->data.intval =
@@ -747,5 +938,8 @@ Boolean func_0059DB80(
         shl->u.diadic.right->u.node->rtype = IRO_UnqualifiedType(shl->rtype);
         shl->u.diadic.right->rtype = IRO_UnqualifiedType(shl->rtype);
     }
+#endif
     return TRUE;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0

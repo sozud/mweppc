@@ -42,6 +42,9 @@ struct TemplateMember {
     CPrepFileInfo* srcfile;
     SInt32 startoffset;
     SInt32 endoffset;
+#if MWCCPS2
+    void* unk30; // b210 allocates 0x34 bytes (CTemplClass_DefineMember)
+#endif
 };
 
 struct TemplParam {
@@ -104,11 +107,24 @@ struct TypeDeduce {
     TemplParam* params;
     TemplArg* args;
     DefAction* defActions;
+#if MWCCPS2
+    // b210: 0x20 bytes (CTempl_InstantiateTemplateClass clears 0x20)
+    void* unk14;
+    Boolean processingArgument; // +0x18 (CTemplClass_CopyMemberTemplate)
+    Boolean unk19;
+    Boolean hasNewVBases; // +0x1A (CTemplClass_CopyObject)
+    Boolean suppressErrors; // +0x1B (unverified)
+    Boolean unk1C;
+    Boolean processingClassTypes; // +0x1D (unverified: 0x4B5090 sets it on a fresh state)
+    UInt8 unk1E;
+    UInt8 nindex; // +0x1F (CTemplClass_CopyMemberTemplate)
+#else
     Boolean processingClassTypes;
     Boolean processingArgument;
     Boolean suppressErrors;
     Boolean hasNewVBases;
     UInt8 nindex;
+#endif
 };
 
 struct TemplPartialSpec {
@@ -133,10 +149,22 @@ struct TemplClass {
     TemplClass* templ_parent;
     TemplClassInst* inst_parent;
     TemplParam* templ__params;
+#if MWCCPS2
+    // b210: members at +0x44 (CTemplClass_DefineMember 0x553700), pspec_owner
+    // at +0x48 (CTempl_ClassGetType 0x4F5470)
+    // +0x30..+0x3F is a template header that instances and nested member
+    // templates point at (CTemplTool_TemplClassFromHeader); +0x3C marks a
+    // class template
+    Boolean is_templ_header;
+    TemplClassInst* instances;
+    TemplateMember* members;
+    TemplClass* pspec_owner;
+#else
     TemplateMember* members;
     TemplClassInst* instances;
     TemplClass* pspec_owner;
-#if MWCCPSP
+#endif
+#if MWCCPSP && !MWCCPS2
     void* unk48; // 3.0.1: pspecs is at +0x4C (CTempl_Instantiate), actions at +0x50
 #endif
     TemplPartialSpec* pspecs;

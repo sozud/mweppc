@@ -424,12 +424,49 @@ static void DumpList(int num, UInt16* list) {
     }
 }
 
+#if MWCCPS2
+Boolean func_00557340(void);
+#endif
 void IRO_DumpBits(char* name, BitVector* bv) {
     SInt32 i;
     SInt32 rangeStart;
     Boolean inRange = FALSE;
     Boolean isFirst = TRUE;
 
+#if MWCCPS2 // b210 (0x5B3340) writes through IRO_Dump after func_00557340's check
+    if (!func_00557340()) {
+        return;
+    }
+    IRO_Dump(name);
+    if (!bv) {
+        IRO_Dump("NULL");
+    } else {
+        for (i = 0; (UInt32)i < (bv->size * 32); i++) {
+            if (Bv_IsBitSet(i, bv)) {
+                if (!inRange) {
+                    if (!isFirst) {
+                        IRO_Dump(",");
+                    }
+                    isFirst = FALSE;
+                    IRO_Dump("%d", (int)i);
+                    inRange = TRUE;
+                    rangeStart = i;
+                }
+            } else {
+                if (inRange) {
+                    inRange = FALSE;
+                    if (i != (rangeStart + 1)) {
+                        IRO_Dump("-%d", (int)(i - 1));
+                    }
+                }
+            }
+        }
+        if (inRange && i != (rangeStart + 1)) {
+            IRO_Dump("-%d", (int)(i - 1));
+        }
+    }
+    IRO_Dump("\n");
+#else
     if (!IRO_Log) {
         return;
     }
@@ -469,6 +506,7 @@ void IRO_DumpBits(char* name, BitVector* bv) {
     }
 
     fprintf(DumpFile, "\n");
+#endif
 }
 
 #if MWCCPSP
@@ -481,6 +519,27 @@ void IRO_ResetDumpTicks(void) {
 }
 
 void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
+#if MWCCPS2
+    if (dumpGraph || copts.opt_alwaysdumpopts) {
+        IRO_Dump(
+            "Dumping function %s after %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+        IRO_Dump(
+            "--------------------------------------------------------------------------------\n"
+        );
+        IRO_DumpFlowgraph();
+    } else {
+        IRO_Dump(
+            "Optimizing function %s after %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+    }
+#else
     if (!dumpGraph && !copts.opt_alwaysdumpopts) {
         IRO_Dump(
             "Optimizing function %s after %s (tick %u)\n",
@@ -500,9 +559,31 @@ void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
         );
         IRO_DumpFlowgraph();
     }
+#endif
 }
 
 void IRO_DumpBeforePhase(char* str, Boolean dumpGraph) {
+#if MWCCPS2
+    if (dumpGraph || copts.opt_alwaysdumpopts) {
+        IRO_Dump(
+            "Dumping function %s before %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+        IRO_Dump(
+            "--------------------------------------------------------------------------------\n"
+        );
+        IRO_DumpFlowgraph();
+    } else {
+        IRO_Dump(
+            "Optimizing function %s before %s (tick %u)\n",
+            FunctionName ? FunctionName->name->name : "Init-code",
+            str,
+            COS_GetTicks() - IRO_DumpTicks
+        );
+    }
+#else
     if (!dumpGraph && !copts.opt_alwaysdumpopts) {
         IRO_Dump(
             "Optimizing function %s before %s (tick %u)\n",
@@ -522,6 +603,7 @@ void IRO_DumpBeforePhase(char* str, Boolean dumpGraph) {
         );
         IRO_DumpFlowgraph();
     }
+#endif
 }
 #else
 void IRO_DumpAfterPhase(char* str, Boolean dumpGraph) {
@@ -761,12 +843,30 @@ void IRO_DumpExprs(void) {
 void IRO_SetupDump(void) {
     char name[256];
     int i;
+#if MWCCPS2
+    int len;
+#endif
 
     if (IRO_Log) {
         if (IRO_GetLogFileNameHook) {
             IRO_GetLogFileNameHook(name, sizeof(name));
         } else {
             COS_FileGetPathName(name, &cparams.sourcefile, NULL);
+#if MWCCPS2
+            // 0x569A00: the scan starts at the terminator and the room left
+            // for ".log" comes from the length before the cut
+            len = strlen(name);
+            for (i = len; i >= 0; i--) {
+                if (name[i] == '/' || name[i] == '\\') {
+                    break;
+                }
+                if (name[i] == '.') {
+                    name[i] = 0;
+                    break;
+                }
+            }
+            strncat(name, ".log", 255 - len);
+#else
             for (i = strlen(name) - 1; i >= 0 && name[i] != '/' && name[i] != '\\'; i--) {
                 if (name[i] == '.') {
                     name[i] = 0;
@@ -774,6 +874,7 @@ void IRO_SetupDump(void) {
                 }
             }
             strncat(name, ".log", 255 - strlen(name));
+#endif
         }
         if ((DumpFile = fopen(name, "wt")) == NULL) {
             IRO_Log = FALSE;

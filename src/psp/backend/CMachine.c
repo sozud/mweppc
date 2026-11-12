@@ -19,6 +19,74 @@
 
 extern SInt32 data_00624FD4; // maximum alignment, if any
 
+#if MWCCPS2
+// b210: integral 17 (the 128-bit int) is aligned by size and has no float
+// special case; the case bodies follow b210's layout
+SInt16 CMach_GetTypeAlign(Type* type) {
+    SInt32 align;
+
+restart:
+    switch (type->type) {
+        case TYPEVOID:
+            return 4;
+        case TYPEFUNC:
+            return 0;
+        case TYPEENUM:
+            type = TYPE_ENUM(type)->enumtype;
+        case TYPEINT:
+            switch (TYPE_INTEGRAL(type)->integral) {
+                case IT_BOOL:
+                case IT_CHAR:
+                case IT_SCHAR:
+                case IT_UCHAR:
+                case IT_WCHAR_T:
+                case IT_SHORT:
+                case IT_USHORT:
+                case IT_INT:
+                case IT_UINT:
+                case IT_LONG:
+                case IT_ULONG:
+                case IT_LONGLONG:
+                case IT_ULONGLONG:
+                case 17:
+                case 18:
+                    align = type->size;
+                    break;
+                default:
+                    CError_Internal("CMachine.c", CError_B145_LINE(957));
+            }
+            break;
+        case TYPEFLOAT:
+            align = (type->size > 4) ? 8 : 4;
+            break;
+        case TYPEMEMBERPOINTER:
+        case TYPEPOINTER:
+            align = 4;
+            break;
+        case TYPEARRAY:
+            type = TYPE_POINTER(type)->target;
+            goto restart;
+        case TYPESTRUCT:
+            align = TYPE_STRUCT(type)->align;
+            break;
+        case TYPECLASS:
+            align = TYPE_CLASS(type)->align;
+            break;
+        case TYPEBITFIELD:
+            type = TYPE_BITFIELD(type)->bitfieldtype;
+            goto restart;
+        case TYPETEMPLATE:
+            return 1;
+        default:
+            CError_Internal("CMachine.c", CError_B145_LINE(997));
+            return 0;
+    }
+    if (data_00624FD4 && align > data_00624FD4) {
+        align = data_00624FD4;
+    }
+    return align;
+}
+#else
 SInt16 CMach_GetTypeAlign(Type* type) {
     SInt32 align;
 
@@ -48,7 +116,7 @@ restart:
                     align = type->size;
                     break;
                 default:
-                    CError_Internal("CMachine.c", 957);
+                    CError_Internal("CMachine.c", CError_B145_LINE(957));
             }
             break;
         case TYPEFLOAT:
@@ -80,7 +148,7 @@ restart:
             type = TYPE_POINTER(type)->target;
             goto restart;
         default:
-            CError_Internal("CMachine.c", 997);
+            CError_Internal("CMachine.c", CError_B145_LINE(997));
             return 0;
     }
     if (data_00624FD4 && align > data_00624FD4) {
@@ -88,6 +156,7 @@ restart:
     }
     return align;
 }
+#endif
 
 // The alignment an __attribute__((aligned)) qualifier asks for, or 0.
 int func_00466720(UInt32 qual) {
@@ -139,7 +208,7 @@ int func_00466720(UInt32 qual) {
             align = 0x2000;
             break;
         default:
-            CError_Internal("CMachine.c", 340);
+            CError_Internal("CMachine.c", CError_B145_LINE(340));
     }
     return align;
 }
@@ -156,7 +225,11 @@ SInt16 func_00464E20(Object* obj) {
     if (type->type == TYPESTRUCT || type->type == TYPECLASS || type->type == TYPEARRAY) {
         align = (align < 4) ? 4 : align;
     }
+#if MWCCPS2 // b210 tests copts+0x41 here too (see StructMoves.c)
+    if (type->size >= 16 && copts.mips_option41) {
+#else
     if (type->size >= 16 && copts.function_align16) {
+#endif
         align = (align <= 16) ? 16 : align;
     }
     if (type->size > 4) {
@@ -252,6 +325,8 @@ void CMach_StructLayoutInitOffset(SInt32 offset) {
     cmach_structstart = offset;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -4 // b145 asserts
 // 0x464F60: GCC-style bitfield layout. A field never straddles a boundary
 // of its declared type's size; a zero-width field aligns to it. Returns the
 // byte offset of the field's storage unit; tbitfield->offset gets the bit
@@ -346,6 +421,8 @@ SInt32 CMach_StructLayoutBitfield(TypeBitfield* tbitfield, UInt32 qual) {
     tbitfield->offset = off;
     return cmach_structstart + unit;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x464EE0: is a function result of this type returned through memory?
 // Aggregates and the 12-byte member function pointers are.
@@ -353,6 +430,12 @@ Boolean Type_RequiresMemoryReturn(Type* type) {
     if (IS_TYPE_CLASS(type) && !CClass_IsPODClass(TYPE_CLASS(type))) {
         return TRUE;
     }
+#if MWCCPS2
+    // b210 tests a 4-byte member pointer that is not 4 bytes (never true)
+    if (IS_TYPE_MEMBERPOINTER(type) && type->size == 4 && type->size != 4) {
+        return TRUE;
+    }
+#endif
     if (type &&
         (IS_TYPE_ARRAY(type) ||
          IS_TYPE_STRUCT(type) ||
@@ -379,7 +462,11 @@ int CMach_GetStructAlign(TypeStruct* tstruct) {
     StructMember* member;
 
     best = 1;
+#if COPTS_B210_FIELDS
     if ((tstruct->size <= 1 && copts.mwabi_bitfields) || tstruct->size < 1) {
+#else
+    if (tstruct->size <= 1) { // b145: no #pragma mwabi_bitfields
+#endif
         return 1;
     }
     for (member = tstruct->members; member; member = member->next) {
@@ -991,6 +1078,26 @@ extern char volatileasm; // 0x625E8E (inline asm)
 // 0x464D50 / 0x464CE0: an inline function's back-end options are a
 // snapshot of the first 0x144 bytes of copts plus volatileasm; restoring
 // puts back the first 0x140 bytes and volatileasm
+#if MWCCPS2
+// b210 saves all of copts (0x14C bytes); restoring keeps the current
+// oldprefixname and cursegmentname (pointers)
+void CMach_GetBackEndOptions(struct CInlineBackendOptions* options) {
+    *(CompilerLinkerOptions*)options->copts = copts;
+    options->volatileasm = volatileasm;
+}
+
+void CMach_SetBackEndOptions(struct CInlineBackendOptions* options) {
+    StringPtr oldprefixname;
+    struct HashNameNode* cursegmentname;
+
+    oldprefixname = copts.oldprefixname;
+    cursegmentname = copts.cursegmentname;
+    copts = *(CompilerLinkerOptions*)options->copts;
+    volatileasm = options->volatileasm;
+    copts.oldprefixname = oldprefixname;
+    copts.cursegmentname = cursegmentname;
+}
+#else
 void CMach_GetBackEndOptions(struct CInlineBackendOptions* options) {
     int i;
 
@@ -1015,6 +1122,24 @@ void CMach_SetBackEndOptions(struct CInlineBackendOptions* options) {
     }
     volatileasm = options->volatileasm;
 }
+#endif
+
+#if MWCCPS2
+// b210 0x470290: no custom integer conversions (the value as is)
+CInt64 CMach_CustomIntConvert(Type* type, Type* oldtype, CInt64 value) {
+    return value;
+}
+
+// b210 0x4702C0: the custom type token names the 16-byte integer type
+extern TypeIntegral ps2_int128_5E5EF4; // 0x5E5EF4: {TYPEINT, 16, 0x12}
+Type* CMach_GetCustomType(short token, short size, short signedness) {
+    if (token == TK_CUSTOM_TYPE_114) {
+        return TYPE(&ps2_int128_5E5EF4);
+    }
+    CError_Error(ERR_ILLEGAL_TYPE);
+    return TYPE(&stsignedint);
+}
+#endif
 
 extern SInt32 data_00624788; // word size (InstrSelection.c)
 extern Boolean CClass_ReferenceArgument(TypeClass* tclass);
@@ -1073,6 +1198,12 @@ Type* func_00464B40(Type* type) {
     StructMember* member;
     Type* t;
 
+#if MWCCPS2
+    // b210 (0x46FFC0): only with 64-bit longs (copts+0x15)
+    if (!copts.mips_long64) {
+        return NULL;
+    }
+#endif
     if (type->type == TYPESTRUCT) {
         member = TYPE_STRUCT(type)->members;
         if (!member) {
@@ -1102,16 +1233,57 @@ Type* func_00464B40(Type* type) {
 
 // 0x464C90: aggregates larger than a word are passed by address
 Boolean CMach_PassResultInHiddenArg(Type* type) {
+#if MWCCPS2
+    if (copts.mips_long64 &&
+        type &&
+        (type->type == TYPEARRAY ||
+         type->type == TYPESTRUCT ||
+         type->type == TYPECLASS ||
+         (type->type == TYPEMEMBERPOINTER && type->size == 12)) &&
+        type->size > data_00624788) {
+        return TRUE;
+    }
+#else
     if (type &&
         (type->type == TYPEARRAY ||
          type->type == TYPESTRUCT ||
          type->type == TYPECLASS ||
          (type->type == TYPEMEMBERPOINTER && type->size == 12)) &&
-        data_00624788 < type->size) {
+        type->size > data_00624788) {
         return TRUE;
     }
+#endif
     if (type->type == TYPECLASS && CClass_ReferenceArgument(TYPE_CLASS(type))) {
         return TRUE;
     }
     return FALSE;
+}
+
+#if !MWCCPS2 // b210: above (0x470290, 0x4702C0)
+// 0x464DB0: no custom integer types to convert
+CInt64 CMach_CustomIntConvert(Type* type, Type* oldtype, CInt64 value) {
+    return value;
+}
+
+// 0x464DC0: the only custom type is __int128
+Type* CMach_GetCustomType(short token, short size, short signedness) {
+    if (token == 0x114) {
+        return TYPE(&stint128);
+    }
+    CError_Error(ERR_ILLEGAL_TYPE);
+    return TYPE(&stsignedint);
+}
+#endif
+
+#include "compiler/CPrep.h"
+#include "compiler/CPrepTokenizer.h"
+
+// 0x465510: #pragma parameter is not supported: skip the line
+void CMach_PragmaParams(void) {
+    if (copts.warn_illpragma) {
+        CPrep_Warning(ERR_ILLEGAL_PRAGMA);
+    }
+    while (notendofline()) {
+        lex();
+    }
 }

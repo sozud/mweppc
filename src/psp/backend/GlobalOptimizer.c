@@ -8,22 +8,38 @@
 #include "psp/BE.h"
 
 extern void gather_alias_info(void); // 0x481370
-extern void func_004AFFF0(char* name, char* title); // pcode listing
+extern void BE_DumpPCode(char* name, char* title); // pcode listing (empty in release)
 extern void func_004AFBE0(Object* func); // peephole
 void func_004AFA00(Object* func, Boolean all); // below
 extern void func_004B11D0(int unk); // removecommonsubexpressions
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+// b145's removecommonsubexpressions takes no argument
+#define CSE_PASS(arg) ((void (*)(void))func_004B11D0)()
+#else
+#define CSE_PASS(arg) func_004B11D0(arg)
+#endif
 extern void func_00545080(Object* func, int unk); // propagatecopyinstructions
 extern void func_0053C140(int unk);
 extern int func_00545DA0(void); // memory store/load optimization
 extern void func_0053BF00(int unk);
 extern void func_004B35D0(Object* func);
 extern void func_004B3650(void);
+#if MWCCPS2
+extern void pipeline1(Object* func); // b210: R5900 pipeline pass (pipeline1.c, 0x556230)
+#define PIPELINE1(func, name) \
+    do { \
+        pipeline1(func); \
+        LISTING(name, "After pipeline1"); \
+    } while (0)
+#else
+#define PIPELINE1(func, name)
+#endif
 extern SInt32 data_00624BA0;
 
 #define LISTING(name, title) \
     do { \
         if (copts.debuglisting) { \
-            func_004AFFF0((name), (title)); \
+            BE_DumpPCode((name), (title)); \
         } \
     } while (0)
 
@@ -32,12 +48,21 @@ static void GlobalOptimize4(Object* func) {
     char* name;
 
     name = CMangler_GetLinkName(func)->name;
+#if MWCCPS2
+    if (copts.commonsubs) {
+        CSE_PASS(0);
+        LISTING(name, "After removecommonsubexpressions");
+    } else {
+        gather_alias_info();
+    }
+#else
     if (!copts.commonsubs) {
         gather_alias_info();
     } else {
-        func_004B11D0(0);
+        CSE_PASS(0);
         LISTING(name, "After removecommonsubexpressions");
     }
+#endif
     func_00545080(func, 0);
     LISTING(name, "After propagatecopyinstructions");
     if (copts.peephole) {
@@ -45,6 +70,7 @@ static void GlobalOptimize4(Object* func) {
         func_004AFBE0(func);
         LISTING(name, "After peephole");
     }
+    PIPELINE1(func, name);
     func_0053C140(1);
     if (func_00545DA0()) {
         LISTING(name, "AFTER MEMORY STORE-LOAD OPTIMIZATION");
@@ -61,12 +87,21 @@ static void GlobalOptimize3(Object* func) {
     char* name;
 
     name = CMangler_GetLinkName(func)->name;
+#if MWCCPS2
+    if (copts.commonsubs) {
+        CSE_PASS(0);
+        LISTING(name, "After removecommonsubexpressions");
+    } else {
+        gather_alias_info();
+    }
+#else
     if (!copts.commonsubs) {
         gather_alias_info();
     } else {
-        func_004B11D0(0);
+        CSE_PASS(0);
         LISTING(name, "After removecommonsubexpressions");
     }
+#endif
     func_00545080(func, 0);
     LISTING(name, "After propagatecopyinstructions");
     if (copts.peephole) {
@@ -74,6 +109,7 @@ static void GlobalOptimize3(Object* func) {
         func_004AFBE0(func);
         LISTING(name, "After peephole");
     }
+    PIPELINE1(func, name);
     func_004B35D0(func);
     func_004B3650();
 }
@@ -83,22 +119,43 @@ static void GlobalOptimize2(Object* func) {
     char* name;
 
     name = CMangler_GetLinkName(func)->name;
+#if MWCCPS2
+    if (copts.commonsubs) {
+        CSE_PASS(0);
+        LISTING(name, "After removecommonsubexpressions");
+    } else {
+        gather_alias_info();
+    }
+#else
     if (!copts.commonsubs) {
         gather_alias_info();
     } else {
-        func_004B11D0(0);
+        CSE_PASS(0);
         LISTING(name, "After removecommonsubexpressions");
     }
+#endif
     func_00545080(func, 0);
     LISTING(name, "After propagatecopyinstructions");
     if (copts.peephole) {
         func_004AFBE0(func);
         LISTING(name, "After peephole");
     }
+    PIPELINE1(func, name);
 }
 
 // 0x4AF700
 void func_004AF700(Object* func) {
+#if MWCCPS2
+    char* name;
+
+    if (copts.optimizationlevel == 1) {
+        name = CMangler_GetLinkName(func)->name;
+        if (copts.peephole) {
+            gather_alias_info();
+            func_004AFBE0(func);
+            LISTING(name, "After peephole");
+        }
+#else
     HashNameNode* name;
 
     if (copts.optimizationlevel == 1) {
@@ -108,6 +165,7 @@ void func_004AF700(Object* func) {
             func_004AFBE0(func);
             LISTING(name->name, "After peephole");
         }
+#endif
     } else if (copts.optimizationlevel == 2 || (data_00624BA0 && copts.optimizationlevel > 2)) {
         GlobalOptimize2(func);
     } else if (copts.optimizationlevel == 3) {

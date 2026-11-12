@@ -92,9 +92,12 @@ int LoadAndCacheFile(OSSpec* spec, OSHandle** texthandle, Boolean* precomp) {
 }
 
 void CopyFileText(OSHandle* src, char** text, SInt32* textsize) {
+    void* data;
+
     OS_GetHandleSize(src, (UInt32*)textsize);
     *text = xmalloc(NULL, *textsize);
-    memcpy(*text, OS_LockHandle(src), *textsize);
+    data = OS_LockHandle(src);
+    memcpy(*text, data, *textsize);
     *textsize -= 1;
     OS_UnlockHandle(src);
 }

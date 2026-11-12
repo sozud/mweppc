@@ -122,7 +122,14 @@ static Boolean CheckChain(CLabel** labelptr) {
                 }
             }
 
+#if MWCCPS2
+            // b210 leaves a loop's closing goto alone
+            if (linear->type == IROLinearGoto &&
+                !(linear->flags & IROLF_EndLoop) &&
+                *labelptr != linear->u.label.label) {
+#else
             if (linear->type == IROLinearGoto && *labelptr != linear->u.label.label) {
+#endif
                 *labelptr = linear->u.label.label;
                 IRO_Dump("Chaining goto at %d\n", linear->index);
                 return TRUE;
@@ -154,6 +161,11 @@ Boolean IRO_DoJumpChaining(void) {
                 linear = node->last;
                 switch (linear->type) {
                     case IROLinearGoto:
+#if MWCCPS2
+                        if (linear->flags & IROLF_EndLoop) {
+                            break;
+                        }
+#endif
                         if (CheckChain(&linear->u.label.label)) {
                             changed = TRUE;
                         }
@@ -184,6 +196,12 @@ Boolean IRO_DoJumpChaining(void) {
         IRO_CheckForUserBreak();
     } while (changed);
 
+#if MWCCPS2
+    if (result) {
+        IRO_ComputeSuccPred();
+        IRO_ComputeDom();
+    }
+#endif
     return result;
 }
 

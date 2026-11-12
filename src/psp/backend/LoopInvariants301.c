@@ -18,7 +18,16 @@ extern void func_004C34A0(void); // liveness
 SInt32* data_005F3D8C[7]; // definitions in the loop, per class and register
 SInt32* data_005F3D70[7]; // uses in the loop, per class and register
 
+#if MWCCPS2 // b210 counts the operands down with a post-decrement test
+#define FOR_ARGS(n, op, pc) for (n = (pc)->argcount, op = (pc)->args; n--; op++)
+#else
+#define FOR_ARGS(n, op, pc) for (n = (pc)->argcount, op = (pc)->args; n; n--, op++)
+#endif
+
 // 0x4B34F0: counts the loop's definitions and uses of every register.
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (0x4BE1F0)
+#endif
 static void countregs(Loop301* loop) {
     char rclass;
     int i;
@@ -35,7 +44,7 @@ static void countregs(Loop301* loop) {
     }
     for (bl = loop->blocks; bl; bl = bl->next) {
         for (pc = bl->block->first; pc; pc = pc->next) {
-            for (n = pc->argcount, op = pc->args; n; n--, op++) {
+            FOR_ARGS(n, op, pc) {
                 if (op->kind == 0) {
                     if (op->flags & 2) {
                         data_005F3D8C[op->rclass][op->reg]++;
@@ -86,6 +95,9 @@ static int canmove(MPCode* pc, Loop301* loop) {
 }
 
 // 0x4B32C0: moves pc to the end of the preheader (before its branch).
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (0x4BDFC0)
+#endif
 static void movetopreheader(MPCode* pc, Loop301* loop) {
     MPCodeBlock* pre;
     MOperand* op;
@@ -98,7 +110,7 @@ static void movetopreheader(MPCode* pc, Loop301* loop) {
     } else {
         appendpcode(pre, pc);
     }
-    for (n = pc->argcount, op = pc->args; n; n--, op++) {
+    FOR_ARGS(n, op, pc) {
         if (op->kind == 0) {
             if (op->flags & 2) {
                 data_005F3D8C[op->rclass][op->reg]--;
@@ -108,7 +120,7 @@ static void movetopreheader(MPCode* pc, Loop301* loop) {
             }
         }
     }
-    for (n = pc->argcount, op = pc->args; n; n--, op++) {
+    FOR_ARGS(n, op, pc) {
         if (op->kind == 0) {
             if ((op->flags & 2) && data_005F3D70[op->rclass][op->reg] > 0) {
                 loop->pressure[op->rclass]++;
@@ -155,7 +167,7 @@ static void moveinvariants(Loop301* loop) {
             for (pc = bl->block->first; pc; pc = next) {
                 next = pc->next;
                 invariant = 1;
-                for (n = pc->argcount, op = pc->args; n; n--, op++) {
+                FOR_ARGS(n, op, pc) {
                     if (op->kind == 0 &&
                         (op->flags & 1) &&
                         data_005F3D8C[op->rclass][op->reg] > 0) {

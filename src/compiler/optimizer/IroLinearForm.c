@@ -114,6 +114,21 @@ static void MarkAssigned(IROLinear* linear, Boolean isModify) {
                 }
             }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            // b145 decomposes into an allocated address record
+            {
+                IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));
+                func_005513A0(rec, inner);
+                func_005510D0(inner, rec, IRO_Alloc);
+                if (rec->numObjRefs == 1) {
+                    ((IROLinear*)rec->objRefs->element)->flags |= IROLF_Assigned;
+                    if (isModify) {
+                        linear->flags |= IROLF_Used;
+                        ((IROLinear*)rec->objRefs->element)->flags |= IROLF_Used;
+                    }
+                }
+            }
+#else
             IRO_FindAddressObjRefs(inner, &objref, &numObjRefs, &numOther);
             if (numObjRefs == 1) {
                 objref->flags |= IROLF_Assigned;
@@ -122,6 +137,7 @@ static void MarkAssigned(IROLinear* linear, Boolean isModify) {
                     objref->flags |= IROLF_Used;
                 }
             }
+#endif
         }
     }
 
@@ -151,6 +167,21 @@ static void MarkAssigned(IROLinear* linear, Boolean isModify) {
                 }
             }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            // b145 decomposes into an allocated address record
+            {
+                IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));
+                func_005513A0(rec, inner);
+                func_005510D0(inner, rec, IRO_Alloc);
+                if (rec->numObjRefs == 1) {
+                    ((IROLinear*)rec->objRefs->element)->flags |= IROLF_Assigned;
+                    if (isModify) {
+                        linear->flags |= IROLF_Used;
+                        ((IROLinear*)rec->objRefs->element)->flags |= IROLF_Used;
+                    }
+                }
+            }
+#else
             IRO_FindAddressObjRefs(inner, &objref, &numObjRefs, &numOther);
             if (numObjRefs == 1) {
                 objref->flags |= IROLF_Assigned;
@@ -159,6 +190,7 @@ static void MarkAssigned(IROLinear* linear, Boolean isModify) {
                     objref->flags |= IROLF_Used;
                 }
             }
+#endif
         }
     }
 }
@@ -385,6 +417,8 @@ static void MarkArgs(IROLinear* linear) {
 #endif
 
 #if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 12 // b145 asserts (inlined into MarkAllSubExprs)
 static inline void MarkSubExpr(IROLinear* linear) {
     int i;
 
@@ -439,6 +473,8 @@ static inline void MarkSubExpr(IROLinear* linear) {
             CError_FATAL(396);
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static inline void MarkSubExpr(IROLinear* linear) {
     int i;
@@ -511,10 +547,22 @@ static void MarkSubs1(IROLinear* linear) {
             linear->u.diadic.left->flags |= IROLF_Ind;
         }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+        // b145 decomposes into an allocated address record
+        {
+            IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));
+            func_005513A0(rec, linear);
+            func_005510D0(linear, rec, IRO_Alloc);
+            if (rec->numObjRefs == 1) {
+                ((IROLinear*)rec->objRefs->element)->flags |= IROLF_Ind;
+            }
+        }
+#else
         IRO_FindAddressObjRefs(linear, &objref, &numObjRefs, &numOther);
         if (numObjRefs == 1) {
             objref->flags |= IROLF_Ind;
         }
+#endif
     }
 }
 #else
@@ -1325,6 +1373,8 @@ static ENode* NewObjRef(Object* obj, Type* rtype) {
     return ind;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void AssignCommaRToTemp(ENode* enode, Boolean discardResult) {
     Statement* stmt;
     Object* obj;
@@ -1354,7 +1404,11 @@ static void AssignCommaRToTemp(ENode* enode, Boolean discardResult) {
         CError_ASSERT(598, !IS_TYPE_VOID(enode->rtype));
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void AssignDangerousArgumentToTemp(ENode* enode) {
     Statement* stmt;
     Object* obj;
@@ -1379,7 +1433,11 @@ static void AssignDangerousArgumentToTemp(ENode* enode) {
     enode->type = EINDIRECT;
     enode->data.monadic = create_objectrefnode(obj);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void TransformLogicalOrRHS(ENode* enode, Object** objptr, CLabel** labelptr) {
     Statement* stmt;
     ENode* ind;
@@ -1412,7 +1470,11 @@ static void TransformLogicalOrRHS(ENode* enode, Object** objptr, CLabel** labelp
     enode->data.monadic = create_objectrefnode(*objptr);
     CError_ASSERT(1165, !IS_TYPE_VOID(enode->rtype));
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void TransformLogicalAndRHS(ENode* enode, Object** objptr, CLabel** labelptr) {
     Statement* stmt;
     ENode* ind;
@@ -1445,7 +1507,11 @@ static void TransformLogicalAndRHS(ENode* enode, Object** objptr, CLabel** label
     enode->data.monadic = create_objectrefnode(*objptr);
     CError_ASSERT(1089, !IS_TYPE_VOID(enode->rtype));
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void GenerateForceLoadTempAssignment(ENode* enode, Object** objptr) {
     Statement* stmt;
     ENode* ind;
@@ -1470,7 +1536,11 @@ static void GenerateForceLoadTempAssignment(ENode* enode, Object** objptr) {
     }
     LinkStatement(stmt);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void GenerateExpr2TempAssignment(ENode* enode, Object** objptr) {
     Statement* stmt;
     ENode* ind;
@@ -1497,7 +1567,11 @@ static void GenerateExpr2TempAssignment(ENode* enode, Object** objptr) {
     }
     LinkStatement(stmt);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void GenerateExpr1TempAssignment(ENode* enode, Object** objptr) {
     Statement* stmt;
     ENode* ind;
@@ -1522,6 +1596,8 @@ static void GenerateExpr1TempAssignment(ENode* enode, Object** objptr) {
     }
     LinkStatement(stmt);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // the type a null check's temporary has: the check's own, or for a void
 // check the checked expression's
@@ -1597,6 +1673,8 @@ static void GenerateNullcheckCondExpr(ENode* enode, Object** objptr) {
     LinkStatement(stmt);
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void LinearizeExpr1(
     ENode* expr, ENode* parent, Boolean discardResult, Boolean checkArgument
 ) {
@@ -1895,6 +1973,8 @@ static void LinearizeExpr1(
         AssignDangerousArgumentToTemp(expr);
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static void LinearizeExpr1(ENode* expr, ENode* parent, Boolean discardResult, Boolean unused) {
     switch (expr->type) {
@@ -2102,12 +2182,41 @@ static void LinearizeExpr1(ENode* expr, ENode* parent, Boolean discardResult, Bo
 // scope markers survive only when nothing optimizes, and every node is shown
 // to IRO_Hook15 while data_00625ECA is set.
 extern void RearrangeMultipleSubscripts(ENode* enode);
-extern Boolean IRO_AllOptimizationsOff(void);
-extern Boolean IRO_IsSinCall(IROLinear* linear);
-extern Boolean IRO_IsCosCall(IROLinear* linear);
+
+// 0x5647A0: whether no optimization is enabled
+Boolean IRO_AllOptimizationsOff(void) {
+    return !copts.multiplepasses &&
+        !copts.opt_rotateloops &&
+        !copts.opt_optimizenonregaccess &&
+        !copts.opt_removeemptyloops &&
+        !copts.loopinvariants &&
+        !copts.strengthreduction &&
+        !copts.lifetimes &&
+        !copts.unrolling &&
+        !copts.opt_reverseloops &&
+        !copts.vectorizeloops &&
+        !copts.deadstore &&
+        !copts.commonsubs &&
+        !copts.opt_collapselogicalselectionintobittest &&
+        !copts.propagation &&
+        !copts.deadcode &&
+        !copts.opt_scalarize &&
+        !copts.opt_treetransformation &&
+        !copts.opt_arithtransformation &&
+        !copts.opt_rebuildconditionals &&
+        !copts.opt_rebuildlogicals &&
+        !copts.opt_foldconstants &&
+        !copts.opt_optimizecontrolflow &&
+        !copts.opt_markcounterloops &&
+        !copts.opt_marknonregtemps;
+}
+extern Boolean IRO_IsSinCall(IROLinear* linear, IROLinear** arg);
+extern Boolean IRO_IsCosCall(IROLinear* linear, IROLinear** arg);
 extern Boolean IRO_HasModulo;
 extern Boolean data_00625ECA;
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static IROLinear* LinearizeExpr(ENode* enode) {
     IROLinear* linear;
     Boolean isAssign;
@@ -2280,9 +2389,9 @@ diadic:
             linear->u.funccall.callee = LinearizeExpr(enode->data.funccall.funcref);
             linear->u.funccall.functype = enode->data.funccall.functype;
             linear->rtype = IRO_UnqualifiedType(enode->rtype);
-            if (IRO_Hook19 && IRO_IsSinCall(linear)) {
+            if (IRO_Hook19 && IRO_IsSinCall(linear, NULL)) {
                 IRO_HasSinCall = TRUE;
-            } else if (IRO_Hook19 && IRO_IsCosCall(linear)) {
+            } else if (IRO_Hook19 && IRO_IsCosCall(linear, NULL)) {
                 IRO_HasCosCall = TRUE;
             }
             break;
@@ -2312,6 +2421,8 @@ diadic:
     }
     return linear;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static IROLinear* LinearizeExpr(ENode* enode) {
     IROLinear* linear = NULL;
@@ -2480,6 +2591,8 @@ static IROLinear* LinearizeExpr(ENode* enode) {
 // 3.0.1 returns the (possibly new) first statement: code the pre-pass
 // inserts in front of the first statement becomes the head. It also
 // handles ST_GOTOEXPR and turns on IRO_Hook15's node check (data_00625ECA).
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 Statement* IRO_PreLinearize301(Statement* first) {
     Statement* stmt;
 
@@ -2547,6 +2660,8 @@ Statement* IRO_PreLinearize301(Statement* first) {
     IRO_CheckForUserBreak();
     return FirstStmt;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 void IRO_PreLinearize(Statement* stmt) {
     IRO_FirstLinear = IRO_LastLinear = NULL;
@@ -2757,6 +2872,8 @@ static IROLinear* CopyCatchObject(CatchObjectCopy* copy) {
     return ass;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 void IRO_Linearize(Statement* stmt) {
     IROLinear* linear;
     CatchObjectCopy* copy;
@@ -2878,6 +2995,8 @@ void IRO_Linearize(Statement* stmt) {
     MarkAllSubExprs(IRO_FirstLinear);
     IRO_CheckForUserBreak();
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 void IRO_Linearize(Statement* stmt) {
     IROLinear* linear;
@@ -3022,6 +3141,8 @@ ENode* IRO_NewENode(ENodeType nodetype) {
 // argument-order hook are marked (ENODE_FLAG 0x20).
 extern IROLinear* IRO_MakeTypeConversion(IROLinear* linear, Type* type, IROList* list);
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static ENode* BuildExpr(IROLinear* linear) {
     ENode* enode;
     CatchObjectCopy* copy;
@@ -3154,6 +3275,8 @@ static ENode* BuildExpr(IROLinear* linear) {
     enode->pointsTo = linear->pointsToFunction;
     return enode;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static ENode* BuildExpr(IROLinear* linear) {
     ENode* enode;
@@ -3294,6 +3417,8 @@ static Statement* NewDelinStatement(IROLinear* linear, int type) {
     return stmt;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 Statement* IRO_Delinearize(IRONode* node, IROLinear* linear) {
     IROLinear* scanlin;
     IROLinear* endlin;
@@ -3523,6 +3648,8 @@ gotos:
     }
     return firstStmt;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 Statement* IRO_Delinearize(IRONode* node, IROLinear* linear) {
     IROLinear* scanlin;
@@ -3662,6 +3789,8 @@ void IRO_RenumberInts(void) {
 }
 
 #if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 static void TravExprToUpdateFlags(IROLinear* linear) {
     int i;
 
@@ -3710,6 +3839,8 @@ static void TravExprToUpdateFlags(IROLinear* linear) {
             CError_FATAL(3114);
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 static void TravExprToUpdateFlags(IROLinear* linear) {
     int i;
@@ -3762,6 +3893,8 @@ static void TravExprToUpdateFlags(IROLinear* linear) {
 #endif
 
 #if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 void IRO_UpdateFlagsOnInts(IROLinear* first) {
     IROLinear* linear;
 
@@ -3816,6 +3949,8 @@ void IRO_UpdateFlagsOnInts(IROLinear* first) {
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 #else
 void IRO_UpdateFlagsOnInts(void) {
     IROLinear* linear;

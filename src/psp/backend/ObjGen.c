@@ -35,7 +35,7 @@ typedef struct PooledFloat {
 
 extern SInt32 data_00625388;
 extern SInt32 data_006241D4;
-extern SInt32 data_006245BC;
+extern HashNameNode* data_006245BC; // the source file being compiled (DWARF)
 extern void* data_00624724;
 extern PooledFloat* data_00625970; // float constants to emit at the end
 extern SInt32 data_00625094;
@@ -87,22 +87,19 @@ extern SInt32 data_0062549C; // exceptix
 extern SInt32 data_00624BC4; // picrelo
 extern SInt32 data_00624D8C; // pidrelo
 extern SInt32 data_00625880; // scratchpad
+#if MWCCPS2
+extern SInt32 ps2_vutext_636838; // b210: VU microcode sections
+extern SInt32 ps2_vudata_636D54;
+#endif
 extern SInt32 data_00625310; // sections defined + 1
 
 // The instruction list of the function being emitted. Its records are not
 // rebuilt yet; these are the fields ObjGen reads.
 // the function's blocks: data_00624FD0 (BE.h)
 
-typedef struct ObjDataReloc {
-    struct ObjDataReloc* next;
-    Object* target;
-    SInt32 offset;
-    SInt32 addend;
-} ObjDataReloc;
-
 extern SInt32 data_00624DF4; // minimum function alignment
 extern void func_00531D90(Object* obj, Boolean global, ELFSymbol* sym, SInt32 size); // debug info
-extern ELFSection* func_005302C0(SInt32 index); // section by index
+extern ELFSection* func_005302C0(UInt16 index); // section by index
 extern SInt16 func_00464E20(Object* obj); // alignment of an object
 extern void func_00531C10(Object* obj, Boolean global, ELFSymbol* sym, SInt32 size); // debug info
 #define CODENODE_INSTR(n) (*(char**)&((MPCodeBlock*)(n))->last) // +0x18
@@ -159,7 +156,11 @@ void ObjGen_Setup(void) {
     } else if (copts.mips_isa >= 2) {
         flags |= 0x10000000; // EF_MIPS_ARCH_2
     }
+#if MWCCPS2
+    ELF_Init(8, flags | 0x924000, copts.littleendian ? 1 : 2); // EM_MIPS, R5900 machine flags
+#else
     ELF_Init(8, flags | 0x970000, copts.littleendian ? 1 : 2); // EM_MIPS
+#endif
     ELF_AddString(ELF_NewSection(".comment", SHT_PROGBITS, 0), "MW MIPS C Compiler (3.0.0)");
     if (copts.mips_option132 == 1) {
         func_00531A60();
@@ -192,12 +193,19 @@ ELFSymbol* ObjGen_GetELFSymbol(Object* obj) {
     return entry->sym;
 }
 
+#if MWCCPS2
+extern SInt32 ps2_objgen_636288; // mwccps2-only state, cleared with the rest
+#endif
+
 void ObjGen_Cleanup(void) {
     FreeGList(&data_005EAF88);
     func_00530360();
     IRO_Cleanup();
     func_004A16D0();
     func_004B0000();
+#if MWCCPS2
+    ps2_objgen_636288 = 0;
+#endif
 }
 
 void ObjGen_Finish(void) {
@@ -301,6 +309,25 @@ void ObjGen_GetObjectAddress(Object* obj, ObjAddress* addr) {
         addr->near = 0;
         return;
     }
+#if MWCCPS2
+    // b210 (0x46EE20): a global bound to a register (its register-variable
+    // record at +0x3C: class at +0x2E, register at +0x32) has no address
+    if (obj->datatype == DDATA) {
+#if MWCCPSP_NATIVE
+        char* rv = (char*)obj->u.data.info;
+#else
+        char* rv = *(char**)((char*)obj + 0x3C);
+#endif
+        if (rv &&
+            (*(SInt16*)PS2_VARINFO_AT(rv, 0x32) ||
+             *PS2_VARINFO_AT(rv, 0x2E) == 5 ||
+             (*PS2_VARINFO_AT(rv, 0x2F) && !*PS2_VARINFO_AT(rv, 0x2E)))) {
+            addr->basereg = -1;
+            addr->near = 0;
+            return;
+        }
+    }
+#endif
     if (obj->datatype == DLOCAL) {
         addr->basereg = data_00625E3E;
         addr->near = 0;
@@ -382,6 +409,10 @@ void ObjGen_InitSections(void) {
     }
     data_00625880 =
         ObjGen_DefineSection("scratchpad", ".spad_data", ".spad_bss", "far_absolute", "RW");
+#if MWCCPS2
+    ps2_vutext_636838 = ObjGen_DefineSection("vutext", ".vutext", NULL, "far_absolute", "RX");
+    ps2_vudata_636D54 = ObjGen_DefineSection("vudata", ".vudata", ".vubss", "far_absolute", "RW");
+#endif
 }
 
 SInt32 ObjGen_DefineSection(
@@ -389,8 +420,14 @@ SInt32 ObjGen_DefineSection(
 ) {
     UInt8 mode;
     UInt32 flags;
+#if MWCCPS2
+    ObjSectionInfo* info;
+    SInt32 i;
+    ObjSectionInfo* scan;
+#else
     SInt32 i;
     ObjSectionInfo* info;
+#endif
 
     if (!addressing) {
         addressing = "standard";
@@ -433,6 +470,19 @@ SInt32 ObjGen_DefineSection(
         flags += 0x80000000;
     }
 
+#if MWCCPS2
+    i = 1;
+    if (data_00625310 > 1) {
+        scan = &data_005ECF98[1];
+        do {
+            if (!strcmp(name, scan->name)) {
+                break;
+            }
+            i++;
+            scan++;
+        } while (i < data_00625310);
+    }
+#else
     i = 1;
     if (data_00625310 > 1) {
         for (; i < data_00625310; i++) {
@@ -441,6 +491,7 @@ SInt32 ObjGen_DefineSection(
             }
         }
     }
+#endif
     if (i == data_00625310) {
         if (data_00625310 == 0x40) {
             return 0;
@@ -786,9 +837,15 @@ void ObjGen_EmitCode(Object* obj, void* code, SInt32 size, ObjCodeReloc* relocs)
         elfsection->shdr.sh_flags |= 0x20000000;
     }
 
+#if MWCCPS2 // b210 (0x46E460) tests copts+0x41, as in CMachine.c and StructMoves.c
+    if ((copts.mips_option41 ? 16 : 4) > data_00624DF4) {
+        align = copts.mips_option41 ? 16 : 4;
+    } else {
+#else
     if ((copts.function_align16 ? 16 : 4) > data_00624DF4) {
         align = copts.function_align16 ? 16 : 4;
     } else {
+#endif
         align = data_00624DF4;
     }
     savedsize = size;
@@ -908,10 +965,8 @@ SInt32 func_00464210(char* name) {
 
     if (name[0] == '.') {
         for (i = 1; i < data_00625310; i++) {
-            if (data_005ECF98[i].sect.name && !strcmp(name, data_005ECF98[i].sect.name)) {
-                return i;
-            }
-            if (data_005ECF98[i].bss.name && !strcmp(name, data_005ECF98[i].bss.name)) {
+            if ((data_005ECF98[i].sect.name && !strcmp(name, data_005ECF98[i].sect.name)) ||
+                (data_005ECF98[i].bss.name && !strcmp(name, data_005ECF98[i].bss.name))) {
                 return i;
             }
         }
@@ -943,6 +998,7 @@ int func_004642D0(HashNameNode* attr, Type* type, DeclInfo* declinfo) {
             return 1;
         }
 
+#if !MWCCPS2 // b210 (0x46F880) has neither
         // PSP library stubs and the module info get a section of their own
         if ((!strncmp(tkstring, ".psp_lib_mark_", 14) ||
              !strncmp(tkstring, ".psp_lib_markimport_", 20)) &&
@@ -957,11 +1013,24 @@ int func_004642D0(HashNameNode* attr, Type* type, DeclInfo* declinfo) {
             CError_Error(0x103);
             return 1;
         }
+#endif
 
+#if MWCCPS2
+        // b210: an unknown section leaves declinfo->section as it was
+        {
+            SInt32 sect;
+            if (!(sect = func_00464210(tkstring))) {
+                CError_Error(0x4D);
+                return 1;
+            }
+            declinfo->section = sect;
+        }
+#else
         if (!(declinfo->section = func_00464210(tkstring))) {
             CError_Error(0x4D);
             return 1;
         }
+#endif
         if ((tk = lex()) != ')') {
             CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
         }
@@ -1039,9 +1108,11 @@ int func_004642D0(HashNameNode* attr, Type* type, DeclInfo* declinfo) {
         declinfo->qual |= Q_WEAK;
         return 1;
     }
+#if !MWCCPS2
     if (!strcmp(attr->name, "gp_safe") || !strcmp(attr->name, "__gp_safe__")) {
         return 1;
     }
+#endif
     if (!strcmp(attr->name, "internal") || !strcmp(attr->name, "__internal__")) {
         declinfo->exportflags |= 0x10;
         return 1;
@@ -1171,4 +1242,21 @@ void func_004624F0(Object* func, SInt32 codesize, void* data, SInt32 datasize, O
 }
 
 // 0x462300
+// 0x4622E0: #pragma segment has no effect
+void ObjGen_SegmentName(HashNameNode* name) {}
+
+// 0x4622F0: the source file the following code comes from
+void ObjGen_SrcBreakName(HashNameNode* name, unsigned long long fileModDate, Boolean unused) {
+    data_006245BC = name;
+}
+
 void ObjGen_SetupSym(void) {}
+
+// 0x462F00: constant data: as other data, but the object file is marked as
+// having some (data_00625E9B)
+void ObjGen_DeclareReadOnlyData(
+    Object* object, const void* data, OLinkList* list, unsigned int size
+) {
+    data_00625E9B = 1;
+    ObjGen_DeclareData(object, data, list, size);
+}

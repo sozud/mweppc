@@ -74,10 +74,12 @@ IROLinear* IRO_MakeTypeConversion(IROLinear* linear, Type* type, IROList* list) 
     conv->rtype = type;
     conv->u.monadic = linear;
     conv->next = NULL;
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not fold into an inner cast
     if (func_0055A3F0(conv) && linear->nodetype == ETYPCON && func_0055A3F0(linear)) {
         linear->rtype = type;
         return linear;
     }
+#endif
     if (list) {
         IRO_AddToList(conv, list);
     } else {

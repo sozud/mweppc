@@ -1,0 +1,97 @@
+name: Release the PS2 compiler
+
+# Pushing a tag such as mwccps2-v1.0.0 builds the native mwccps2 (PS2 3.0.1
+# build 210) for each platform and attaches mwccps2-native64-<os>-<arch>.tar.gz
+# to a release.
+on:
+  push:
+    tags:
+      - 'mwccps2-*'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Docker
+        run: |
+          docker build -f tools/mwccps2/Dockerfile -t mwccps2 .
+          mkdir -p build
+          docker run --rm -v "$PWD/build:/out" mwccps2
+          sudo chown "$(id -u):$(id -g)" build/mwccps2
+
+      - name: Smoke test
+        run: |
+          printf 'int f(int x) { return x + 1; }\n' > t.c
+          build/mwccps2 -c -O4,p t.c -o t.o
+          file t.o | grep -q 'ELF 32-bit LSB relocatable, MIPS'
+
+      - name: Package
+        run: |
+          cp build/mwccps2 mwccps2-native64-linux-amd64
+          tar -czf mwccps2-native64-linux-amd64.tar.gz mwccps2-native64-linux-amd64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccps2-native64-linux-amd64
+          path: mwccps2-native64-linux-amd64.tar.gz
+
+  macos:
+    # an Apple Silicon runner builds both: the build only compiles with
+    # clang -arch, it never runs the binary it makes
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the original compiler
+        run: python3 tools/mwccps2/get_orig.py
+
+      - name: Build
+        run: |
+          python3 tools/mwccpsp/native_build.py --ps2 --arch arm64 -o build/mwccps2-native64-darwin-arm64
+          python3 tools/mwccpsp/native_build.py --ps2 --arch x86_64 -o build/mwccps2-native64-darwin-amd64
+          file build/mwccps2-native64-darwin-*
+
+      - name: Smoke test
+        run: |
+          printf 'int f(int x) { return x + 1; }\n' > t.c
+          build/mwccps2-native64-darwin-arm64 -c -O4,p t.c -o t.o
+          file t.o | grep -q 'ELF 32-bit LSB relocatable, MIPS'
+          # the x86_64 build runs only where Rosetta is installed
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            build/mwccps2-native64-darwin-amd64 -c -O4,p t.c -o t2.o
+            cmp t.o t2.o
+          fi
+
+      - name: Package
+        run: |
+          cd build
+          for a in arm64 amd64; do
+            tar -czf mwccps2-native64-darwin-$a.tar.gz mwccps2-native64-darwin-$a
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mwccps2-native64-darwin
+          path: build/mwccps2-native64-darwin-*.tar.gz
+
+  release:
+    # publish whatever built: if hosted macOS runners are short, re-running
+    # the failed job later re-runs this one and adds its files
+    if: always() && startsWith(github.ref, 'refs/tags/') && needs.linux.result == 'success'
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          overwrite_files: true

@@ -73,6 +73,9 @@ static void func_0052E3B0(
 static void func_0052FA10(VOperand* dst, VOperand* src, SInt32 len);
 static void func_0052FAC0(VOperand* op);
 static void func_0052EC70(VOperand* dst, VOperand* src, SInt32 len);
+#if MWCCPS2
+static void ps2_move8_53E8F0(VOperand* dst, VOperand* src, SInt32 len);
+#endif
 static void func_0052F250(VOperand* dst, VOperand* src, SInt32 len);
 static void func_0052F600(VOperand* dst, VOperand* src, SInt32 len);
 static void func_0052F860(VOperand* dst, VOperand* src, SInt32 len);
@@ -91,30 +94,47 @@ void func_0052DE30(VOperand* dst, VOperand* src, SInt32 len, SInt32 align) {
     if (src->kind == 1) {
         // a floating-point register to memory
         if (len != 4) {
-            op = (copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x588 : 0x584;
+            op = (copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x70) : MACRO_OP(0x6C);
         } else {
-            op = 0x591;
+            op = MACRO_OP(0x79);
         }
         func_00479710(op, src, dst);
         return;
     }
 
+#if MWCCPS2
+    // b210 tests copts+0x41 for the quadword path (the header's
+    // function_align16 placement is unverified) and has a doubleword path
+    if (copts.mips_option41 && align >= 16) {
+#else
     if (copts.function_align16 && align >= 16) {
+#endif
         if (len <= (char)copts.mips_option33 * factor * 8) {
             func_0052EC70(&d, &s, len);
         } else {
             VOperand d2 = d;
             VOperand s2 = s;
-            func_0052E3B0(0x575, 0x597, 16, &d2, &s2, &d, &s, len);
+            func_0052E3B0(MACRO_OP(0x5D), MACRO_OP(0x7F), 16, &d2, &s2, &d, &s, len);
             func_0052DE30(&d2, &s2, len & 15, 16);
         }
+#if MWCCPS2
+    } else if (copts.mips_isa >= 3 && align >= 8) {
+        if (len <= (char)copts.mips_option33 * factor * 8) {
+            ps2_move8_53E8F0(&d, &s, len);
+        } else {
+            VOperand d2 = d;
+            VOperand s2 = s;
+            func_0052E3B0(MACRO_OP(0x4A), MACRO_OP(0x6F), 8, &d2, &s2, &d, &s, len);
+            func_0052DE30(&d2, &s2, len & 7, 8);
+        }
+#endif
     } else if (align >= 4) {
         if (len <= (char)copts.mips_option33 * factor * 4) {
             func_0052F250(&d, &s, len);
         } else {
             VOperand d2 = d;
             VOperand s2 = s;
-            func_0052E3B0(0x56D, 0x58F, 4, &d2, &s2, &d, &s, len);
+            func_0052E3B0(MACRO_OP(0x55), MACRO_OP(0x77), 4, &d2, &s2, &d, &s, len);
             func_0052FA10(&d2, &s2, len & 3);
         }
     } else if (align == 2) {
@@ -123,7 +143,7 @@ void func_0052DE30(VOperand* dst, VOperand* src, SInt32 len, SInt32 align) {
         } else {
             VOperand d2 = d;
             VOperand s2 = s;
-            func_0052E3B0(0x569, 0x58E, 2, &d2, &s2, &d, &s, len);
+            func_0052E3B0(MACRO_OP(0x51), MACRO_OP(0x76), 2, &d2, &s2, &d, &s, len);
             func_0052FA10(&d2, &s2, len & 1);
         }
     } else {
@@ -132,7 +152,7 @@ void func_0052DE30(VOperand* dst, VOperand* src, SInt32 len, SInt32 align) {
         } else {
             VOperand d2 = d;
             VOperand s2 = s;
-            func_0052E3B0(0x568, 0x58D, 1, &d2, &s2, &d, &s, len);
+            func_0052E3B0(MACRO_OP(0x50), MACRO_OP(0x75), 1, &d2, &s2, &d, &s, len);
         }
     }
 }
@@ -146,11 +166,11 @@ static void func_0052FA10(VOperand* dst, VOperand* src, SInt32 len) {
     if (len == 0) {
         return;
     } else if (len == 1) {
-        loadop = 0x561;
-        storeop = 0x58D;
+        loadop = MACRO_OP(0x49);
+        storeop = MACRO_OP(0x75);
     } else if (len == 2) {
-        loadop = 0x569;
-        storeop = 0x58E;
+        loadop = MACRO_OP(0x51);
+        storeop = MACRO_OP(0x76);
     } else if (len == 3) {
         func_0052FA10(dst, src, 2);
         dst->offset += 2;
@@ -158,8 +178,8 @@ static void func_0052FA10(VOperand* dst, VOperand* src, SInt32 len) {
         func_0052FA10(dst, src, 1);
         return;
     } else {
-        loadop = 0x56D;
-        storeop = 0x58F;
+        loadop = MACRO_OP(0x55);
+        storeop = MACRO_OP(0x77);
     }
     tmp = func_00479870(loadop, src, 0);
     func_00479710(storeop, &tmp, dst);
@@ -233,7 +253,7 @@ static void func_0052E3B0(
     pc->args[0] = func_004C3E70(rtmp, 0, 0x12);
     pc->args[1] = func_004C3C60(&smem);
     pc->args[2] = func_004C3E70(rsrc, 0, 0x11);
-    if (pc->op == 0x575 || pc->op == 0x1D1) {
+    if (pc->op == MACRO_OP(0x5D) || pc->op == 0x1D1) {
         pc->args[0].flags |= 0x2000;
     }
     appendpcode(data_006246B4, pc);
@@ -241,7 +261,7 @@ static void func_0052E3B0(
         pc = func_00480420(loadop, 3);
         pc->flags |= 0x20;
         pc->args[0] = func_004C3E70(rtmp2, 0, 0x12);
-        if (pc->op == 0x575 || pc->op == 0x1D1) {
+        if (pc->op == MACRO_OP(0x5D) || pc->op == 0x1D1) {
             pc->args[0].flags |= 0x2000;
         }
         smem.offset += step;
@@ -252,18 +272,28 @@ static void func_0052E3B0(
     } else {
         pc = makepcode(3, srcEnd->reg, srcEnd->reg, step);
     }
+#if MWCCPS2 // b210 marks the destination and source registers
+    pc->args[0].flags |= 0x10;
+    pc->args[1].flags |= 0x10;
+#else
     pc->args[1].flags |= 0x10;
     pc->args[2].flags |= 0x10;
+#endif
     appendpcode(data_006246B4, pc);
     pc = makepcode(3, counter.reg, counter.reg, -1);
+#if MWCCPS2 // b210 marks the destination and source registers
+    pc->args[0].flags |= 0x10;
+    pc->args[1].flags |= 0x10;
+#else
     pc->args[1].flags |= 0x10;
     pc->args[2].flags |= 0x10;
+#endif
     appendpcode(data_006246B4, pc);
 
     pc = func_00480420(storeop, 3);
     pc->flags |= 0x20;
     pc->args[0] = func_004C3E70(rtmp, 0, 0x11);
-    if (pc->op == 0x597 || pc->op == 0x1D2) {
+    if (pc->op == MACRO_OP(0x7F) || pc->op == 0x1D2) {
         pc->args[0].flags |= 0x2000;
     }
     pc->args[1] = func_004C3C60(&dmem);
@@ -273,7 +303,7 @@ static void func_0052E3B0(
         pc = func_00480420(storeop, 3);
         pc->flags |= 0x20;
         pc->args[0] = func_004C3E70(rtmp2, 0, 0x11);
-        if (pc->op == 0x575 || pc->op == 0x1D1) {
+        if (pc->op == MACRO_OP(0x5D) || pc->op == 0x1D1) {
             pc->args[0].flags |= 0x2000;
         }
         dmem.offset += step;
@@ -284,8 +314,13 @@ static void func_0052E3B0(
     } else {
         pc = makepcode(3, dstEnd->reg, dstEnd->reg, step);
     }
+#if MWCCPS2 // b210 marks the destination and source registers
+    pc->args[0].flags |= 0x10;
+    pc->args[1].flags |= 0x10;
+#else
     pc->args[1].flags |= 0x10;
     pc->args[2].flags |= 0x10;
+#endif
     appendpcode(data_006246B4, pc);
     func_00479540(0x20, &counter, label);
 }
@@ -307,31 +342,31 @@ static void func_0052EC70(VOperand* dst, VOperand* src, SInt32 len) {
         n = len;
         for (i = 0; i < (char)copts.mips_option33; i++) {
             if (n >= 16) {
-                regs[i] = func_00479870(0x575, &s, 0);
+                regs[i] = func_00479870(MACRO_OP(0x5D), &s, 0);
                 s.offset += 16;
                 n -= 16;
             } else if (n >= 8) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 2)) {
-                    regs[i] = func_00479870(0x563, &s, 1);
+                    regs[i] = func_00479870(MACRO_OP(0x4B), &s, 1);
                 } else {
-                    regs[i] = func_00479870(0x562, &s, 0);
+                    regs[i] = func_00479870(MACRO_OP(0x4A), &s, 0);
                 }
                 s.offset += 8;
                 n -= 8;
             } else if (n >= 4) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
-                    regs[i] = func_00479870(0x56E, &s, 1);
+                    regs[i] = func_00479870(MACRO_OP(0x56), &s, 1);
                 } else {
-                    regs[i] = func_00479870(0x56D, &s, 0);
+                    regs[i] = func_00479870(MACRO_OP(0x55), &s, 0);
                 }
                 s.offset += 4;
                 n -= 4;
             } else if (n >= 2) {
-                regs[i] = func_00479870(0x569, &s, 0);
+                regs[i] = func_00479870(MACRO_OP(0x51), &s, 0);
                 s.offset += 2;
                 n -= 2;
             } else if (n > 0) {
-                regs[i] = func_00479870(0x561, &s, 0);
+                regs[i] = func_00479870(MACRO_OP(0x49), &s, 0);
                 s.offset++;
                 n--;
             }
@@ -339,35 +374,35 @@ static void func_0052EC70(VOperand* dst, VOperand* src, SInt32 len) {
         n = len;
         for (i = 0; i < (char)copts.mips_option33; i++) {
             if (n >= 16) {
-                func_00479710(0x597, &regs[i], &d);
+                func_00479710(MACRO_OP(0x7F), &regs[i], &d);
                 d.offset += 16;
                 n -= 16;
                 len -= 16;
             } else if (n >= 8) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 2)) {
-                    func_00479710(0x588, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x70), &regs[i], &d);
                 } else {
-                    func_00479710(0x587, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x6F), &regs[i], &d);
                 }
                 d.offset += 8;
                 n -= 8;
                 len -= 8;
             } else if (n >= 4) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
-                    func_00479710(0x591, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x79), &regs[i], &d);
                 } else {
-                    func_00479710(0x58F, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x77), &regs[i], &d);
                 }
                 d.offset += 4;
                 n -= 4;
                 len -= 4;
             } else if (n >= 2) {
-                func_00479710(0x58E, &regs[i], &d);
+                func_00479710(MACRO_OP(0x76), &regs[i], &d);
                 d.offset += 2;
                 n -= 2;
                 len -= 2;
             } else if (n > 0) {
-                func_00479710(0x58D, &regs[i], &d);
+                func_00479710(MACRO_OP(0x75), &regs[i], &d);
                 d.offset++;
                 n--;
                 len--;
@@ -375,6 +410,84 @@ static void func_0052EC70(VOperand* dst, VOperand* src, SInt32 len) {
         }
     }
 }
+
+#if MWCCPS2
+// 0x53E8F0: a doubleword-aligned block move (ld/sd and smaller)
+static void ps2_move8_53E8F0(VOperand* dst, VOperand* src, SInt32 len) {
+    VOperand regs[6];
+    VOperand s;
+    VOperand d;
+    int i;
+    SInt32 n;
+
+    s = *src;
+    d = *dst;
+    func_0052FAC0(&s);
+    func_0052FAC0(&d);
+    while (len > 0) {
+        n = len;
+        for (i = 0; i < (char)copts.mips_option33; i++) {
+            if (n >= 8) {
+                if (!copts.nofpregforblkmv && (copts.fp_library & 2)) {
+                    regs[i] = func_00479870(MACRO_OP(0x4B), &s, 1);
+                } else {
+                    regs[i] = func_00479870(MACRO_OP(0x4A), &s, 0);
+                }
+                s.offset += 8;
+                n -= 8;
+            } else if (n >= 4) {
+                if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
+                    regs[i] = func_00479870(MACRO_OP(0x56), &s, 1);
+                } else {
+                    regs[i] = func_00479870(MACRO_OP(0x55), &s, 0);
+                }
+                s.offset += 4;
+                n -= 4;
+            } else if (n >= 2) {
+                regs[i] = func_00479870(MACRO_OP(0x51), &s, 0);
+                s.offset += 2;
+                n -= 2;
+            } else if (n > 0) {
+                regs[i] = func_00479870(MACRO_OP(0x49), &s, 0);
+                s.offset++;
+                n--;
+            }
+        }
+        n = len;
+        for (i = 0; i < (char)copts.mips_option33; i++) {
+            if (n >= 8) {
+                if (!copts.nofpregforblkmv && (copts.fp_library & 2)) {
+                    func_00479710(MACRO_OP(0x70), &regs[i], &d);
+                } else {
+                    func_00479710(MACRO_OP(0x6F), &regs[i], &d);
+                }
+                d.offset += 8;
+                n -= 8;
+                len -= 8;
+            } else if (n >= 4) {
+                if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
+                    func_00479710(MACRO_OP(0x79), &regs[i], &d);
+                } else {
+                    func_00479710(MACRO_OP(0x77), &regs[i], &d);
+                }
+                d.offset += 4;
+                n -= 4;
+                len -= 4;
+            } else if (n >= 2) {
+                func_00479710(MACRO_OP(0x76), &regs[i], &d);
+                d.offset += 2;
+                n -= 2;
+                len -= 2;
+            } else if (n > 0) {
+                func_00479710(MACRO_OP(0x75), &regs[i], &d);
+                d.offset++;
+                n--;
+                len--;
+            }
+        }
+    }
+}
+#endif
 
 // straight-line word copy, mips_option33 registers at a time (words through
 // FP registers when the FPU option allows)
@@ -394,18 +507,18 @@ static void func_0052F250(VOperand* dst, VOperand* src, SInt32 len) {
         for (i = 0; i < (char)copts.mips_option33; i++) {
             if (n >= 4) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
-                    regs[i] = func_00479870(0x56E, &s, 1);
+                    regs[i] = func_00479870(MACRO_OP(0x56), &s, 1);
                 } else {
-                    regs[i] = func_00479870(0x56D, &s, 0);
+                    regs[i] = func_00479870(MACRO_OP(0x55), &s, 0);
                 }
                 s.offset += 4;
                 n -= 4;
             } else if (n >= 2) {
-                regs[i] = func_00479870(0x569, &s, 0);
+                regs[i] = func_00479870(MACRO_OP(0x51), &s, 0);
                 s.offset += 2;
                 n -= 2;
             } else if (n > 0) {
-                regs[i] = func_00479870(0x561, &s, 0);
+                regs[i] = func_00479870(MACRO_OP(0x49), &s, 0);
                 s.offset++;
                 n--;
             }
@@ -414,20 +527,20 @@ static void func_0052F250(VOperand* dst, VOperand* src, SInt32 len) {
         for (i = 0; i < (char)copts.mips_option33; i++) {
             if (n >= 4) {
                 if (!copts.nofpregforblkmv && (copts.fp_library & 1)) {
-                    func_00479710(0x591, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x79), &regs[i], &d);
                 } else {
-                    func_00479710(0x58F, &regs[i], &d);
+                    func_00479710(MACRO_OP(0x77), &regs[i], &d);
                 }
                 d.offset += 4;
                 n -= 4;
                 len -= 4;
             } else if (n >= 2) {
-                func_00479710(0x58E, &regs[i], &d);
+                func_00479710(MACRO_OP(0x76), &regs[i], &d);
                 d.offset += 2;
                 n -= 2;
                 len -= 2;
             } else if (n > 0) {
-                func_00479710(0x58D, &regs[i], &d);
+                func_00479710(MACRO_OP(0x75), &regs[i], &d);
                 d.offset++;
                 n--;
                 len--;
@@ -451,22 +564,22 @@ static void func_0052F600(VOperand* dst, VOperand* src, SInt32 len) {
     func_0052FAC0(&d);
     for (i = 0; i < (char)copts.mips_option33; i++) {
         if (n >= 2) {
-            regs[i] = func_00479870(0x569, &s, 0);
+            regs[i] = func_00479870(MACRO_OP(0x51), &s, 0);
             s.offset += 2;
             n -= 2;
         } else if (n > 0) {
-            regs[i] = func_00479870(0x561, &s, 0);
+            regs[i] = func_00479870(MACRO_OP(0x49), &s, 0);
             s.offset++;
             n--;
         }
     }
     for (i = 0; i < (char)copts.mips_option33; i++) {
         if (len >= 2) {
-            func_00479710(0x58E, &regs[i], &d);
+            func_00479710(MACRO_OP(0x76), &regs[i], &d);
             d.offset += 2;
             len -= 2;
         } else if (len > 0) {
-            func_00479710(0x58D, &regs[i], &d);
+            func_00479710(MACRO_OP(0x75), &regs[i], &d);
             d.offset++;
             len--;
         }
@@ -488,14 +601,14 @@ static void func_0052F860(VOperand* dst, VOperand* src, SInt32 len) {
     func_0052FAC0(&d);
     for (i = 0; i < (char)copts.mips_option33; i++) {
         if (n > 0) {
-            regs[i] = func_00479870(0x561, &s, 0);
+            regs[i] = func_00479870(MACRO_OP(0x49), &s, 0);
             s.offset++;
             n--;
         }
     }
     for (i = 0; i < (char)copts.mips_option33; i++) {
         if (len > 0) {
-            func_00479710(0x58D, &regs[i], &d);
+            func_00479710(MACRO_OP(0x75), &regs[i], &d);
             d.offset++;
             len--;
         }

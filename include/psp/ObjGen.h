@@ -19,6 +19,15 @@ typedef struct ObjCodeReloc {
     SInt16 type; // R_MIPS_*
 } ObjCodeReloc; // 0x14
 
+// A relocation in an object's data (ObjGen_EmitData).
+typedef struct ObjDataReloc {
+    struct ObjDataReloc* next;
+    Object* target;
+    SInt32 offset;
+    SInt32 addend;
+} ObjDataReloc; // 0x10
+
+extern void ObjGen_EmitData(Object* obj, void* data, ObjDataReloc* relocs, SInt32 size);
 extern void ObjGen_GetObjectAddress(Object* obj, ObjAddress* addr);
 
 #endif

@@ -40,7 +40,9 @@ static UInt32 IRO_LastUserBreakTick;
 static IROLinear* ExprStart;
 static IROLinear* ExprEnd;
 static IRONode* IRO_Node;
+#if !MWCCPS2 // b210 passes the level to the walk callback
 static SInt32 FuncLevel;
+#endif
 Object* FunctionName;
 Boolean IRO_IsLeafFunction;
 Boolean IRO_FunctionHasReturn;
@@ -162,6 +164,9 @@ static Boolean IRO_OperandsSame(ENode* a, ENode* b) {
 
 #if MWCCPSP
 // 3.0.1 (0x55CC70): identical types first
+#if MWCCPS2
+__declspec(noinline) // b210 keeps it in IroType.c (0x56F5F0): never inlined here
+#endif
 Boolean IRO_TypesEqual(Type* a, Type* b) {
     if (a == b) {
         return TRUE;
@@ -328,6 +333,9 @@ Boolean IRO_ExprsSame(IROLinear* a, IROLinear* b) {
     ENode* na;
     ENode* nb;
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+    mask = 0xFDFF;
+#else
     if (a->type == IROLinearOp1Arg &&
         b->type == IROLinearOp1Arg &&
         a->nodetype == ETYPCON &&
@@ -336,6 +344,7 @@ Boolean IRO_ExprsSame(IROLinear* a, IROLinear* b) {
     } else {
         mask = 0xFDFF;
     }
+#endif
     if (a->type != b->type ||
         (a->nodeflags & mask) != (b->nodeflags & mask) ||
         !IRO_TypesEqual(a->rtype, b->rtype)) {
@@ -388,6 +397,12 @@ Boolean IRO_ExprsSame(IROLinear* a, IROLinear* b) {
             return IRO_ExprsSame(a->u.args3.a, b->u.args3.a) &&
                 IRO_ExprsSame(a->u.args3.b, b->u.args3.b) &&
                 IRO_ExprsSame(a->u.args3.c, b->u.args3.c);
+#if MWCCPS2
+        case IROLinearScope: // b210 lists both
+            return FALSE;
+        case IROLinearFunccall:
+            return FALSE;
+#endif
         default:
             return FALSE;
     }
@@ -560,6 +575,10 @@ IROLinear* IRO_FindFirst(IROLinear* linear) {
     return FindFirst(linear);
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 void IRO_CutAndPasteAfter(IROLinear* first, IROLinear* last, IROLinear* after) {
     IROLinear* preced = IRO_FindPreced(first);
 #if MWCCPSP
@@ -572,6 +591,10 @@ void IRO_CutAndPasteAfter(IROLinear* first, IROLinear* last, IROLinear* after) {
     last->next = after->next;
     after->next = first;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 Boolean IRO_IsConstantZero(IROLinear* linear) {
     return (IRO_IsIntConstant(linear) && CInt64_IsZero(&linear->u.node->data.intval)) ||
@@ -596,6 +619,9 @@ static void ActNop(IROLinear* linear, Boolean isEntry) {
     }
 }
 
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (IRO_TransformSelfAssignmentToAssignment)
+#endif
 void IRO_NopOut(IROLinear* linear) {
     IRO_WalkTree(linear, ActNop);
 }
@@ -611,6 +637,31 @@ static Boolean NotNoppable(IROLinear* linear) {
          is_volatile_object(linear->u.node->data.objref));
 }
 
+#if MWCCPS2
+// b210 walks with the level on its own stack (no FuncLevel global)
+static void ActNopNonSideEffects(IROLinear* linear, Boolean isEntry, void* arg) {
+    SInt32* level = arg;
+
+    if (isEntry) {
+        if (NotNoppable(linear)) {
+            if (!*level) {
+                linear->flags &= ~IROLF_Reffed;
+            }
+            (*level)++;
+        }
+    } else {
+        if (NotNoppable(linear)) {
+            (*level)--;
+        } else if (!*level) {
+            linear->type = IROLinearNop;
+        }
+    }
+}
+
+void IRO_NopNonSideEffects(IROLinear* linear, SInt32 level) {
+    IRO_WalkTree_ps2(linear, ActNopNonSideEffects, &level);
+}
+#else
 static void ActNopNonSideEffects(IROLinear* linear, Boolean isEntry) {
     if (isEntry) {
         if (NotNoppable(linear)) {
@@ -632,7 +683,77 @@ void IRO_NopNonSideEffects(IROLinear* linear, SInt32 level) {
     FuncLevel = level;
     IRO_WalkTree(linear, ActNopNonSideEffects);
 }
+#endif
 
+#if MWCCPS2
+extern void func_005531A0(IROLinear* linear, IROWalkTreeArgFunc_ps2 func, Boolean pre, void* arg);
+
+void IRO_WalkTree_ps2(IROLinear* linear, IROWalkTreeArgFunc_ps2 func, void* arg) {
+    int i;
+
+    func(linear, TRUE, arg);
+    switch (linear->type) {
+        case IROLinearOperand:
+            break;
+        case IROLinearOp1Arg:
+            func_005531A0(linear->u.monadic, func, TRUE, arg);
+            break;
+        case IROLinearOp2Arg:
+            func_005531A0(linear->u.diadic.left, func, TRUE, arg);
+            func_005531A0(linear->u.diadic.right, func, TRUE, arg);
+            break;
+        case IROLinearOp3Arg:
+            func_005531A0(linear->u.args3.a, func, TRUE, arg);
+            func_005531A0(linear->u.args3.b, func, TRUE, arg);
+            func_005531A0(linear->u.args3.c, func, TRUE, arg);
+            break;
+        case IROLinearFunccall:
+            func_005531A0(linear->u.funccall.callee, func, TRUE, arg);
+            for (i = 0; i < linear->u.funccall.argCount; i++) {
+                func_005531A0(linear->u.funccall.args[i], func, TRUE, arg);
+            }
+            break;
+        default:
+            break;
+    }
+    func(linear, FALSE, arg);
+}
+#elif MWCCPSP
+void func_005531A0(IROLinear* linear, IROWalkTreeArgFunc func, Boolean pre, void* arg);
+
+// 0x553A10: the node before and after its operands, each walked with
+// func_005531A0
+void(IRO_WalkTree)(IROLinear* linear, IROWalkTreeFunc func, void* arg) {
+    int i;
+
+    ((IROWalkTreeArgFunc)func)(linear, TRUE, arg);
+    switch (linear->type) {
+        case IROLinearOperand:
+            break;
+        case IROLinearOp1Arg:
+            func_005531A0(linear->u.monadic, (IROWalkTreeArgFunc)func, TRUE, arg);
+            break;
+        case IROLinearOp2Arg:
+            func_005531A0(linear->u.diadic.left, (IROWalkTreeArgFunc)func, TRUE, arg);
+            func_005531A0(linear->u.diadic.right, (IROWalkTreeArgFunc)func, TRUE, arg);
+            break;
+        case IROLinearOp3Arg:
+            func_005531A0(linear->u.args3.a, (IROWalkTreeArgFunc)func, TRUE, arg);
+            func_005531A0(linear->u.args3.b, (IROWalkTreeArgFunc)func, TRUE, arg);
+            func_005531A0(linear->u.args3.c, (IROWalkTreeArgFunc)func, TRUE, arg);
+            break;
+        case IROLinearFunccall:
+            func_005531A0(linear->u.funccall.callee, (IROWalkTreeArgFunc)func, TRUE, arg);
+            for (i = 0; i < linear->u.funccall.argCount; i++) {
+                func_005531A0(linear->u.funccall.args[i], (IROWalkTreeArgFunc)func, TRUE, arg);
+            }
+            break;
+        default:
+            break;
+    }
+    ((IROWalkTreeArgFunc)func)(linear, FALSE, arg);
+}
+#else
 void IRO_WalkTree(IROLinear* linear, IROWalkTreeFunc func) {
     int i;
 
@@ -663,6 +784,7 @@ void IRO_WalkTree(IROLinear* linear, IROWalkTreeFunc func) {
     }
     func(linear, FALSE);
 }
+#endif
 
 #if MWCCPSP
 
@@ -699,20 +821,65 @@ void func_005531A0(IROLinear* linear, IROWalkTreeArgFunc func, Boolean pre, void
     func(linear, FALSE, arg);
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
 extern IROLinear* func_00552E90(IROLinear* nd); // IroSimplifyIfThenElse.c
 
 // 0x554440: the label linear of label, from start on
+#if MWCCPS2
+// b210: a second pass from IRO_FirstLinear is set up, but the loop ends first
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
 IROLinear* func_00554440(CLabel* label, IROLinear* start) {
     IROLinear* nd;
+    Boolean wrapped;
 
-    for (nd = start; nd; nd = nd->next) {
-        if (nd->type == IROLinearLabel && nd->u.label.label == label) {
-            return nd;
+    for (wrapped = FALSE, nd = start; !wrapped; nd = IRO_FirstLinear, wrapped = TRUE) {
+        for (; nd; nd = nd->next) {
+            if (nd->type == IROLinearLabel && nd->u.label.label == label) {
+                return nd;
+            }
         }
     }
     CError_FATAL(2087);
     return NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#else
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+IROLinear* func_00554440(CLabel* label, IROLinear* start) {
+    IROLinear* nd;
+#if MWCCPS2
+    // mwccps2 wraps around to the first linear once
+    Boolean wrapped = FALSE;
+
+    nd = start;
+    while (!wrapped) {
+        for (; nd != NULL; nd = nd->next) {
+            if (nd->type == IROLinearLabel && nd->u.label.label == label) {
+                return nd;
+            }
+        }
+        nd = IRO_FirstLinear;
+        wrapped = TRUE;
+    }
+#else
+    for (nd = start; nd; nd = nd->next) {
+        if (nd->type == IROLinearLabel && nd->u.label.label == label) {
+            return nd;
+        }
+    }
+#endif
+    CError_FATAL(2087);
+    return NULL;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 // 0x552790: *obj (the operand linked before the indirection; 3.0.1's
 // IRO_TempReference without the list)
@@ -738,8 +905,11 @@ IROLinear* func_00552790(Object* obj) {
 
 // 0x555C60: an integer or float constant operand
 Boolean func_00555C60(IROLinear* nd) {
-    return nd->type == IROLinearOperand &&
-        (nd->u.node->type == EINTCONST || nd->u.node->type == EFLOATCONST);
+    if (nd->type == IROLinearOperand &&
+        (nd->u.node->type == EINTCONST || nd->u.node->type == EFLOATCONST)) {
+        return TRUE;
+    }
+    return FALSE;
 }
 
 // 0x554490: a new label linear (starting a node)
@@ -784,6 +954,8 @@ void func_005530D0(IROLinear* linear, IROWalkTreeArgFunc func, void* arg) {
     int i;
 
     switch (linear->type) {
+        case IROLinearOperand:
+            break;
         case IROLinearOp1Arg:
             func_005531A0(linear->u.monadic, func, FALSE, arg);
             break;
@@ -889,6 +1061,10 @@ void IRO_WalkInts(IROLinear* first, IROLinear* last, IROWalkTreeFunc func) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 void IRO_Cut(IROLinear* first, IROLinear* last) {
     IROLinear* scan;
     IROLinear* prev;
@@ -935,7 +1111,63 @@ void IRO_Cut(IROLinear* first, IROLinear* last) {
         IRO_FirstLinear = last->next;
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
+#if MWCCPS2
+// 0x565440: the expression a linear evaluates (IroSimplifyIfThenElse.c's
+// func_00552E90 on mwccpsp); its callers here do not inline it
+#pragma auto_inline off
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+IROLinear* func_00552E90(IROLinear* nd) {
+    switch (nd->type) {
+        case IROLinearNop:
+        case IROLinearGoto:
+        case IROLinearLabel:
+        case IROLinearAsm:
+        case IROLinearEnd:
+            return NULL;
+        case IROLinearGotoExpr:
+            return nd->u.monadic;
+        case IROLinearBeginCatch:
+        case IROLinearEndCatch:
+        case IROLinearEndCatchDtor:
+            return nd->u.ctch.linear;
+        case IROLinearOperand:
+        case IROLinearOp1Arg:
+        case IROLinearOp2Arg:
+        case IROLinearOp3Arg:
+        case IROLinearScope:
+        case IROLinearFunccall:
+            return nd;
+        case IROLinearIf:
+        case IROLinearIfNot:
+            return nd->u.label.cond;
+        case IROLinearReturn:
+            if (nd->u.monadic != NULL) {
+                return nd->u.monadic;
+            }
+            break;
+        case IROLinearSwitch:
+            return nd->u.swtch.cond;
+        default:
+            CError_FATAL(2637);
+            break;
+    }
+    return NULL;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#pragma auto_inline reset
+#endif
+#if MWCCPSP
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 void IRO_Paste(IROLinear* first, IROLinear* last, IROLinear* before) {
     IROLinear* scan;
     IROLinear* prev;
@@ -970,6 +1202,10 @@ void IRO_Paste(IROLinear* first, IROLinear* last, IROLinear* before) {
         IRO_FirstLinear = first;
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void IRO_PasteAfter(IROLinear* first, IROLinear* last, IROLinear* after) {
     IRONode* node;
@@ -1139,12 +1375,18 @@ void func_00552BC0(IROExpr* expr, IROLinear* linear) {
             }
         }
     }
+#if MWCCPS2
+    IRO_WalkTree_ps2(expr->linear, func_00552C80, expr->node);
+#else
     func_005531A0(expr->linear, func_00552C80, TRUE, expr->node);
+#endif
 }
 
 #endif
 #if MWCCPSP
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
 // the operand slot of scan that holds nd
 static inline IROLinear** OperandSlot(IROLinear* scan, IROLinear* nd) {
     int i;
@@ -1286,6 +1528,8 @@ found:
         last->flags |= IROLF_LoopInvariant;
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 #endif
 void IRO_InitList(IROList* list) {
@@ -1433,6 +1677,10 @@ IROLinear* IRO_TempReference(Object* obj, IROList* list) {
     return ind;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts (inlined into IRO_LocateFather*)
+#endif
 inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROLinear*** refPtr) {
     IROLinear* scan;
     SInt32 index;
@@ -1441,6 +1689,16 @@ inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROL
     for (scan = linear->next, index = 0; index < (wrapAround ? 2 : 1); index++) {
         while (scan) {
             switch (scan->type) {
+#if MWCCPS2
+                case IROLinearGotoExpr:
+                    if (scan->u.monadic == linear) {
+                        if (refPtr) {
+                            *refPtr = &scan->u.monadic;
+                        }
+                        return scan;
+                    }
+                    break;
+#endif
                 case IROLinearIf:
                 case IROLinearIfNot:
                     if (scan->u.label.cond == linear) {
@@ -1451,7 +1709,7 @@ inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROL
                     }
                     break;
                 case IROLinearReturn:
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2 // b210 has its own GotoExpr case first (above)
                 case IROLinearGotoExpr: // 3.0.1 (0x5526C0): the target expression
 #endif
                     if (scan->u.monadic == linear) {
@@ -1529,6 +1787,9 @@ inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROL
                     break;
                 case IROLinearNop:
                 case IROLinearOperand:
+#if MWCCPS2
+                case IROLinearScope:
+#endif
                 case IROLinearGoto:
                 case IROLinearLabel:
                 case IROLinearEntry:
@@ -1538,7 +1799,7 @@ inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROL
                 case IROLinearEndCatchDtor:
                 case IROLinearAsm:
                 case IROLinearEnd:
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2
                 case IROLinearScope:
 #endif
                     break;
@@ -1560,11 +1821,27 @@ inline IROLinear* LocateFatherHelper(IROLinear* linear, Boolean wrapAround, IROL
     }
     return NULL;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 IROLinear* IRO_LocateFather(IROLinear* linear) {
     return LocateFatherHelper(linear, FALSE, NULL);
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 IROLinear* IRO_LocateFather_Cut_And_Paste(IROLinear* nd, IROLinear* replacement) {
     IROLinear** link;
     IROLinear* father = LocateFatherHelper(nd, FALSE, &link);
@@ -1579,7 +1856,15 @@ IROLinear* IRO_LocateFather_Cut_And_Paste(IROLinear* nd, IROLinear* replacement)
     }
     return father;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 IROLinear* IRO_LocateFather_Cut_And_Paste_Without_Nopping(IROLinear* nd, IROLinear* replacement) {
     IROLinear** link;
     IROLinear* father = LocateFatherHelper(nd, FALSE, &link);
@@ -1593,6 +1878,10 @@ IROLinear* IRO_LocateFather_Cut_And_Paste_Without_Nopping(IROLinear* nd, IROLine
     }
     return father;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void IRO_ReplaceReference(IROLinear* nd, Object* obj, IROLinear* after) {
     IROLinear** ptr;
@@ -1712,7 +2001,9 @@ IROAddrRecord* IRO_InitAddrRecordPointer(IROLinear* linear) {
     rec->linear = linear;
     return rec;
 }
+#if MWCCPSP
 
+#endif
 #if MWCCPSP
 // 0x5513A0
 // 0x551310: free an address record's lists
@@ -1788,9 +2079,7 @@ void func_005510D0(IROLinear* linear, IROAddrRecord301* rec, IROAllocFunc alloc)
     AddAddend301(linear->u.diadic.right, rec, alloc);
 }
 #endif
-#if MWCCPSP
 
-#endif
 IROLinear* IRO_HasSideEffect(IROLinear* linear) {
     IROLinear* effect;
 
@@ -2039,6 +2328,32 @@ void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* 
 #if MWCCPSP
 // 3.0.1 (0x551650): asm statements may throw too, as the back end says;
 // 0x551630 asks only about calls.
+#if MWCCPS2
+Boolean IRO_FunctionCallMightThrowException(IROLinear* linear) {
+    Object* obj;
+
+    if (linear->type == IROLinearFunccall) {
+        obj = NULL;
+        if (linear->u.funccall.callee->type == IROLinearOperand &&
+            ENODE_IS(linear->u.funccall.callee->u.node, EOBJREF)) {
+            obj = linear->u.funccall.callee->u.node->data.objref;
+        }
+        if (!obj ||
+            CExcept_CanThrowException(
+                obj, obj->datatype == DVFUNC && (linear->nodeflags & ENODE_FLAG_NONVIRTUAL) == 0
+            )) {
+            return TRUE;
+        }
+    } else if (linear->type == IROLinearAsm && IRO_GetAsmEffectsHook && linear->u.asm_stmt) {
+        IROAsmEffects effects = IRO_EmptyAsmEffects;
+        IRO_GetAsmEffectsHook(linear->u.asm_stmt, &effects);
+        if (effects.mayThrow) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+#else
 Boolean IRO_FunctionCallMightThrowException(IROLinear* linear) {
     Object* obj;
 
@@ -2065,6 +2380,7 @@ Boolean IRO_FunctionCallMightThrowException(IROLinear* linear) {
     }
     return FALSE;
 }
+#endif
 
 Boolean IRO_IsThrowingCall(IROLinear* linear) {
     if (linear->type != IROLinearFunccall) {
@@ -2098,6 +2414,20 @@ Boolean IRO_FunctionCallMightThrowException(IROLinear* linear) {
 IROLinear* IRO_NewIntConst(CInt64 val, Type* type) {
     ENode* node;
     IROLinear* linear;
+#if MWCCPS2
+    CInt64 v;
+
+    linear = IRO_NewLinear(IROLinearOperand);
+    linear->nodetype = EINTCONST;
+    linear->index = ++IRO_NumLinear;
+    linear->rtype = IRO_UnqualifiedType(type);
+    v = val;
+    IRO_TruncateValueToType(&v, type);
+    node = lalloc(sizeof(ENode));
+    memset(node, 0, sizeof(ENode));
+    node->type = EINTCONST;
+    node->data.intval = v;
+#else
 
     linear = IRO_NewLinear(IROLinearOperand);
     linear->nodetype = EINTCONST;
@@ -2108,6 +2438,7 @@ IROLinear* IRO_NewIntConst(CInt64 val, Type* type) {
     memclrw(node, sizeof(ENode));
     node->type = EINTCONST;
     node->data.intval = val;
+#endif
     node->rtype = IRO_UnqualifiedType(type);
     linear->u.node = node;
     linear->flags |= IROLF_LoopInvariant;
@@ -2258,6 +2589,8 @@ static IROAddressedLabel* NewAddressedLabel(CLabel* label) {
     return al;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -46 // b145 asserts
 void IRO_CollectAddressedLabels(IROLinear* first, IROLinear* last) {
     IROLinear* linear;
     CLabel* label;
@@ -2276,7 +2609,12 @@ void IRO_CollectAddressedLabels(IROLinear* first, IROLinear* last) {
                    linear->u.node->type == EOBJREF &&
                    (obj = linear->u.node->data.objref)->datatype == DLABEL) {
             for (label = Labels; label; label = label->next) {
+#if MWCCPS2
+                if (obj->u.label.function == FunctionName &&
+                    label->name == obj->name) { // b210 compares the name
+#else
                 if (obj->u.label.function == FunctionName && label->uniquename == obj->name) {
+#endif
                     NewAddressedLabel(label);
                 }
             }
@@ -2287,7 +2625,11 @@ void IRO_CollectAddressedLabels(IROLinear* first, IROLinear* last) {
                    linear->u.monadic->u.monadic &&
                    linear->u.monadic->u.monadic->type != IROLinearOperand) {
             for (label = Labels; label; label = label->next) {
+#if MWCCPS2
+                if (label->stmt && label->name->name[0] != '@') {
+#else
                 if (label->stmt && label->uniquename->name[0] != '@') {
+#endif
                     NewAddressedLabel(label);
                 }
             }
@@ -2297,6 +2639,8 @@ void IRO_CollectAddressedLabels(IROLinear* first, IROLinear* last) {
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 3.0.1 (0x54F970): where a goto can go. A computed goto asks the pointer
 // analysis (when it ran) for the labels its target can be, else every
@@ -2306,8 +2650,8 @@ typedef struct PointsToEntry301 {
     IROLinear* x4;
     struct PointsToEntry301* next;
 } PointsToEntry301;
-extern void PointerAnalysis_LookupGotoTargets(
-    Object* func, IROLinear* linear, PointsToEntry301** list
+extern void PointerAnalysis_LookupLinearNodePointerExpr(
+    Object* proc, IROLinear* indirect, IROListNode** list
 );
 
 IROAddressedLabel* IRO_GetGotoTargets(IROLinear* linear, UInt16* count) {
@@ -2330,7 +2674,9 @@ IROAddressedLabel* IRO_GetGotoTargets(IROLinear* linear, UInt16* count) {
             fallback = TRUE;
         } else {
             list = NULL;
-            PointerAnalysis_LookupGotoTargets(FunctionName, linear->u.monadic, &list);
+            PointerAnalysis_LookupLinearNodePointerExpr(
+                FunctionName, linear->u.monadic, (IROListNode**)&list
+            );
             if (!list) {
                 fallback = TRUE;
             } else {
@@ -2449,6 +2795,485 @@ void IRO_CheckForUserBreak(void) {
 }
 #if MWCCPSP
 
+#if MWCCPS2
+// --- self-assignment -> assignment (b210 0x5621D0..0x563460; b219 0x54FD60..) ---
+#include "compiler/CIRTransform.h"
+#include "compiler/IROUseDef.h"
+extern Statement* IRO_PreLinearize301(Statement* stmt);
+
+#define IS_TYPCON301(x) ((x)->type == IROLinearOp1Arg && (x)->nodetype == ETYPCON)
+#define IS_CAST_OR_NOTNOT301(x) \
+    ((x)->type == IROLinearOp1Arg && \
+     ((x)->nodetype == ETYPCON || \
+      ((x)->nodetype == ELOGNOT && \
+       (x)->u.monadic->type == IROLinearOp1Arg && \
+       (x)->u.monadic->nodetype == ELOGNOT)))
+#define IS_NOTNOT301(x) \
+    ((x)->type == IROLinearOp1Arg && \
+     (x)->nodetype == ELOGNOT && \
+     (x)->u.monadic->type == IROLinearOp1Arg && \
+     (x)->u.monadic->nodetype == ELOGNOT)
+
+// 3.0.1 also sees through casts and double negations on either side
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+static Boolean ReconcileAssignments(IROLinear* nd1, IROLinear* nd2, IROList* list) {
+    IROLinear* copy;
+    int i;
+    Boolean result = FALSE;
+    int argCount;
+    IROLinear* savedTail;
+
+    if (IS_TYPCON301(nd2) &&
+        !IS_CAST_OR_NOTNOT301(nd1) &&
+        ReconcileAssignments(nd1, nd2->u.monadic, list)) {
+        result = TRUE;
+    } else if (IS_NOTNOT301(nd2) &&
+               !IS_CAST_OR_NOTNOT301(nd1) &&
+               ReconcileAssignments(nd1, nd2->u.monadic->u.monadic, list)) {
+        result = TRUE;
+    } else if (IS_TYPCON301(nd1) &&
+               !IS_CAST_OR_NOTNOT301(nd2) &&
+               ReconcileAssignments(nd1->u.monadic, nd2, list)) {
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ETYPCON;
+        copy->rtype = IRO_UnqualifiedType(nd1->rtype);
+        CError_ASSERT(
+            4580, !(IS_TYPE_INT(nd1->rtype) && TYPE_INTEGRAL(nd1->rtype)->integral == IT_BOOL)
+        );
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        result = TRUE;
+    } else if (IS_NOTNOT301(nd1) &&
+               !IS_CAST_OR_NOTNOT301(nd2) &&
+               ReconcileAssignments(nd1->u.monadic->u.monadic, nd2, list)) {
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ELOGNOT;
+        copy->rtype = IRO_UnqualifiedType(nd1->u.monadic->rtype);
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ELOGNOT;
+        copy->rtype = IRO_UnqualifiedType(nd1->rtype);
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        result = TRUE;
+    } else if (IS_TYPCON301(nd1) &&
+               IS_NOTNOT301(nd2) &&
+               ReconcileAssignments(nd1->u.monadic, nd2->u.monadic->u.monadic, list)) {
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ETYPCON;
+        copy->rtype = IRO_UnqualifiedType(nd1->rtype);
+        CError_ASSERT(
+            4645, !(IS_TYPE_INT(nd1->rtype) && TYPE_INTEGRAL(nd1->rtype)->integral == IT_BOOL)
+        );
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        result = TRUE;
+    } else if (IS_NOTNOT301(nd1) &&
+               IS_TYPCON301(nd2) &&
+               ReconcileAssignments(nd1->u.monadic->u.monadic, nd2->u.monadic, list)) {
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ELOGNOT;
+        copy->rtype = IRO_UnqualifiedType(nd1->u.monadic->rtype);
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        copy = IRO_NewLinear(IROLinearOp1Arg);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->type = IROLinearOp1Arg;
+        copy->nodetype = ELOGNOT;
+        copy->rtype = IRO_UnqualifiedType(nd1->rtype);
+        copy->next = NULL;
+        copy->u.monadic = list->tail;
+        IRO_AddToList(copy, list);
+        result = TRUE;
+    } else if (nd1->type == nd2->type && nd1->nodetype == nd2->nodetype) {
+        copy = IRO_NewLinear(IROLinearNop);
+        *copy = *nd2;
+        copy->index = IRO_NumLinear++;
+        copy->rtype = IRO_UnqualifiedType(nd1->rtype);
+        copy->next = NULL;
+        switch (nd1->type) {
+            case IROLinearOperand:
+                if (nd1->u.node->type == nd2->u.node->type) {
+                    if (!(nd1->u.node->type == EOBJREF &&
+                          nd1->u.node->data.objref != nd2->u.node->data.objref)) {
+                        result = TRUE;
+                    }
+                }
+                break;
+
+            case IROLinearOp1Arg:
+                if (ReconcileAssignments(nd1->u.monadic, nd2->u.monadic, list)) {
+                    copy->u.monadic = list->tail;
+                    result = TRUE;
+                }
+                break;
+
+            case IROLinearOp2Arg:
+                savedTail = list->tail;
+                if (ReconcileAssignments(nd1->u.diadic.left, nd2->u.diadic.left, list)) {
+                    copy->u.diadic.left = list->tail;
+                    if (ReconcileAssignments(nd1->u.diadic.right, nd2->u.diadic.right, list)) {
+                        copy->u.diadic.right = list->tail;
+                        result = TRUE;
+                    }
+                }
+
+                if (!result && !IRO_HasSideEffect(nd1) && !IRO_HasSideEffect(nd2)) {
+                    if (nd1->nodetype == EMUL ||
+                        nd1->nodetype == EADD ||
+                        nd1->nodetype == EAND ||
+                        nd1->nodetype == EXOR ||
+                        nd1->nodetype == EOR) {
+                        list->tail = savedTail;
+                        if (ReconcileAssignments(nd1->u.diadic.left, nd2->u.diadic.right, list)) {
+                            copy->u.diadic.right = list->tail;
+                            if (ReconcileAssignments(
+                                    nd1->u.diadic.right, nd2->u.diadic.left, list
+                                )) {
+                                copy->u.diadic.left = list->tail;
+                                result = TRUE;
+                            }
+                        }
+                    }
+                }
+                break;
+
+            case IROLinearOp3Arg:
+                if (ReconcileAssignments(nd1->u.args3.c, nd2->u.args3.c, list)) {
+                    copy->u.args3.c = list->tail;
+                    if (ReconcileAssignments(nd1->u.args3.b, nd2->u.args3.b, list)) {
+                        copy->u.args3.b = list->tail;
+                        if (ReconcileAssignments(nd1->u.args3.a, nd2->u.args3.a, list)) {
+                            copy->u.args3.a = list->tail;
+                            result = TRUE;
+                        }
+                    }
+                }
+                break;
+
+            case IROLinearFunccall:
+                argCount = nd1->u.funccall.argCount;
+                if (argCount == nd2->u.funccall.argCount) {
+                    result = TRUE;
+                    copy->u.funccall.args = IRO_Alloc(sizeof(IROLinear*) * argCount);
+                    for (i = argCount - 1; i >= 0; i--) {
+                        if (!ReconcileAssignments(
+                                nd1->u.funccall.args[i], nd2->u.funccall.args[i], list
+                            )) {
+                            result = FALSE;
+                            break;
+                        }
+                        copy->u.funccall.args[i] = list->tail;
+                    }
+
+                    if (result) {
+                        if (!ReconcileAssignments(
+                                nd1->u.funccall.callee, nd2->u.funccall.callee, list
+                            )) {
+                            result = FALSE;
+                            break;
+                        }
+                        copy->u.funccall.callee = list->tail;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
+        if (result) {
+            IRO_AddToList(copy, list);
+        }
+    }
+
+    return result;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+static IROLinear* FrontendTransformSelfAssignmentToAssignment(IROLinear* expr) {
+    IROLinearState save;
+    IROList list;
+    Statement* stmt;
+    IROLinear* nd;
+    IROLinear* result;
+
+    func_00561390(&save);
+
+    IRO_InitList(&list);
+    IRO_DuplicateExpr(expr, &list);
+
+    stmt = IRO_Delinearize(NULL, list.head);
+    CError_ASSERT(4826, stmt);
+    CError_ASSERT(4828, stmt->expr);
+    stmt->expr = CIRTrans_TransformOpAss(stmt->expr);
+    CError_ASSERT(4833, stmt->expr);
+
+    if (DoLinearize) {
+        stmt = IRO_PreLinearize301(stmt);
+    }
+    IRO_Linearize(stmt);
+
+    IRO_InitList(&list);
+    list.head = IRO_FirstLinear;
+    list.tail = IRO_LastLinear;
+
+    func_00561320(&save);
+
+    result = NULL;
+    for (nd = list.head; nd; nd = nd->next) {
+        if (!(nd->flags & IROLF_Reffed) && IRO_IsAssignment(nd)) {
+            result = nd;
+        }
+    }
+
+    return result;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+
+extern Type* func_0055A620(Type* type); // integral promotion (b210 0x56CCB0, IroLogicalSelection.c)
+extern Type* ps2_ptrinctype_56CCE0(
+    Type* type
+); // b210 0x56CCE0: the type of a pointer increment (unsigned int)
+
+static inline Boolean IsIntType301(Type* type) {
+    return type->type == TYPEINT && TYPE_INTEGRAL(type)->integral < 17;
+}
+
+// 3.0.1's IRO_NewFloatConst: the linear node first, like IRO_NewIntConst
+static inline IROLinear* NewFloatConst301(const Float val, Type* type) {
+    ENode* node;
+    IROLinear* linear;
+
+    linear = IRO_NewLinear(IROLinearOperand);
+    linear->nodetype = EFLOATCONST;
+    linear->index = ++IRO_NumLinear;
+    linear->rtype = IRO_UnqualifiedType(type);
+    node = lalloc(sizeof(ENode));
+    memset(node, 0, sizeof(ENode));
+    node->type = EFLOATCONST;
+    node->data.floatval = val;
+    node->rtype = IRO_UnqualifiedType(type);
+    linear->u.node = node;
+    return linear;
+}
+
+static Boolean TransformMonadicSelfAssignmentToDiadicSelfAssignment(IROLinear* nd) {
+    ENodeType t;
+    ENodeType newtype;
+    IROLinear* incExpr;
+    IROLinear* varExpr;
+
+    t = nd->nodetype;
+
+    if (IRO_IsAssignment(nd) && IRO_IsModifyOp[t]) {
+        varExpr = incExpr = NULL;
+        newtype = IRO_MAXEXPR;
+
+        if (nd->type == IROLinearOp1Arg &&
+            (t == EPOSTINC || t == EPOSTDEC || t == EPREINC || t == EPREDEC) &&
+            (!(nd->flags & IROLF_Reffed) || t == EPREINC || t == EPREDEC)) {
+            Type* type = nd->rtype;
+            TypeType typetype = type->type;
+            varExpr = nd->u.monadic;
+            if (IsIntType301(type) || typetype == TYPEENUM) {
+                incExpr = IRO_NewIntConst(cint64_one, func_0055A620(type));
+            } else if (typetype == TYPEPOINTER ||
+                       typetype == TYPEARRAY ||
+                       typetype == TYPEMEMBERPOINTER) {
+                Type* inner = NULL;
+                CInt64 val = cint64_zero;
+
+                if (typetype == TYPEPOINTER || typetype == TYPEARRAY) {
+                    inner = IRO_UnqualifiedType(TPTR_TARGET(nd->rtype));
+                } else if (typetype == TYPEMEMBERPOINTER) {
+                    inner = IRO_UnqualifiedType(TYPE_MEMBER_POINTER(nd->rtype)->ty1);
+                }
+
+                if (inner) {
+                    CInt64_SetLong(&val, inner->size);
+                }
+
+                if (CInt64_IsZero(&val)) {
+                    return FALSE;
+                }
+                incExpr = IRO_NewIntConst(val, ps2_ptrinctype_56CCE0(nd->rtype));
+            } else if (typetype == TYPEFLOAT) {
+                Float fval;
+                fval = CMach_CalcFloatConvertFromInt(type, cint64_one);
+                incExpr = NewFloatConst301(fval, nd->rtype);
+            } else {
+                return FALSE;
+            }
+
+            if (t == EPOSTINC || t == EPREINC) {
+                newtype = EADDASS;
+            } else {
+                newtype = ESUBASS;
+            }
+        }
+
+        if (varExpr != NULL &&
+            incExpr != NULL &&
+            newtype != IRO_MAXEXPR &&
+            varExpr->u.diadic.left &&
+            varExpr->u.diadic.left->type == IROLinearOperand &&
+            varExpr->u.diadic.left->u.node &&
+            varExpr->u.diadic.left->u.node->type == EOBJREF &&
+            !IRO_HasSideEffect(varExpr)) {
+            incExpr->flags |= IROLF_Reffed;
+            nd->nodetype = newtype;
+            nd->u.diadic.right = incExpr;
+            nd->type = IROLinearOp2Arg;
+            IRO_Paste(incExpr, incExpr, nd);
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+extern IROLinear* func_0055A470(
+    IROLinear* expr, Type* type, IROList* list
+); // b210 0x56CB00: a cast of expr to type
+
+static inline Boolean SameType(Type* a, Type* b) {
+    return a == b || IRO_TypesEqual(a, b);
+}
+
+Boolean IRO_TransformSelfAssignmentToAssignment(IROLinear* nd) {
+    Boolean negate;
+    IROLinear* dupLeft;
+    ENodeType nonAssOp;
+    IROList list1;
+    IROList list2;
+    ENodeType nodetype;
+    IROLinear* left;
+    IROLinear* right;
+    IROLinear* dupRight;
+    IROLinear* nonAss;
+    IROLinear* last;
+
+    nodetype = nd->nodetype;
+    if (IRO_IsAssignment(nd) &&
+        IRO_IsModifyOp[nodetype] &&
+        nd->type == IROLinearOp1Arg &&
+        TransformMonadicSelfAssignmentToDiadicSelfAssignment(nd)) {
+        nodetype = nd->nodetype;
+    }
+
+    if (IRO_IsAssignment(nd) &&
+        IRO_IsModifyOp[nodetype] &&
+        nd->type == IROLinearOp2Arg &&
+        IRO_NonAssignmentOp[nodetype] != IRO_MAXEXPR) {
+        nonAssOp = IRO_NonAssignmentOp[nodetype];
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        negate = FALSE;
+        if (nonAssOp == ESUB && IRO_IsIntConstant(right) && !is_unsigned(right->rtype)) {
+            negate = TRUE;
+            nonAssOp = EADD;
+        }
+        if (left &&
+            right &&
+            nonAssOp != IRO_MAXEXPR &&
+            left->u.monadic &&
+            left->u.monadic->type == IROLinearOperand &&
+            left->u.monadic->u.node &&
+            left->u.monadic->u.node->type == EOBJREF &&
+            !IRO_HasSideEffect(left)) {
+            IRO_InitList(&list1);
+            dupRight = IRO_DuplicateExpr(right, &list1);
+            if (negate) {
+                dupRight->u.node->data.intval = CInt64_Neg(dupRight->u.node->data.intval);
+            }
+            dupLeft = IRO_DuplicateExpr(left, &list1);
+
+            if (!SameType(left->rtype, dupRight->rtype)) {
+                dupLeft = func_0055A470(dupLeft, IRO_UnqualifiedType(dupRight->rtype), &list1);
+                dupLeft->flags |= IROLF_Reffed;
+            }
+
+            nonAss = IRO_NewLinear(IROLinearOp2Arg);
+            nonAss->nodetype = nonAssOp;
+            nonAss->flags |= IROLF_Reffed;
+            nonAss->rtype = IRO_UnqualifiedType(dupLeft->rtype);
+            nonAss->index = ++IRO_NumLinear;
+            nonAss->u.diadic.left = dupLeft;
+            nonAss->u.diadic.right = dupRight;
+            IRO_AddToList(nonAss, &list1);
+
+            if (!SameType(left->rtype, dupRight->rtype)) {
+                nonAss = func_0055A470(nonAss, IRO_UnqualifiedType(left->rtype), &list1);
+                nonAss->flags |= IROLF_Reffed;
+            }
+
+            IRO_InitList(&list2);
+            last = FrontendTransformSelfAssignmentToAssignment(nd);
+            if (last &&
+                last->type == IROLinearOp2Arg &&
+                ReconcileAssignments(last->u.diadic.right, nonAss, &list2)) {
+                IRO_Dump("transforming self-assignment %d into EASS assignment\n", nd->index);
+                IRO_NopOut(nd->u.diadic.right);
+                nd->nodetype = EASS;
+                nd->u.diadic.right = list2.tail;
+                nd->type = IROLinearOp2Arg;
+                IRO_Paste(list2.head, list2.tail, nd);
+                return TRUE;
+            }
+        }
+    }
+
+    return FALSE;
+}
+#endif
+
+#if MWCCPS2
+// b219 0x554070 / b210 0x566620: the variable of a test `*obj == integer
+// constant` (an indirection through an object's address), else NULL
+Object* func_00554070(IROLinear* nd) {
+    IROLinear* left;
+
+    if (nd && nd->nodetype == EEQU && IRO_IsIntConstant(nd->u.diadic.right)) {
+        left = nd->u.diadic.left;
+        if (left->type == IROLinearOp1Arg &&
+            left->nodetype == EINDIRECT &&
+            left->u.monadic->type == IROLinearOperand &&
+            left->u.monadic->u.node->type == EOBJREF) {
+            return left->u.monadic->u.node->data.objref;
+        }
+        return NULL;
+    }
+    return NULL;
+}
+#endif
+
 // --- the bits of a variable an access reaches (0x5582F0..0x5587A0) ---------
 
 // the address addr (an object's, plus constants, maybe a bitfield's) reaches
@@ -2483,7 +3308,11 @@ static inline Boolean AddressBits301(
             for (elm = rec.ints; elm; elm = elm->next) {
                 value = CInt64_Add(value, elm->element->u.node->data.intval);
             }
+#if MWCCPS2 // b210 inlines the helpers (CW's inline depth stops here)
+            if (value.hi & 0x80000000) {
+#else
             if (CInt64_IsNegative(&value)) {
+#endif
                 ok = FALSE;
                 bitOffset = 0;
                 byteOffset = 0;
@@ -2492,7 +3321,11 @@ static inline Boolean AddressBits301(
                 CInt64 max;
                 CInt64_SetLong(&max, 0x7FFFFFFF);
                 if (CInt64_LessEqual(value, max)) {
+#if MWCCPS2
+                    byteOffset = value.lo;
+#else
                     byteOffset = CInt64_GetULong(&value);
+#endif
                 } else {
                     ok = FALSE;
                     bitOffset = 0;
@@ -2521,9 +3354,13 @@ Boolean func_00558360(IROLinear* addr, VarRecord* var, SInt32* offset, SInt32* c
 
     // 3.0.1 looks the address's variable up and drops it (a pure lookup, and
     // the address need not be an object reference)
+#if MWCCPS2 // b210 looks it up whatever the address is (a read only)
+    IRO_FindVar(addr->u.node->data.objref, FALSE, TRUE);
+#else
     if (addr->type == IROLinearOperand) {
         IRO_FindVar(addr->u.node->data.objref, FALSE, TRUE);
     }
+#endif
     return ok;
 }
 
@@ -2531,16 +3368,31 @@ Boolean func_00558360(IROLinear* addr, VarRecord* var, SInt32* offset, SInt32* c
 // indirection
 Boolean func_005582F0(IROLinear* nd, VarRecord* var, SInt32* offset, SInt32* count) {
     IROLinear* ind = nd;
+    Boolean result;
 
     *count = var->object->type->size * 8;
     do {
         ind = IRO_LocateFather(ind);
     } while (ind && !(ind->type == IROLinearOp1Arg && ind->nodetype == EINDIRECT));
+#if MWCCPS2
+    if (ind != NULL) {
+        *count = ind->rtype->size * 8;
+        ind = ind->u.monadic;
+        result = func_00558360(ind, var, offset, count);
+    } else {
+        result = FALSE;
+    }
+    return result;
+#else
     if (ind) {
         *count = ind->rtype->size * 8;
-        return func_00558360(ind->u.monadic, var, offset, count);
+        ind = ind->u.monadic;
+        result = func_00558360(ind, var, offset, count);
+    } else {
+        result = FALSE;
     }
-    return FALSE;
+    return result;
+#endif
 }
 
 // 0x558570: as 0x558360, for an address that comes down to an object
@@ -2548,6 +3400,21 @@ Boolean func_005582F0(IROLinear* nd, VarRecord* var, SInt32* offset, SInt32* cou
 Boolean func_00558570(
     IROLinear* addr, VarRecord* var, SInt32* offset, SInt32* count, Boolean* exact
 ) {
+#if MWCCPS2
+    // b210 stores the bits only when the address is an object reference
+    SInt32 bitsOffset;
+    SInt32 bitsCount = *count;
+    Boolean ok = AddressBits301(&addr, var, &bitsOffset, &bitsCount);
+
+    if (addr->type == IROLinearOperand && addr->u.node->type == EOBJREF) {
+        IRO_FindVar(addr->u.node->data.objref, FALSE, TRUE);
+        *offset = bitsOffset;
+        *count = bitsCount;
+        *exact = ok;
+        return TRUE;
+    }
+    return FALSE;
+#else
     Boolean ok = AddressBits301(&addr, var, offset, count);
 
     if (addr->type == IROLinearOperand && addr->u.node->type == EOBJREF) {
@@ -2556,6 +3423,7 @@ Boolean func_00558570(
         return TRUE;
     }
     return FALSE;
+#endif
 }
 
 // 0x558520: the bits an assignment nd stores
@@ -2565,16 +3433,52 @@ Boolean func_00558520(
     IROLinear* addr;
 
     *count = nd->rtype->size * 8;
+#if MWCCPS2
+    addr = nd->u.diadic.left;
+    nd = addr;
+    if (addr->type == IROLinearOp1Arg && addr->nodetype == EINDIRECT) {
+        nd = addr->u.monadic;
+    }
+    return func_00558570(nd, var, offset, count, exact);
+#else
     addr = nd->u.diadic.left;
     if (addr->type == IROLinearOp1Arg && addr->nodetype == EINDIRECT) {
         addr = addr->u.monadic;
     }
     return func_00558570(addr, var, offset, count, exact);
+#endif
 }
 
 extern IROLinear* IRO_FindAssignedObjRef(IROLinear* linear, Boolean* isBitfield); // IroVars.c
 extern VarRecord* IRO_FindAssigned301(IROLinear* linear, Boolean* isBitfield);
 
+#if MWCCPS2
+// mwccps2 does not inline it into func_00558750 (defined first)
+VarRecord* func_00558770(IROLinear* addr, Boolean* isBitfield);
+#pragma auto_inline off
+
+// 0x558750
+VarRecord* func_00558750(IROLinear* addr) {
+    return func_00558770(addr, NULL);
+}
+
+// 0x558770: the variable an address refers to
+VarRecord* func_00558770(IROLinear* addr, Boolean* isBitfield) {
+    IROLinear* objref;
+    VarRecord* var;
+
+    objref = IRO_FindAssignedObjRef(addr, isBitfield);
+    if (objref == NULL) {
+        return NULL;
+    }
+    var = IRO_FindVar(objref->u.node->data.objref, FALSE, TRUE);
+    if (var != NULL) {
+        return var;
+    }
+    return NULL;
+}
+#pragma auto_inline reset
+#else
 // 0x558770: the variable an address refers to
 VarRecord* func_00558770(IROLinear* addr, Boolean* isBitfield) {
     IROLinear* objref = IRO_FindAssignedObjRef(addr, isBitfield);
@@ -2590,14 +3494,13 @@ VarRecord* func_00558770(IROLinear* addr, Boolean* isBitfield) {
 VarRecord* func_00558750(IROLinear* addr) {
     return func_00558770(addr, NULL);
 }
+#endif
 
 // 0x558760
 VarRecord* func_00558760(IROLinear* nd) {
     return IRO_FindAssigned301(nd, NULL);
 }
 
-#endif
-#if MWCCPSP
 // --- 3.0.1 walks that pass an argument along -------------------------------
 
 // IRO_WalkTree with an argument (3.0.1's IRO_WalkTree, 0x553A10, takes one)
@@ -2633,6 +3536,64 @@ static void WalkTreeArg301(IROLinear* linear, IROWalkTreeArgFunc func, void* arg
 }
 
 // 0x553000: IRO_WalkInts with an argument
+#if MWCCPS2
+// b210 walks each tree with IRO_WalkTree_ps2 (it has no separate argument walk)
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+void func_00553000(IROLinear* first, IROLinear* last, IROWalkTreeArgFunc func, void* arg) {
+    IROLinear* scan;
+
+    for (scan = first; scan; scan = scan->next) {
+        switch (scan->type) {
+            case IROLinearGotoExpr:
+                IRO_WalkTree_ps2(scan->u.monadic, func, arg);
+                break;
+            case IROLinearBeginCatch:
+            case IROLinearEndCatch:
+            case IROLinearEndCatchDtor:
+                IRO_WalkTree_ps2(scan->u.ctch.linear, func, arg);
+                break;
+            case IROLinearOperand:
+            case IROLinearOp1Arg:
+            case IROLinearOp2Arg:
+            case IROLinearOp3Arg:
+            case IROLinearScope:
+            case IROLinearFunccall:
+                IRO_WalkTree_ps2(scan, func, arg);
+                break;
+            case IROLinearIf:
+            case IROLinearIfNot:
+                IRO_WalkTree_ps2(scan->u.label.cond, func, arg);
+                break;
+            case IROLinearReturn:
+                if (scan->u.monadic) {
+                    IRO_WalkTree_ps2(scan->u.monadic, func, arg);
+                }
+                break;
+            case IROLinearSwitch:
+                IRO_WalkTree_ps2(scan->u.swtch.cond, func, arg);
+                break;
+            case IROLinearAsm:
+                func(scan, TRUE, arg);
+                func(scan, FALSE, arg);
+                break;
+            case IROLinearNop:
+            case IROLinearGoto:
+            case IROLinearLabel:
+            case IROLinearEnd:
+                break;
+            default:
+                CError_FATAL(2507);
+                break;
+        }
+        if (scan == last) {
+            return;
+        }
+    }
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#else
 void func_00553000(IROLinear* first, IROLinear* last, IROWalkTreeArgFunc func, void* arg) {
     IROLinear* scan;
 
@@ -2684,6 +3645,7 @@ void func_00553000(IROLinear* first, IROLinear* last, IROWalkTreeArgFunc func, v
         }
     }
 }
+#endif
 
 // a search through a statement that stops at the first match
 typedef struct StmtSearch301 {
@@ -2692,8 +3654,18 @@ typedef struct StmtSearch301 {
     Boolean found;
 } StmtSearch301;
 
+#if MWCCPS2
+// b210's side-effect search has no target: found at +0x28
+typedef struct SideEffectSearch301 {
+    jmp_buf buf;
+    Boolean found;
+} SideEffectSearch301;
+#else
+typedef StmtSearch301 SideEffectSearch301;
+#endif
+
 static void SideEffectAction301(IROLinear* linear, Boolean isFirst, void* arg) {
-    StmtSearch301* search = arg;
+    SideEffectSearch301* search = arg;
 
     if (isFirst) {
         switch (linear->type) {
@@ -2715,7 +3687,7 @@ static void SideEffectAction301(IROLinear* linear, Boolean isFirst, void* arg) {
 
 // 0x551B00: the statement has a side effect
 Boolean func_00551B00(IROLinear* stmt) {
-    StmtSearch301 search;
+    SideEffectSearch301 search;
 
     memset(&search, 0, sizeof(search));
     search.found = FALSE;
@@ -2799,4 +3771,5 @@ void func_005518A0(
             break;
     }
 }
+
 #endif

@@ -9,9 +9,16 @@ extern void IRO_UpdateOptimizerOptions(void);
 void func_00439EA0(void) {
     IRO_UpdateOptimizerOptions();
     copts.opt_decomposeaggregates = copts.optimizationlevel >= 3;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    // b145 also sets copts+0x0EE (unnamed) at level 3 and leaves opt_repositioncode
+    copts.unknownEE[0] = copts.optimizationlevel >= 3;
+    copts.opt_movepostops = TRUE;
+    copts.opt_pulloutconstants = TRUE;
+#else
     copts.opt_movepostops = TRUE;
     copts.opt_pulloutconstants = TRUE;
     copts.opt_repositioncode = FALSE;
+#endif
 }
 
 // The optimizer's hook table for this target (0x439E20). Hook 1 and 10 are
@@ -51,12 +58,85 @@ Boolean func_004C5A00(Object* obj) {
     return FALSE;
 }
 
+#if MWCCPS2
+// b210-only (0x4D2120): a class that only wraps one 128-bit integer, directly
+// or through a single base class
+Boolean ps2_IsQuadwordClass(Type* type) {
+    TypeClass* tclass;
+    ObjMemberVar* ivar;
+    ClassList* base;
+
+    if (type == NULL) {
+        return FALSE;
+    }
+    if (IS_TYPE_CLASS(type) && TYPE_CLASS(type)->vtable == NULL) {
+        tclass = TYPE_CLASS(type);
+        if ((ivar = tclass->ivars) != NULL) {
+            if (ivar->next != NULL) {
+                return FALSE;
+            }
+        } else {
+            if ((base = tclass->bases) != NULL) {
+                if (base->base != NULL && base->next == NULL) {
+                    return ps2_IsQuadwordClass(TYPE(base->base));
+                }
+                return FALSE;
+            }
+            return FALSE;
+        }
+        if (ivar != NULL && (ivar->type->type != TYPEINT || ivar->type->size != 16)) {
+            return FALSE;
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+// b210-only (0x4D20B0): a local variable of such a class
+Boolean ps2_IsQuadwordClassLocal(Object* obj) {
+    ObjectList* list;
+
+    if (!obj) {
+        return FALSE;
+    }
+    if (obj->datatype != DLOCAL) {
+        return FALSE;
+    }
+    for (list = locals; list; list = list->next) {
+        if (list->object == obj) {
+            return ps2_IsQuadwordClass(obj->type);
+        }
+    }
+    return FALSE;
+}
+
+// b210-only (0x4D20F0): a pointer to such a class
+Boolean ps2_IsQuadwordClassPointer(Type* type) {
+    if (type != NULL && IS_TYPE_POINTER(type)) {
+        if (ps2_IsQuadwordClass(TPTR_TARGET(type))) {
+            return TRUE;
+        }
+        return FALSE;
+    }
+    return FALSE;
+}
+#endif
+
 // a variable that fits a register (an operand the optimizer can follow)
 #define REGISTER_TYPE(t) \
     ((t)->type == TYPEINT || \
      (t)->type == TYPEENUM || \
      ((t)->type == TYPEMEMBERPOINTER && (t)->size == 4) || \
      (t)->type == TYPEFLOAT)
+#if MWCCPS2
+#define PS2_REGISTER_TYPE(t) \
+    ((t)->type == TYPEINT || \
+     (t)->type == TYPEENUM || \
+     (t)->type == TYPEPOINTER || \
+     ((t)->type == TYPEMEMBERPOINTER && (t)->size == 4) || \
+     (t)->type == TYPEFLOAT || \
+     ps2_IsQuadwordClass(t))
+#endif
 
 // effects->operands[n] for obj
 static void asm_operand(
@@ -141,7 +221,11 @@ static void func_00439F30(Statement* stmt, IROAsmEffects* effects) {
                 }
                 if (op->effect & 1) {
                     type = obj->type;
+#if MWCCPS2 // b210: pointers and quadword classes too
+                    if (PS2_REGISTER_TYPE(type)) {
+#else
                     if (REGISTER_TYPE(type)) {
+#endif
                         last = effects->numoperands ? &effects->operands[effects->numoperands - 1]
                                                     : NULL;
                         if (last && last->object == obj && (last->type == 1 || last->type == 4)) {
@@ -158,7 +242,11 @@ static void func_00439F30(Statement* stmt, IROAsmEffects* effects) {
                 if (op->effect & 2) {
                     obj = op->u.reg.object;
                     type = obj->type;
+#if MWCCPS2
+                    if (PS2_REGISTER_TYPE(type)) {
+#else
                     if (REGISTER_TYPE(type) || type->type == TYPEPOINTER) {
+#endif
                         last = effects->numoperands ? &effects->operands[effects->numoperands - 1]
                                                     : NULL;
                         if (last && last->object == obj && (last->type == 0 || last->type == 4)) {
@@ -455,7 +543,13 @@ Boolean func_004C3EC0(IROLinear* nd) {
                         return FALSE;
                     }
                 } else if (nd->u.diadic.left->type == IROLinearOperand &&
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145: only an object that is not a local
+                           nd->u.diadic.left->u.node->type == EOBJREF &&
+                           nd->u.diadic.left->u.node->data.objref &&
+                           nd->u.diadic.left->u.node->data.objref->datatype != DLOCAL) {
+#else
                            nd->u.diadic.left->u.node->type == EOBJREF) {
+#endif
                     return FALSE;
                 }
             }
@@ -465,12 +559,70 @@ Boolean func_004C3EC0(IROLinear* nd) {
     }
 }
 
+#if MWCCPS2
+extern TypeIntegral ps2_int128_5E5EF4; // the 16-byte integer type
+extern Boolean func_004B8980(Object* obj);
+
+// b210 0x439CD0: quadword values are subable only with cse_vector_type; a
+// read of a local that lives in a register only with that class's
+// cse_hard_reg_* option (the class byte at VarInfo +0x2E)
+static Boolean FE_Hook0(IROLinear* linear) {
+    IROLinear* x;
+    ENode* node;
+    Object* obj;
+    VarInfo* vi;
+
+    if (!func_004C3EC0(linear)) {
+        return FALSE;
+    }
+    if (!copts.cse_vector_type) {
+        if (linear->rtype == TYPE(&ps2_int128_5E5EF4) || ps2_IsQuadwordClass(linear->rtype)) {
+            return FALSE;
+        }
+    }
+    if (linear->nodetype != EINDIRECT) {
+        return TRUE;
+    }
+    x = linear->u.monadic;
+    if (!x) {
+        CError_FATAL(567);
+        return FALSE;
+    }
+    if (x->nodetype != EOBJREF) {
+        return TRUE;
+    }
+    node = x->u.node;
+    if (!node || node->type != EOBJREF) {
+        return TRUE;
+    }
+    obj = node->data.objref;
+    if (!obj || !func_004B8980(obj)) {
+        return TRUE;
+    }
+    vi = Registers_GetVarInfo(obj);
+    if (!vi) {
+        return TRUE;
+    }
+    switch ((signed char)vi->unk24[2]) {
+        case 0:
+            return copts.cse_hard_reg_gpr;
+        case 1:
+            return copts.cse_hard_reg_fpr;
+        case 5:
+        case 6:
+            return copts.cse_hard_reg_vu0;
+        default:
+            return copts.cse_hard_reg_special != 0;
+    }
+}
+#else
 static Boolean FE_Hook0(IROLinear* linear) {
     if (!func_004C3EC0(linear)) {
         return FALSE;
     }
     return TRUE;
 }
+#endif
 
 static Boolean FE_Hook14(void) {
     return FALSE;

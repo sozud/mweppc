@@ -27,9 +27,6 @@
 
 extern Boolean is_volatile_object(Object* obj);
 extern Boolean IRO_FunctionCallMightThrowException(IROLinear* linear);
-extern void PointerAnalysis_LookupGotoTargets(
-    Object* func, IROLinear* linear, IROListNode** list
-); // 0x4CEAB0
 extern void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* arg);
 extern Boolean func_00555B30(ENode* expr);
 extern CInt64 cint64_negone;
@@ -85,6 +82,9 @@ static inline void InvalidateAll(void) {
 // --- IroType.c ------------------------------------------------------------
 
 // 0x55A670: the largest value of an integral type
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (FoldLinear)
+#endif
 CInt64 func_0055A670(Type* type) {
     CInt64 value;
     CInt64 bits;
@@ -100,6 +100,9 @@ CInt64 func_0055A670(Type* type) {
 }
 
 // 0x55A710: the smallest value of an integral type
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (FoldLinear)
+#endif
 CInt64 func_0055A710(Type* type) {
     CInt64 value;
     CInt64 bits;
@@ -114,6 +117,9 @@ CInt64 func_0055A710(Type* type) {
     return value;
 }
 
+#if MWCCPS2
+#line 115 "IroRangePropagation.c" // b210 names this unit in its asserts
+#endif
 // --- IroRangePropagation.c ------------------------------------------------
 
 // 0x590C80: a range that does not fit the type, or whose bounds cross, is
@@ -258,6 +264,13 @@ Boolean func_00590200(IROLinear* nd, CInt64* result) {
     }
 }
 
+#if MWCCPS2
+// unique link names: IroRangePropagation.c (2.4.7) has statics with the same
+// names, and the hybrid links replacements by base name
+#define InvalidateRangesForKillsByFunctionCall InvalidateRangesForKillsByFunctionCall301
+#define SetRangesForKillsByIndirectAssignment SetRangesForKillsByIndirectAssignment301
+#endif
+
 static inline Boolean ListHasObject(IROListNode* scan) {
     IROLinear* nd;
 
@@ -315,7 +328,7 @@ static void InvalidateRangesForKillsByFunctionCall(IROLinear* nd) {
     callee = nd->u.funccall.callee;
     if (callee && copts.opt_pointer_analysis && callee->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, callee, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, callee, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail) {
@@ -386,9 +399,12 @@ static void InvalidateRangesForKillsByFunctionCall(IROLinear* nd) {
 // the record of a variable stored with the given range: in a record of its
 // own, unknown unless the store has the variable's size, and after a
 // post-increment or post-decrement the stored value
-static void RecordStore(
-    Object* obj, ERange* range, IROLinear* nd, Boolean bitfield, Boolean multi
-) {
+#if MWCCPS2
+static inline // b210 inlines it into SetRangesForKillsByIndirectAssignment
+#else
+static
+#endif
+    void RecordStore(Object* obj, ERange* range, IROLinear* nd, Boolean bitfield, Boolean multi) {
     ERecord* record;
 
     if (!(record = FindRecord(obj))) {
@@ -440,7 +456,7 @@ static void SetRangesForKillsByIndirectAssignment(IROLinear* nd) {
         ptr->pointsToFunction &&
         FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, ptr, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, ptr, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail || !ListHasObject(scan)) {
@@ -879,12 +895,23 @@ static void FoldLinear(IROLinear* nd) {
 }
 
 // 0x58ED50
+#if MWCCPS2
+// b210 inlines a Boolean bit test (unsigned index)
+static inline Boolean IsBitSet210(UInt32 bit, BitVector* bv) {
+    return (bit >> 5) < bv->size && (bv->data[bit >> 5] & (1 << (bit & 31)));
+}
+#endif
+
 void IRO_RangePropagateInFNodes(BitVector* nodes) {
     IRONode* fnode;
     IROLinear* nd;
 
     for (fnode = IRO_FirstNode; fnode; fnode = fnode->nextnode) {
+#if MWCCPS2
+        if (nodes && !IsBitSet210(fnode->index, nodes)) {
+#else
         if (nodes && !Bv_IsBitSet(fnode->index, nodes)) {
+#endif
             continue;
         }
         data_00608CB0 = NULL;

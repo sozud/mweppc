@@ -295,9 +295,9 @@ void BE_EarlyConditionalMoves(void) {
                 src = br->args[0].reg;
                 third = 1;
                 break;
-            case 0x51B: // beq imm: xori
+            case MACRO_OP(0x03): // beq imm: xori
                 swap = 1;
-            case 0x53D: // bne imm
+            case MACRO_OP(0x25): // bne imm
                 CInt64_SetLong(&lim, 0xFFFF);
                 if (CInt64_GreaterU(IMM(br->args[1]), lim)) {
                     goto next;
@@ -306,16 +306,16 @@ void BE_EarlyConditionalMoves(void) {
                 src = br->args[0].reg;
                 third = br->args[1].value2;
                 break;
-            case 0x51D: // bge: slt
+            case MACRO_OP(0x05): // bge: slt
                 swap = 1;
-            case 0x535: // blt
+            case MACRO_OP(0x1D): // blt
                 cmpop = 0xD4;
                 src = br->args[0].reg;
                 third = br->args[1].reg;
                 break;
-            case 0x51F: // bge imm: slti
+            case MACRO_OP(0x07): // bge imm: slti
                 swap = 1;
-            case 0x537: // blt imm
+            case MACRO_OP(0x1F): // blt imm
                 if (!CInt64_IsInRange(IMM(br->args[1]), 2)) {
                     goto next;
                 }
@@ -323,16 +323,16 @@ void BE_EarlyConditionalMoves(void) {
                 src = br->args[0].reg;
                 third = br->args[1].value2;
                 break;
-            case 0x521: // bgeu: sltu
+            case MACRO_OP(0x09): // bgeu: sltu
                 swap = 1;
-            case 0x539: // bltu
+            case MACRO_OP(0x21): // bltu
                 cmpop = 0xD7;
                 src = br->args[0].reg;
                 third = br->args[1].reg;
                 break;
-            case 0x523: // bgeu imm: sltiu
+            case MACRO_OP(0x0B): // bgeu imm: sltiu
                 swap = 1;
-            case 0x53B: // bltu imm
+            case MACRO_OP(0x23): // bltu imm
                 if (!CInt64_IsInRange(IMM(br->args[1]), 2)) {
                     goto next;
                 }

@@ -11,7 +11,12 @@
 #include <string.h>
 
 static char* CLGetErrorString(SInt16 errid, char* buffer) {
+#if MWCCPS2
+    GetIndString((StringPtr)buffer, 12000, errid);
+    p2cstr((StringPtr)buffer);
+#else
     getindstring(buffer, 12000, errid);
+#endif
     strcat(buffer, "\n");
     return buffer;
 }

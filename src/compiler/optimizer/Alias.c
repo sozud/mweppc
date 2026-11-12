@@ -19,10 +19,23 @@
 
 void add_alias_member(Alias* parent, Alias* child);
 
+#if MWCCPS2 && MWCCPSP_NATIVE
+// b210 inlined part of this unit into AliasPropagation.c, which reaches these
+// statics as ps2_alias_* (bound to their b210 addresses in the hybrid);
+// natively they must be the same storage
+#define aliases ps2_alias_aliases
+#define n_aliases ps2_alias_n_aliases
+#define n_gathered_aliases ps2_alias_n_gathered
+Alias* aliases;
+static Alias* set_aliases;
+int n_aliases;
+int n_gathered_aliases;
+#else
 static Alias* aliases;
 static Alias* set_aliases;
 static int n_aliases;
 static int n_gathered_aliases;
+#endif
 static Alias* alias_hash[997];
 Alias* worst_case_ptr;
 #if VERSION >= VERSION_GC_2_5
@@ -1448,8 +1461,13 @@ Boolean uniquely_aliases_alias(PCode* a, Alias* b) {
         a->alias &&
         b &&
         a->alias == b &&
+#if MWCCPS2
+        (a->alias->type == AliasType_Object || a->alias->type == AliasType_ObjectPart) &&
+        (b->type == AliasType_Object || b->type == AliasType_ObjectPart) &&
+#else
         a->alias->type < AliasType_Set &&
         b->type < AliasType_Set &&
+#endif
         b->size == (size = a->alias->size) &&
         size == func_0048FBE0(PCODE_OP301(a))) {
         return TRUE;
@@ -1465,8 +1483,13 @@ Boolean uniquely_aliases(PCode* a, PCode* b) {
         a->alias &&
         b->alias &&
         a->alias == b->alias &&
+#if MWCCPS2
+        (a->alias->type == AliasType_Object || a->alias->type == AliasType_ObjectPart) &&
+        (b->alias->type == AliasType_Object || b->alias->type == AliasType_ObjectPart) &&
+#else
         a->alias->type < AliasType_Set &&
         b->alias->type < AliasType_Set &&
+#endif
         b->alias->size == (size = a->alias->size) &&
         size == func_0048FBE0(PCODE_OP301(a)) &&
         size == func_0048FBE0(PCODE_OP301(b))) {

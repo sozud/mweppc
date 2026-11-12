@@ -61,6 +61,9 @@ typedef struct LabelTrans {
     struct LabelTrans* next;
     CLabel** labelptr;
     short id;
+#if MWCCPS2
+    short pad; // b210 allocates 0xC bytes
+#endif
 } LabelTrans;
 
 typedef struct UIDTemp {
@@ -424,6 +427,10 @@ static ENode* CInline_FoldConst(ENode* expr) {
         case ECOMMA:
         case EROTL:
         case EROTR:
+#if MWCCPSP
+        case EMIN:
+        case EMAX:
+#endif
             expr->data.diadic.left = CInline_FoldConst(expr->data.diadic.left);
             expr->data.diadic.right = CInline_FoldConst(expr->data.diadic.right);
             return expr;
@@ -472,6 +479,280 @@ static ENode* CInline_FoldConst(ENode* expr) {
     }
 }
 
+#if MWCCPS2
+// b210's !!expr for a folded operand (3.0.1: a constant also gets the bool type)
+static inline ENode* CInline_MakeNotNot301(ENode* expr) {
+    if (!ENODE_IS(expr, EINTCONST)) {
+        expr = makemonadicnode(expr, ELOGNOT);
+        expr->rtype = CParser_GetBoolType();
+        expr = makemonadicnode(expr, ELOGNOT);
+    } else {
+        expr->data.intval = CInt64_Not(CInt64_Not(expr->data.intval));
+        expr->rtype = CParser_GetBoolType();
+    }
+    return expr;
+}
+
+// b210 0x50E2B0 (b219 0x500090): 3.0.1's constant fold of one node, the
+// callback of CExpr_SearchExprTreeReplace (which folds the operands first)
+ENode* func_00500090(ENode* expr) {
+    ENode* inner;
+    ENode* left;
+
+    switch (expr->type) {
+        case EMONMIN:
+        case EBINNOT:
+        case ELOGNOT:
+            inner = expr->data.monadic;
+            switch (inner->type) {
+                case EINTCONST:
+                    if (!ENODE_IS(expr, ELOGNOT)) {
+                        inner->data.intval = CMach_CalcIntMonadic(
+                            expr->rtype, CParser_GetOperator(expr->type), inner->data.intval
+                        );
+                    } else {
+                        inner->data.intval = CInt64_Not(inner->data.intval);
+                    }
+                    inner->rtype = expr->rtype;
+                    return inner;
+
+                case EFLOATCONST:
+                    if (ENODE_IS(expr, ELOGNOT)) {
+                        inner->type = EINTCONST;
+                        CInt64_SetLong(
+                            &inner->data.intval, CMach_FloatIsZero(inner->data.floatval)
+                        );
+                    } else {
+                        inner->data.floatval = CMach_CalcFloatMonadic(
+                            expr->rtype, CParser_GetOperator(expr->type), inner->data.floatval
+                        );
+                    }
+                    inner->rtype = expr->rtype;
+                    return inner;
+                default:
+                    break;
+            }
+            return expr;
+
+        case ETYPCON:
+            switch (expr->data.monadic->type) {
+                case EINTCONST:
+                    switch (expr->rtype->type) {
+                        case TYPEFLOAT:
+                            expr->type = EFLOATCONST;
+                            expr->data.floatval = CMach_CalcFloatConvertFromInt(
+                                expr->data.monadic->rtype, expr->data.monadic->data.intval
+                            );
+                            return expr;
+
+                        case TYPEINT:
+                            expr->type = EINTCONST;
+                            expr->data.intval = CExpr_IntConstConvert(
+                                expr->rtype,
+                                expr->data.monadic->rtype,
+                                expr->data.monadic->data.intval
+                            );
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
+
+                case EFLOATCONST:
+                    switch (expr->rtype->type) {
+                        case TYPEFLOAT:
+                            expr->type = EFLOATCONST;
+                            expr->data.floatval = CMach_CalcFloatConvert(
+                                expr->rtype, expr->data.monadic->data.floatval
+                            );
+                            return expr;
+
+                        case TYPEINT:
+                            expr->type = EINTCONST;
+                            expr->data.intval = CMach_CalcIntConvertFromFloat(
+                                expr->rtype, expr->data.monadic->data.floatval
+                            );
+                            return expr;
+                        default:
+                            break;
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return expr;
+
+        case EPOSTINC:
+        case EPOSTDEC:
+            switch (expr->data.monadic->type) {
+                case EINTCONST:
+                case EFLOATCONST:
+                    CError_FATAL(244);
+                    break;
+                default:
+                    break;
+            }
+            return expr;
+
+        case EDIV:
+        case EMODULO:
+            if (expr->data.diadic.left->type == expr->data.diadic.right->type) {
+                left = expr->data.diadic.left;
+                switch (expr->data.diadic.left->type) {
+                    case EINTCONST:
+                        if (CInt64_IsZero(&expr->data.diadic.right->data.intval)) {
+                            return expr;
+                        }
+                        left->data.intval = CMach_CalcIntDiadic(
+                            expr->rtype,
+                            expr->data.diadic.left->data.intval,
+                            CParser_GetOperator(expr->type),
+                            expr->data.diadic.right->data.intval
+                        );
+                        left->rtype = expr->rtype;
+                        return left;
+
+                    case EFLOATCONST:
+                        left->data.floatval = CMach_CalcFloatDiadic(
+                            expr->rtype,
+                            expr->data.diadic.left->data.floatval,
+                            CParser_GetOperator(expr->type),
+                            expr->data.diadic.right->data.floatval
+                        );
+                        left->rtype = expr->rtype;
+                        return left;
+                    default:
+                        break;
+                }
+            }
+            return expr;
+
+        case EMUL:
+        case EADD:
+        case ESUB:
+        case ESHL:
+        case ESHR:
+        case EAND:
+        case EXOR:
+        case EOR:
+            if (expr->data.diadic.left->type == expr->data.diadic.right->type) {
+                left = expr->data.diadic.left;
+                switch (expr->data.diadic.left->type) {
+                    case EINTCONST:
+                        left->data.intval = CMach_CalcIntDiadic(
+                            expr->rtype,
+                            expr->data.diadic.left->data.intval,
+                            CParser_GetOperator(expr->type),
+                            expr->data.diadic.right->data.intval
+                        );
+                        left->rtype = expr->rtype;
+                        return left;
+
+                    case EFLOATCONST:
+                        left->data.floatval = CMach_CalcFloatDiadic(
+                            expr->rtype,
+                            expr->data.diadic.left->data.floatval,
+                            CParser_GetOperator(expr->type),
+                            expr->data.diadic.right->data.floatval
+                        );
+                        left->rtype = expr->rtype;
+                        return left;
+                    default:
+                        break;
+                }
+            }
+            return expr;
+
+        case EMIN:
+        case EMAX:
+            return expr;
+
+        case EROTL:
+        case EROTR:
+            return expr;
+
+        case ELESS:
+        case EGREATER:
+        case ELESSEQU:
+        case EGREATEREQU:
+        case EEQU:
+        case ENOTEQU:
+            if (expr->data.diadic.left->type == expr->data.diadic.right->type) {
+                left = expr->data.diadic.left;
+                switch (expr->data.diadic.left->type) {
+                    case EINTCONST:
+                        left->data.intval = CMach_CalcIntDiadic(
+                            left->rtype,
+                            expr->data.diadic.left->data.intval,
+                            CParser_GetOperator(expr->type),
+                            expr->data.diadic.right->data.intval
+                        );
+                        left->rtype = expr->rtype;
+                        return left;
+
+                    case EFLOATCONST:
+                        CInt64_SetLong(
+                            &left->data.intval,
+                            CMach_CalcFloatDiadicBool(
+                                left->rtype,
+                                expr->data.diadic.left->data.floatval,
+                                CParser_GetOperator(expr->type),
+                                expr->data.diadic.right->data.floatval
+                            )
+                        );
+                        left->type = EINTCONST;
+                        left->rtype = expr->rtype;
+                        return left;
+                    default:
+                        break;
+                }
+            }
+            return expr;
+
+        case ELAND:
+            if (iszero(expr->data.diadic.left)) {
+                return expr->data.diadic.left;
+            }
+            if (isnotzero(expr->data.diadic.left)) {
+                return CInline_MakeNotNot301(expr->data.diadic.right);
+            }
+            if (isnotzero(expr->data.diadic.right)) {
+                return CInline_MakeNotNot301(expr->data.diadic.left);
+            }
+            return expr;
+
+        case ELOR:
+            if (iszero(expr->data.diadic.left)) {
+                return CInline_MakeNotNot301(expr->data.diadic.right);
+            }
+            if (isnotzero(expr->data.diadic.left)) {
+                return CInline_MakeNotNot301(expr->data.diadic.left);
+            }
+            if (iszero(expr->data.diadic.right)) {
+                return CInline_MakeNotNot301(expr->data.diadic.left);
+            }
+            return expr;
+
+        case ECOND:
+            if (isnotzero(expr->data.cond.cond)) {
+                return expr->data.cond.expr1;
+            }
+            if (iszero(expr->data.cond.cond)) {
+                return expr->data.cond.expr2;
+            }
+            return expr;
+
+        case ENULLCHECK:
+            return expr;
+
+        default:
+            return expr;
+    }
+}
+#endif
+#if MWCCPSP
+
+#endif
 #if MWCCPSP
 SInt32 CInline_GetLocalID(Object* object) {
     CI_Var* var;
@@ -586,11 +867,129 @@ SInt32 CInline_GetLocalID(Object* object) {
 
     return 0;
 }
-
 #endif
-#if MWCCPSP
 
-#endif
+#if MWCCPS2
+// 0x50E070: 3.0.1's node kinds; scope markers are trivial, an object access
+// counts through its object expression only for a non-static member, and
+// local/argument objects are not expected here
+static Boolean CInline_IsTrivialExpression(ENode* expr) {
+    while (1) {
+        switch (expr->type) {
+            case EINTCONST:
+            case EFLOATCONST:
+            case EOBJREF:
+                return FALSE;
+
+            case ESCOPEBEGIN:
+            case ESCOPEEND:
+                return TRUE;
+
+            case ESTRINGCONST:
+                return copts.dont_reuse_strings;
+
+            case EOBJACCESS:
+                if (expr->data.objaccess.nonstatic && expr->data.objaccess.expr) {
+                    return CInline_IsTrivialExpression(expr->data.objaccess.expr);
+                }
+                return FALSE;
+
+            case EINDIRECT:
+                if (ENODE_IS(expr->data.monadic, EOBJREF)) {
+                    Object* object = expr->data.monadic->data.objref;
+                    Boolean result;
+
+                    if (object->datatype == DLOCAL && !(object->flags & OBJECT_REFERENCED)) {
+                        result = FALSE;
+                    } else if (is_const_object(object)) {
+                        result = FALSE;
+                    } else {
+                        result = TRUE;
+                    }
+                    return result;
+                }
+
+                return TRUE;
+
+            case EPOSTINC:
+            case EPOSTDEC:
+            case EPREINC:
+            case EPREDEC:
+            case EFORCELOAD:
+            case EASS:
+            case EMULASS:
+            case EDIVASS:
+            case EMODASS:
+            case EADDASS:
+            case ESUBASS:
+            case ESHLASS:
+            case ESHRASS:
+            case EANDASS:
+            case EXORASS:
+            case EORASS:
+            case EFUNCCALL:
+            case EFUNCCALLP:
+            case EMFPOINTER:
+            case ENULLCHECK:
+            case EPRECOMP:
+            case ETEMP:
+            case ELABEL:
+            case EINSTRUCTION:
+                return TRUE;
+
+            case EMONMIN:
+            case EBINNOT:
+            case ELOGNOT:
+            case ETYPCON:
+            case EBITFIELD:
+                expr = expr->data.monadic;
+                continue;
+
+            case EMUL:
+            case EDIV:
+            case EMODULO:
+            case EADD:
+            case ESUB:
+            case ESHL:
+            case ESHR:
+            case ELESS:
+            case EGREATER:
+            case ELESSEQU:
+            case EGREATEREQU:
+            case EEQU:
+            case ENOTEQU:
+            case EAND:
+            case EXOR:
+            case EOR:
+            case ELAND:
+            case ELOR:
+            case ECOMMA:
+            case EMIN:
+            case EMAX:
+            case EROTL:
+            case EROTR:
+                if (CInline_IsTrivialExpression(expr->data.diadic.left)) {
+                    return TRUE;
+                }
+                expr = expr->data.diadic.right;
+                continue;
+
+            case ECOND:
+                if (CInline_IsTrivialExpression(expr->data.cond.cond)) {
+                    return TRUE;
+                }
+                if (CInline_IsTrivialExpression(expr->data.cond.expr1)) {
+                    return TRUE;
+                }
+                expr = expr->data.cond.expr2;
+                continue;
+
+            default:
+                CError_FATAL(614);
+        }
+    }
+}
+#else
 static Boolean CInline_IsTrivialExpression(ENode* expr) {
     while (1) {
         switch (expr->type) {
@@ -686,6 +1085,10 @@ static Boolean CInline_IsTrivialExpression(ENode* expr) {
             case ECOMMA:
             case EROTL:
             case EROTR:
+#if MWCCPSP
+            case EMIN:
+            case EMAX:
+#endif
                 if (CInline_IsTrivialExpression(expr->data.diadic.left)) {
                     return TRUE;
                 }
@@ -707,6 +1110,7 @@ static Boolean CInline_IsTrivialExpression(ENode* expr) {
         }
     }
 }
+#endif
 
 #if MWCCPSP
 // 0x4FFD80: 3.0.1's node kinds; an object access counts through its object
@@ -974,9 +1378,45 @@ static short CInline_GetLabelStatementNumber(HashNameNode* name) {
         }
     }
 
+#if MWCCPS2
+    CError_FATAL(775);
+#else
     CError_FATAL(742);
+#endif
     return 0;
 }
+#if MWCCPSP
+
+#endif
+#if MWCCPS2
+// 3.0.1 payloads CInline_CheckUsage and CInline_CopyNodes walk; only the
+// fields they read (sizes from the copies: 0x10, 0x30, 8 bytes)
+#define TDE_OPERAND(expr, type, i) (((type*)&(expr)->data)[i])
+
+// ECTORINIT's list (operand 0): one expression, or an argument list
+typedef struct CI_CtorInit {
+    struct CI_CtorInit* next;
+    void* init; // ENode* when isexpr, otherwise ENodeList*
+    UInt8 pad8[5];
+    Boolean isexpr; // +0x0D
+    UInt8 padE[2];
+} CI_CtorInit;
+
+// a template-dependent initializer tree (subtypes 23/24, kind 2)
+typedef struct CI_TemplInitTree {
+    struct CI_TemplInitTree* next;
+    struct CI_TemplInitTree* sub;
+    ENode* expr;
+    UInt8 padC[0x24];
+} CI_TemplInitTree;
+
+// subtypes 23/24's operand 1
+typedef struct CI_TemplInit {
+    void* u; // ENode*, ENodeList* or CI_TemplInitTree*
+    UInt8 kind;
+    UInt8 pad5[3];
+} CI_TemplInit;
+#endif
 
 static ENodeList* CInline_CopyNodeList(ENodeList* list) {
     ENodeList* first;
@@ -1007,6 +1447,11 @@ static ENodeList* CInline_CopyNodeList(ENodeList* list) {
     return first;
 }
 
+#if MWCCPSP
+extern NameSpaceObjectList* CScope_CopyNameSpaceObjectList(
+    NameSpaceObjectList* list, Boolean global
+); // 0x4ED0D0
+#else
 static EMemberInfo* CInline_CopyEMemberInfo(EMemberInfo* mi) {
     EMemberInfo* copy;
 
@@ -1026,7 +1471,542 @@ static EMemberInfo* CInline_CopyEMemberInfo(EMemberInfo* mi) {
 
     return copy;
 }
+#endif
 
+#if MWCCPS2
+// b210 helpers outside CInline.c (CInit.c 0x513400, CExpr.c 0x5247D0)
+extern void ps2_InlineStringObject_513400(ENode* expr);
+extern void* ps2_tdecopy_5247D0(void* list);
+extern NameSpaceObjectList* CScope_CopyNameSpaceObjectList(
+    NameSpaceObjectList* list, Boolean global
+); // 0x4FB260
+
+static CI_TemplInitTree* ps2_CopyTemplInitTree_50DC90(CI_TemplInitTree* tree);
+
+// 0x50DA90: copies an ECTORINIT list
+static CI_CtorInit* ps2_CopyCtorInit_50DA90(CI_CtorInit* init) {
+    CI_CtorInit* copy;
+
+    if (!init) {
+        return NULL;
+    }
+
+    if (enode_globalcopy) {
+        copy = galloc(sizeof(CI_CtorInit));
+    } else {
+        copy = lalloc(sizeof(CI_CtorInit));
+    }
+    *copy = *init;
+    copy->next = ps2_CopyCtorInit_50DA90(copy->next);
+    if (copy->isexpr) {
+        if (copy->init) {
+            copy->init = CInline_CopyNodes((ENode*)copy->init);
+        }
+    } else {
+        copy->init = CInline_CopyNodeList((ENodeList*)copy->init);
+    }
+    return copy;
+}
+
+// 0x50DC00: copies template-dependent subtypes 23/24's initializer
+static CI_TemplInit* ps2_CopyTemplInit_50DC00(CI_TemplInit* init) {
+    CI_TemplInit* copy;
+
+    if (!init) {
+        return NULL;
+    }
+
+    if (enode_globalcopy) {
+        copy = galloc(sizeof(CI_TemplInit));
+    } else {
+        copy = lalloc(sizeof(CI_TemplInit));
+    }
+    *copy = *init;
+    switch (copy->kind) {
+        case 0:
+            copy->u = CInline_CopyNodes((ENode*)copy->u);
+            break;
+        case 1:
+            copy->u = CInline_CopyNodeList((ENodeList*)copy->u);
+            break;
+        case 2:
+            copy->u = ps2_CopyTemplInitTree_50DC90((CI_TemplInitTree*)copy->u);
+            break;
+        default:
+            CError_FATAL(879);
+    }
+    return copy;
+}
+
+// 0x50DC90: copies an initializer tree
+static CI_TemplInitTree* ps2_CopyTemplInitTree_50DC90(CI_TemplInitTree* tree) {
+    CI_TemplInitTree* first;
+    CI_TemplInitTree* last;
+
+    first = NULL;
+    while (tree) {
+        if (first) {
+            if (enode_globalcopy) {
+                last->next = galloc(sizeof(CI_TemplInitTree));
+            } else {
+                last->next = lalloc(sizeof(CI_TemplInitTree));
+            }
+            last = last->next;
+        } else {
+            if (enode_globalcopy) {
+                first = galloc(sizeof(CI_TemplInitTree));
+            } else {
+                first = lalloc(sizeof(CI_TemplInitTree));
+            }
+            last = first;
+        }
+        *last = *tree;
+        if (last->expr) {
+            last->expr = CInline_CopyNodes(last->expr);
+        }
+        if (last->sub) {
+            last->sub = ps2_CopyTemplInitTree_50DC90(last->sub);
+        }
+        tree = tree->next;
+    }
+    return first;
+}
+
+// 0x50D380: 3.0.1 node kinds (inline strings, object accesses, constructor
+// initializers, the template-dependent subtypes)
+static ENode* CInline_CopyNodes(ENode* node) {
+    ENode* copy;
+    ObjectList* list;
+    int i;
+
+    if (enode_globalcopy) {
+        copy = galloc(sizeof(ENode));
+    } else {
+        copy = lalloc(sizeof(ENode));
+    }
+
+    while (1) {
+        *copy = *node;
+        switch (copy->type) {
+            case ESTRINGCONST:
+                // a string in an inline function with external linkage
+                // becomes its own object when the function is packed
+                if (copy->data.string.inlineid &&
+                    enode_copymode == CopyModePack &&
+                    cscope_currentfunc) {
+                    ps2_InlineStringObject_513400(copy);
+                }
+                break;
+
+            case ETEMPLDEP:
+                switch (copy->data.templdep.subtype) {
+                    case TDE_OBJACCESS:
+                        if (copy->data.objaccess.list) {
+                            copy->data.objaccess.list = CScope_CopyNameSpaceObjectList(
+                                copy->data.objaccess.list, enode_globalcopy
+                            );
+                        }
+                        if (copy->data.objaccess.expr) {
+                            copy->data.objaccess.expr =
+                                CInline_CopyNodes(copy->data.objaccess.expr);
+                        }
+                        if (copy->data.objaccess.templargs) {
+                            copy->data.objaccess.templargs =
+                                CTemplTool_MakeGlobalTemplArgCopy(copy->data.objaccess.templargs);
+                        }
+                        break;
+                    case TDE_SIZEOF:
+                        if (TDE_OPERAND(copy, UInt8, 5)) {
+                            TDE_OPERAND(copy, ENode*, 0) =
+                                CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        }
+                        break;
+                    case TDE_CAST:
+                        copy->data.templdep.u.cast.args =
+                            CInline_CopyNodeList(copy->data.templdep.u.cast.args);
+                        break;
+                    case TDE_SOURCEREF:
+                        copy->data.templdep.u.sourceref.expr =
+                            CInline_CopyNodes(copy->data.templdep.u.sourceref.expr);
+                        break;
+                    case TDE_ADDRESS_OF:
+                    case TDE_UNARYPLUS:
+                    case TDE_DEREF:
+                    case 21:
+                        copy->data.templdep.u.monadic =
+                            CInline_CopyNodes(copy->data.templdep.u.monadic);
+                        break;
+                    case TDE_FUNCCALL:
+                        TDE_OPERAND(copy, ENode*, 0) =
+                            CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        TDE_OPERAND(copy, ENodeList*, 1) =
+                            CInline_CopyNodeList(TDE_OPERAND(copy, ENodeList*, 1));
+                        break;
+                    case 12:
+                        if (TDE_OPERAND(copy, ENode*, 2)) {
+                            TDE_OPERAND(copy, ENode*, 2) =
+                                CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 2));
+                        }
+                        TDE_OPERAND(copy, ENodeList*, 3) =
+                            CInline_CopyNodeList(TDE_OPERAND(copy, ENodeList*, 3));
+                        TDE_OPERAND(copy, ENodeList*, 4) =
+                            CInline_CopyNodeList(TDE_OPERAND(copy, ENodeList*, 4));
+                        break;
+                    case 13:
+                        TDE_OPERAND(copy, ENode*, 0) =
+                            CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        break;
+                    case 14:
+                        TDE_OPERAND(copy, ENode*, 0) =
+                            CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        TDE_OPERAND(copy, ENode*, 1) =
+                            CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 1));
+                        break;
+                    case 15:
+                    case 16:
+                    case 17:
+                    case 18:
+                    case 19:
+                        if (TDE_OPERAND(copy, ENode*, 0)) {
+                            TDE_OPERAND(copy, ENode*, 0) =
+                                CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        }
+                        break;
+                    case 20:
+                        TDE_OPERAND(copy, ENode*, 0) =
+                            CInline_CopyNodes(TDE_OPERAND(copy, ENode*, 0));
+                        TDE_OPERAND(copy, void*, 1) =
+                            ps2_tdecopy_5247D0(TDE_OPERAND(copy, void*, 1));
+                        break;
+                    case 23:
+                    case 24:
+                        TDE_OPERAND(copy, CI_TemplInit*, 1) =
+                            ps2_CopyTemplInit_50DC00(TDE_OPERAND(copy, CI_TemplInit*, 1));
+                        break;
+                    case TDE_PARAM:
+                    case TDE_QUALNAME:
+                    case TDE_QUALTEMPL:
+                    case TDE_LOCAL:
+                    case 22:
+                    case 25:
+                        break;
+                    default:
+                        CError_FATAL(1109);
+                }
+                break;
+
+            case ETEMP:
+                if (enode_copymode == CopyModeUnpack && copy->data.temp.uniqueid != 0) {
+                    copy->data.temp.uniqueid = CInline_TranslateID(copy->data.temp.uniqueid);
+                }
+                break;
+
+            case ELABEL:
+                switch (enode_copymode) {
+                    case CopyModePack:
+                        copy->data.precompid =
+                            CInline_GetLabelStatementNumber(copy->data.label->uniquename);
+                        return copy;
+                    case CopyModeUnpack:
+                    case CopyModeExpand: {
+                        LabelTrans* trans = lalloc(sizeof(LabelTrans));
+                        trans->next = cinline_label_trans;
+                        cinline_label_trans = trans;
+                        trans->id = copy->data.precompid;
+                        trans->labelptr = &copy->data.label;
+                        return copy;
+                    }
+                    default:
+                        break;
+                }
+                break;
+
+            case EINTCONST:
+            case EFLOATCONST:
+            case EINSTRUCTION:
+                break;
+
+            case EPOSTINC:
+            case EPOSTDEC:
+            case EPREINC:
+            case EPREDEC:
+            case EMONMIN:
+            case EBINNOT:
+            case ELOGNOT:
+            case EFORCELOAD:
+            case ETYPCON:
+            case EBITFIELD:
+                copy->data.monadic = CInline_CopyNodes(copy->data.monadic);
+                break;
+
+            case EMUL:
+            case EMULV:
+            case EDIV:
+            case EMODULO:
+            case EADDV:
+            case ESUBV:
+            case EADD:
+            case ESUB:
+            case ESHL:
+            case ESHR:
+            case ELESS:
+            case EGREATER:
+            case ELESSEQU:
+            case EGREATEREQU:
+            case EEQU:
+            case ENOTEQU:
+            case EAND:
+            case EXOR:
+            case EOR:
+            case ELAND:
+            case ELOR:
+            case EASS:
+            case EMULASS:
+            case EDIVASS:
+            case EMODASS:
+            case EADDASS:
+            case ESUBASS:
+            case ESHLASS:
+            case ESHRASS:
+            case EANDASS:
+            case EXORASS:
+            case EORASS:
+            case ECOMMA:
+            case EMIN:
+            case EMAX:
+            case EPMODULO:
+            case EROTL:
+            case EROTR:
+            case EBCLR:
+            case EBTST:
+            case EBSET:
+            case EPOINTERSTAR:
+            case EDOTSTAR:
+                copy->data.diadic.left = CInline_CopyNodes(copy->data.diadic.left);
+                copy->data.diadic.right = CInline_CopyNodes(copy->data.diadic.right);
+                break;
+
+            case ECOND:
+                copy->data.cond.cond = CInline_CopyNodes(copy->data.cond.cond);
+                copy->data.cond.expr1 = CInline_CopyNodes(copy->data.cond.expr1);
+                copy->data.cond.expr2 = CInline_CopyNodes(copy->data.cond.expr2);
+                break;
+
+            case EMFPOINTER:
+                copy->data.mfpointer.accessnode =
+                    CInline_CopyNodes(copy->data.mfpointer.accessnode);
+                copy->data.mfpointer.mfpointer = CInline_CopyNodes(copy->data.mfpointer.mfpointer);
+                break;
+
+            case EFUNCCALL:
+            case EFUNCCALLP:
+                copy->data.funccall.funcref = CInline_CopyNodes(copy->data.funccall.funcref);
+                copy->data.funccall.args = CInline_CopyNodeList(copy->data.funccall.args);
+                break;
+
+            case ENULLCHECK:
+                copy->data.nullcheck.precompid =
+                    CInline_TranslateID(copy->data.nullcheck.precompid);
+                copy->data.nullcheck.nullcheckexpr =
+                    CInline_CopyNodes(copy->data.nullcheck.nullcheckexpr);
+                copy->data.nullcheck.condexpr = CInline_CopyNodes(copy->data.nullcheck.condexpr);
+                break;
+
+            case EPRECOMP:
+                copy->data.precompid = CInline_TranslateID(copy->data.precompid);
+                break;
+
+            case EINDIRECT:
+#if MWCCPSP
+                if (enode_copymode == CopyModeExpand &&
+                    ENODE_IS(copy->data.monadic, EOBJREF) &&
+                    (copy->data.monadic->flags & ENODE_FLAG_LOCALUID)) {
+                    CI_LocalObj* lobj = CInline_FindLocalObj(copy->data.monadic->data.longval);
+                    if (!lobj->object) {
+                        CError_ASSERT(1183, lobj->useExpr);
+                        copy = CInline_CopyExpressionSave(lobj->useExpr);
+                        if (copy->rtype != node->rtype) {
+                            if (IS_TYPE_INT(copy->rtype) && IS_TYPE_INT(node->rtype)) {
+                                copy = makemonadicnode(copy, ETYPCON);
+                            }
+                            copy->rtype = node->rtype;
+                        }
+                        return copy;
+                    }
+                }
+#else
+                if (enode_copymode == CopyModeExpand &&
+                    ENODE_IS(copy->data.monadic, EARGOBJ) &&
+                    local_aobjects[copy->data.monadic->data.longval].object == NULL) {
+                    CError_ASSERT(910, local_aobjects[copy->data.monadic->data.longval].useExpr);
+                    copy = CInline_CopyExpressionSave(
+                        local_aobjects[copy->data.monadic->data.longval].useExpr
+                    );
+                    if (copy->rtype != node->rtype) {
+                        if (IS_TYPE_INT(copy->rtype) && IS_TYPE_INT(node->rtype)) {
+                            copy = makemonadicnode(copy, ETYPCON);
+                        }
+                        copy->rtype = node->rtype;
+                    }
+                    return copy;
+                }
+
+#endif
+                copy->data.monadic = CInline_CopyNodes(copy->data.monadic);
+                break;
+
+#if MWCCPSP
+            case EOBJREF:
+            case ESCOPEBEGIN:
+            case ESCOPEEND:
+                if (copy->flags & ENODE_FLAG_LOCALUID) {
+                    switch (enode_copymode) {
+                        case CopyModeExpand:
+                            copy->data.objref = CInline_GetLocalObj(copy->data.longval, FALSE);
+                            break;
+                        case CopyModeUnpack:
+                            copy->data.objref = CInline_GetLocalObj(copy->data.longval, TRUE);
+                            break;
+                        default:
+                            CError_FATAL(1216);
+                    }
+                    CError_ASSERT(1218, copy->data.objref);
+                    copy->flags &= ~ENODE_FLAG_LOCALUID;
+                } else if (enode_copymode == CopyModePack) {
+                    if (node->data.objref->datatype == DALIAS) {
+                        CExpr_AliasTransform(node);
+                        continue;
+                    }
+                    if (node->data.objref->datatype == DLOCAL) {
+                        copy->data.longval = node->data.objref->u.var.uid;
+                        copy->flags |= ENODE_FLAG_LOCALUID;
+                    }
+                }
+                break;
+#else
+            case EOBJREF:
+                if (enode_copymode == CopyModePack) {
+                    if (node->data.objref->datatype == DALIAS) {
+                        CExpr_AliasTransform(node);
+                        continue;
+                    }
+
+                    if (node->data.objref->datatype == DDATA) {
+                        return copy;
+                    }
+
+                    for (list = arguments, i = 0; list; list = list->next, i++) {
+                        if (list->object == copy->data.objref) {
+                            copy->type = EARGOBJ;
+                            copy->data.longval = i;
+                            return copy;
+                        }
+                    }
+
+                    i = CInline_GetLocalID2(copy->data.objref);
+                    if (i >= 0) {
+                        copy->type = ELOCOBJ;
+                        copy->data.longval = i;
+                        return copy;
+                    }
+
+                    if (node->data.objref->datatype == DLOCAL) {
+                        CError_FATAL(949);
+                    }
+                }
+                break;
+
+            case EARGOBJ:
+                switch (enode_copymode) {
+                    case CopyModeExpand:
+                        CError_ASSERT(957, local_aobjects[copy->data.longval].object);
+                        copy->type = EOBJREF;
+                        copy->data.objref = local_aobjects[copy->data.longval].object;
+                        return copy;
+
+                    case CopyModeUnpack:
+                        for (list = arguments, i = 0; list; list = list->next, i++) {
+                            if (i == copy->data.longval) {
+                                copy->type = EOBJREF;
+                                copy->data.objref = list->object;
+                                CError_ASSERT(966, copy->data.objref);
+                                return copy;
+                            }
+                        }
+
+                    default:
+                        CError_FATAL(971);
+                }
+
+            case ELOCOBJ:
+                switch (enode_copymode) {
+                    case CopyModeExpand:
+                        copy->type = EOBJREF;
+                        copy->data.objref = local_dobjects[copy->data.longval];
+                        return copy;
+
+                    case CopyModeUnpack:
+                        for (list = locals, i = 0; list; list = list->next, i++) {
+                            if (i == copy->data.longval) {
+                                copy->type = EOBJREF;
+                                copy->data.objref = list->object;
+                                CError_ASSERT(986, copy->data.objref);
+                                return copy;
+                            }
+                        }
+
+                    default:
+                        CError_FATAL(991);
+                }
+                break;
+
+#endif
+
+            case ENEWEXCEPTION:
+            case ENEWEXCEPTIONARRAY:
+                copy->data.newexception.initexpr =
+                    CInline_CopyNodes(copy->data.newexception.initexpr);
+                copy->data.newexception.tryexpr =
+                    CInline_CopyNodes(copy->data.newexception.tryexpr);
+                break;
+
+            case EINITTRYCATCH:
+                copy->data.itc.initexpr = CInline_CopyNodes(copy->data.itc.initexpr);
+                copy->data.itc.tryexpr = CInline_CopyNodes(copy->data.itc.tryexpr);
+                copy->data.itc.catchexpr = CInline_CopyNodes(copy->data.itc.catchexpr);
+                copy->data.itc.result = CInline_CopyNodes(copy->data.itc.result);
+                break;
+
+            case EOBJACCESS:
+                if (copy->data.objaccess.list) {
+                    copy->data.objaccess.list =
+                        CScope_CopyNameSpaceObjectList(copy->data.objaccess.list, enode_globalcopy);
+                }
+                if (copy->data.objaccess.expr) {
+                    copy->data.objaccess.expr = CInline_CopyNodes(copy->data.objaccess.expr);
+                }
+                if (copy->data.objaccess.templargs) {
+                    copy->data.objaccess.templargs =
+                        CTemplTool_MakeGlobalTemplArgCopy(copy->data.objaccess.templargs);
+                }
+                break;
+
+            case ECTORINIT:
+                TDE_OPERAND(copy, CI_CtorInit*, 0) =
+                    ps2_CopyCtorInit_50DA90(TDE_OPERAND(copy, CI_CtorInit*, 0));
+                break;
+
+            default:
+                CError_FATAL(1272);
+        }
+
+        return copy;
+    }
+}
+#else
+#if MWCCPSP
+extern void func_00504E90(ENode* expr); // a string literal as a named object (CInit.c)
+#endif
 static ENode* CInline_CopyNodes(ENode* node) {
     ENode* copy;
     ObjectList* list;
@@ -1092,9 +2072,20 @@ static ENode* CInline_CopyNodes(ENode* node) {
                 }
                 break;
 
+#if MWCCPSP
+            case ESTRINGCONST:
+                if (copy->data.string.inlineid &&
+                    enode_copymode == CopyModePack &&
+                    cscope_currentfunc) {
+                    func_00504E90(copy);
+                }
+                break;
+#endif
             case EINTCONST:
             case EFLOATCONST:
+#if !MWCCPSP
             case ESTRINGCONST:
+#endif
 #if !MWCCPSP // not a 3.0.1 node kind
             case EOBJLIST:
 #endif
@@ -1153,6 +2144,10 @@ static ENode* CInline_CopyNodes(ENode* node) {
             case EPMODULO:
             case EROTL:
             case EROTR:
+#if MWCCPSP
+            case EMIN:
+            case EMAX:
+#endif
             case EBCLR:
             case EBTST:
             case EBSET:
@@ -1353,9 +2348,25 @@ static ENode* CInline_CopyNodes(ENode* node) {
                 copy->data.itc.result = CInline_CopyNodes(copy->data.itc.result);
                 break;
 
+#if MWCCPSP
+            case EOBJACCESS: // 3.0.1: the access is in the node itself
+                if (copy->data.objaccess.list) {
+                    copy->data.objaccess.list =
+                        CScope_CopyNameSpaceObjectList(copy->data.objaccess.list, enode_globalcopy);
+                }
+                if (copy->data.objaccess.expr) {
+                    copy->data.objaccess.expr = CInline_CopyNodes(copy->data.objaccess.expr);
+                }
+                if (copy->data.objaccess.templargs) {
+                    copy->data.objaccess.templargs =
+                        CTemplTool_MakeGlobalTemplArgCopy(copy->data.objaccess.templargs);
+                }
+                break;
+#else
             case EMEMBER:
                 copy->data.emember = CInline_CopyEMemberInfo(copy->data.emember);
                 break;
+#endif
 
             default:
                 CError_FATAL(1015);
@@ -1364,7 +2375,299 @@ static ENode* CInline_CopyNodes(ENode* node) {
         return copy;
     }
 }
+#endif
 
+#if MWCCPS2
+static void CInline_CheckUsage(ENode* expr, Boolean isModified);
+
+// 0x50D240
+static void ps2_CheckUsageTree_50D240(CI_TemplInitTree* tree) {
+    while (tree) {
+        if (tree->expr) {
+            CInline_CheckUsage(tree->expr, FALSE);
+        }
+        if (tree->sub) {
+            ps2_CheckUsageTree_50D240(tree->sub);
+        }
+        tree = tree->next;
+    }
+}
+
+// 0x50CD70: 3.0.1 node kinds (object accesses, constructor initializers,
+// exception nodes and the template-dependent subtypes)
+static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
+    ENodeList* list;
+
+    while (1) {
+        switch (expr->type) {
+            case EOBJREF:
+                if (expr->flags & ENODE_FLAG_LOCALUID) {
+                    CI_Var* var = CInline_FindVar(expr->data.longval);
+                    var->used = TRUE;
+                    var->unmodified = FALSE;
+                }
+                return;
+
+            case ESCOPEBEGIN:
+            case ESCOPEEND:
+                if (expr->flags & ENODE_FLAG_LOCALUID) {
+                    CInline_FindVar(expr->data.longval)->used = TRUE;
+                }
+                return;
+
+            case EINDIRECT:
+                expr = expr->data.monadic;
+                if (ENODE_IS(expr, EOBJREF) && (expr->flags & ENODE_FLAG_LOCALUID)) {
+                    CI_Var* var = CInline_FindVar(expr->data.longval);
+                    var->used = TRUE;
+                    if (isModified) {
+                        var->unmodified = FALSE;
+                    }
+                    return;
+                }
+                isModified = FALSE;
+                continue;
+
+            case EMONMIN:
+            case EBINNOT:
+            case ELOGNOT:
+            case EFORCELOAD:
+            case ETYPCON:
+            case EBITFIELD:
+                expr = expr->data.monadic;
+                isModified = FALSE;
+                continue;
+
+            case EPOSTINC:
+            case EPOSTDEC:
+            case EPREINC:
+            case EPREDEC:
+                expr = expr->data.monadic;
+                isModified = TRUE;
+                continue;
+
+            case EASS:
+            case EMULASS:
+            case EDIVASS:
+            case EMODASS:
+            case EADDASS:
+            case ESUBASS:
+            case ESHLASS:
+            case ESHRASS:
+            case EANDASS:
+            case EXORASS:
+            case EORASS:
+                CInline_CheckUsage(expr->data.diadic.left, TRUE);
+                expr = expr->data.diadic.right;
+                isModified = FALSE;
+                continue;
+
+            case EMUL:
+            case EDIV:
+            case EMODULO:
+            case EADD:
+            case ESUB:
+            case ESHL:
+            case ESHR:
+            case ELESS:
+            case EGREATER:
+            case ELESSEQU:
+            case EGREATEREQU:
+            case EEQU:
+            case ENOTEQU:
+            case EAND:
+            case EXOR:
+            case EOR:
+            case ELAND:
+            case ELOR:
+            case ECOMMA:
+            case EMIN:
+            case EMAX:
+            case EROTL:
+            case EROTR:
+            case EPOINTERSTAR:
+            case EDOTSTAR:
+                CInline_CheckUsage(expr->data.diadic.left, FALSE);
+                expr = expr->data.diadic.right;
+                isModified = FALSE;
+                continue;
+
+            case EINTCONST:
+            case EFLOATCONST:
+            case ESTRINGCONST:
+            case EPRECOMP:
+            case ETEMP:
+            case ELABEL:
+                return;
+
+            case EOBJACCESS:
+                if (expr->data.objaccess.nonstatic && expr->data.objaccess.expr) {
+                    CInline_CheckUsage(expr->data.objaccess.expr, FALSE);
+                }
+                return;
+
+            case ECTORINIT: {
+                CI_CtorInit* init;
+                for (init = TDE_OPERAND(expr, CI_CtorInit*, 0); init; init = init->next) {
+                    if (init->isexpr) {
+                        if (init->init) {
+                            CInline_CheckUsage((ENode*)init->init, FALSE);
+                        }
+                    } else {
+                        for (list = (ENodeList*)init->init; list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                    }
+                }
+                return;
+            }
+
+            case EFUNCCALL:
+            case EFUNCCALLP:
+                CInline_CheckUsage(expr->data.funccall.funcref, FALSE);
+                for (list = expr->data.funccall.args; list; list = list->next) {
+                    CInline_CheckUsage(list->node, FALSE);
+                }
+                return;
+
+            case ENULLCHECK:
+                CInline_CheckUsage(expr->data.nullcheck.nullcheckexpr, FALSE);
+                expr = expr->data.nullcheck.condexpr;
+                isModified = FALSE;
+                continue;
+
+            case EMFPOINTER:
+                CInline_CheckUsage(expr->data.mfpointer.accessnode, FALSE);
+                expr = expr->data.mfpointer.mfpointer;
+                isModified = FALSE;
+                continue;
+
+            case ECOND:
+                CInline_CheckUsage(expr->data.cond.cond, FALSE);
+                CInline_CheckUsage(expr->data.cond.expr1, FALSE);
+                expr = expr->data.cond.expr2;
+                isModified = FALSE;
+                continue;
+
+            case EINSTRUCTION:
+                return;
+
+            case ENEWEXCEPTION:
+            case ENEWEXCEPTIONARRAY:
+                CInline_CheckUsage(expr->data.newexception.initexpr, FALSE);
+                CInline_CheckUsage(expr->data.newexception.tryexpr, FALSE);
+                return;
+
+            case EINITTRYCATCH:
+                CInline_CheckUsage(expr->data.itc.initexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.tryexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.catchexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.result, FALSE);
+                return;
+
+            case ETEMPLDEP:
+                switch (expr->data.templdep.subtype) {
+                    case TDE_OBJACCESS:
+                        if (expr->data.objaccess.expr) {
+                            CInline_CheckUsage(expr->data.objaccess.expr, FALSE);
+                        }
+                        break;
+                    case TDE_SIZEOF:
+                        // an expression operand (not a type) when the flag is set
+                        if (TDE_OPERAND(expr, UInt8, 5)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        }
+                        break;
+                    case TDE_CAST:
+                        for (list = expr->data.templdep.u.cast.args; list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case TDE_SOURCEREF:
+                        CInline_CheckUsage(expr->data.templdep.u.sourceref.expr, FALSE);
+                        break;
+                    case TDE_ADDRESS_OF:
+                    case TDE_UNARYPLUS:
+                    case TDE_DEREF:
+                    case 21:
+                        CInline_CheckUsage(expr->data.templdep.u.monadic, FALSE);
+                        break;
+                    case TDE_FUNCCALL:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        for (list = TDE_OPERAND(expr, ENodeList*, 1); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case 12:
+                        if (TDE_OPERAND(expr, ENode*, 2)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 2), FALSE);
+                        }
+                        for (list = TDE_OPERAND(expr, ENodeList*, 3); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        for (list = TDE_OPERAND(expr, ENodeList*, 4); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case 13:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        break;
+                    case 14:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 1), FALSE);
+                        break;
+                    case 15:
+                    case 16:
+                    case 17:
+                    case 18:
+                    case 19:
+                        if (TDE_OPERAND(expr, ENode*, 0)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        }
+                        break;
+                    case 20:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        break;
+                    case 23:
+                    case 24: {
+                        CI_TemplInit* init = TDE_OPERAND(expr, CI_TemplInit*, 1);
+                        if (init) {
+                            switch (init->kind) {
+                                case 0:
+                                    CInline_CheckUsage((ENode*)init->u, FALSE);
+                                    break;
+                                case 1:
+                                    for (list = (ENodeList*)init->u; list; list = list->next) {
+                                        CInline_CheckUsage(list->node, FALSE);
+                                    }
+                                    break;
+                                case 2:
+                                    ps2_CheckUsageTree_50D240((CI_TemplInitTree*)init->u);
+                                    break;
+                                default:
+                                    CError_FATAL(1561);
+                            }
+                        }
+                        break;
+                    }
+                    case TDE_PARAM:
+                    case TDE_QUALNAME:
+                    case TDE_QUALTEMPL:
+                    case TDE_LOCAL:
+                    case 22:
+                    case 25:
+                        break;
+                    default:
+                        CError_FATAL(1567);
+                }
+                return;
+
+            default:
+                CError_FATAL(1589);
+        }
+    }
+}
+#else
 static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
     ENodeList* list;
 
@@ -1476,6 +2779,10 @@ static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
             case ECOMMA:
             case EROTL:
             case EROTR:
+#if MWCCPSP
+            case EMIN:
+            case EMAX:
+#endif
                 CInline_CheckUsage(expr->data.diadic.left, FALSE);
                 expr = expr->data.diadic.right;
                 isModified = FALSE;
@@ -1537,6 +2844,7 @@ static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
         }
     }
 }
+#endif
 
 ENode* CInline_CopyExpression(ENode* expr, CInlineCopyMode mode) {
     enode_copymode = mode;
@@ -1582,7 +2890,15 @@ static UInt8 CInline_GetObjectSFlags(Object* object) {
             flags = CI_SFLAGS_Auto;
             break;
         default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 474 // mwccps2: line 1678
+#endif
             CError_FATAL(1204);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
     }
 
     if (object->flags & OBJECT_REFERENCED) {
@@ -1615,7 +2931,15 @@ static void CInline_SetObjectSFlags(Object* object, UInt8 sflags) {
             object->sclass = TK_AUTO;
             break;
         default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 470 // mwccps2: line 1699
+#endif
             CError_FATAL(1229);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
     }
 }
 
@@ -1903,12 +3227,21 @@ static ENode* CInline_SetupArgsExpression(Object* object, CI_FuncData* data, ENo
 #endif
 
 static void CInline_ReturnCheckCB(ENode* expr) {
-#if MWCCPSP
+#if MWCCPS2
+    switch (expr->type) {
+        case EINDIRECT:
+        case EFUNCCALL:
+        case EFUNCCALLP:
+            cinline_has_sideeffect = TRUE;
+    }
+#elif MWCCPSP
     if (!(ENODE_IS3(expr, EINDIRECT, EFUNCCALL, EFUNCCALLP))) {
         return; // 3.0.1 hands every node to the callback
     }
-#endif
     cinline_has_sideeffect = TRUE;
+#else
+    cinline_has_sideeffect = TRUE;
+#endif
 }
 
 static ENode* CInline_ReturnCheck(ENode* expr) {
@@ -1958,6 +3291,9 @@ static ENode* CInline_ReturnMemResult(Object* object) {
 #endif
 }
 
+#if MWCCPS2
+extern ENode* func_00500090(ENode* expr); // 3.0.1 per-node constant fold (not decompiled)
+#endif
 static ENode* CInline_InlineFunctionExpression(ENode* expr) {
     Object* object;
     CI_FuncData* funcdata;
@@ -2012,6 +3348,12 @@ static ENode* CInline_InlineFunctionExpression(ENode* expr) {
                 }
                 break;
             case ST_EXPRESSION:
+#if MWCCPS2
+                // b210 drops scope markers from an expression-inlined body
+                if (ENODE_IS2(funcdata->statements[i].u.expr, ESCOPEBEGIN, ESCOPEEND)) {
+                    break;
+                }
+#endif
                 if (argsExpr) {
                     argsExpr = makecommaexpression(
                         argsExpr,
@@ -2024,7 +3366,15 @@ static ENode* CInline_InlineFunctionExpression(ENode* expr) {
                 break;
 
             default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 434 // mwccps2: line 2066
+#endif
                 CError_FATAL(1632);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         }
     }
 
@@ -2036,7 +3386,12 @@ static ENode* CInline_InlineFunctionExpression(ENode* expr) {
     }
 
     inline_expanded = TRUE;
+#if MWCCPS2
+    // 3.0.1 folds node by node through the tree walker (b210 0x50E2B0)
+    return CExpr_SearchExprTreeReplace(argsExpr, func_00500090);
+#else
     return CInline_FoldConst(argsExpr);
+#endif
 }
 
 static Boolean CInline_CanExpand(ENode* expr) {
@@ -2110,6 +3465,10 @@ static SInt32 CInline_EstimateSizeOfExpr(ENode* expr, SInt32 size, SInt32 level)
         case EPMODULO:
         case EROTL:
         case EROTR:
+#if MWCCPSP
+        case EMIN:
+        case EMAX:
+#endif
         case EBCLR:
         case EBTST:
         case EBSET:
@@ -2513,6 +3872,13 @@ static Boolean CInline_InlineFunctionCheck(ENode* expr) {
                 level = copts.inlinelevel - cinline_level - 1;
             }
 
+#if MWCCPS2
+            // b210: at the last level an explicitly inline function is
+            // expanded whatever its size
+            if (copts.inline_bottom_up_once && (object->qual & Q_INLINE) && level == 0) {
+                return TRUE;
+            }
+#endif
             if (CInline_EstimateSizeOfFunc(funcdata, 0, level) > inline_max_size) {
                 return FALSE;
             }
@@ -2594,9 +3960,17 @@ static ENode* CInline_ExpandExpression(ENode* expr) {
         case EANDASS:
         case EXORASS:
         case EORASS:
+#if MWCCPS2
+        case EMIN:
+        case EMAX:
+#endif
         case EPMODULO:
         case EROTL:
         case EROTR:
+#if MWCCPSP && !MWCCPS2 // MWCCPS2 has these cases above
+        case EMIN:
+        case EMAX:
+#endif
             expr->data.diadic.left = CInline_ExpandExpression(expr->data.diadic.left);
             expr->data.diadic.right = CInline_ExpandExpression(expr->data.diadic.right);
             break;
@@ -2649,10 +4023,19 @@ static ENode* CInline_ExpandExpression(ENode* expr) {
             cinline_unconditionalpart = save;
             break;
 
+#if MWCCPS2
+        // 0x50BB20: 3.0.1's object access goes through its object
+        // expression only for a non-static member
+        case EOBJACCESS:
+            if (expr->data.objaccess.nonstatic && expr->data.objaccess.expr) {
+                expr = CInline_ExpandExpression(expr->data.objaccess.expr);
+            } else {
+#else
         case EMEMBER:
             if (expr->data.emember->expr) {
                 expr = CInline_ExpandExpression(expr->data.emember->expr);
             } else {
+#endif
                 expr = nullnode();
             }
             break;
@@ -2663,6 +4046,10 @@ static ENode* CInline_ExpandExpression(ENode* expr) {
         case EOBJREF:
         case EPRECOMP:
         case ELABEL:
+#if MWCCPS2
+        case ESCOPEBEGIN:
+        case ESCOPEEND:
+#endif
 #if !MWCCPSP // not a 3.0.1 node kind
         case EOBJLIST:
 #endif
@@ -2673,7 +4060,11 @@ static ENode* CInline_ExpandExpression(ENode* expr) {
             break;
 
         default:
+#if MWCCPS2
+            CError_FATAL(2725);
+#else
             CError_FATAL(2235);
+#endif
     }
 
     return expr;
@@ -2696,7 +4087,11 @@ static Statement* CInline_NewStatement(StatementType sttype) {
 static ENode* CInline_LoadToTemp(ENode* expr, Object** objectptr) {
     Object* object;
 
+#if MWCCPS2
+    if ((object = *objectptr) == NULL) {
+#else
     if (!(object = *objectptr)) {
+#endif
         switch (expr->rtype->type) {
             case TYPEVOID:
                 return expr;
@@ -2711,10 +4106,18 @@ static ENode* CInline_LoadToTemp(ENode* expr, Object** objectptr) {
                 *objectptr = object;
                 break;
             default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT -396 // mwccps2: line 2778
+#endif
 #if MWCCPSP
                 CError_FATAL(3174);
 #else
                 CError_FATAL(2288);
+#endif
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
 #endif
         }
     }
@@ -2815,10 +4218,18 @@ static ENode* CInline_SerializeEPRECOMP(ENode* expr) {
     uidtemp = cinline_uid_temps;
     while (1) {
         if (!uidtemp) {
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 161 // mwccps2: line 2939
+#endif
 #if MWCCPSP
             CError_FATAL(2778);
 #else
             CError_FATAL(2449);
+#endif
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
 #endif
         }
         if (uidtemp->uid == expr->data.precompid) {
@@ -2888,7 +4299,13 @@ static ENode* CInline_SerializeECOND(ENode* expr) {
     label1->stmt = stmt;
 
     n = CInline_SerializeExpr(expr->data.cond.expr2);
+#if MWCCPS2
+    if (n->rtype != &stvoid) { // b210 leaves a void second operand alone
+        n = CInline_LoadToTemp(n, &temp);
+    }
+#else
     n = CInline_LoadToTemp(n, &temp);
+#endif
     stmt = CInline_NewStatement(ST_EXPRESSION);
     stmt->expr = n;
 
@@ -2971,9 +4388,17 @@ static ENode* CInline_SerializeExpr(ENode* expr) {
         case EANDASS:
         case EXORASS:
         case EORASS:
+#if MWCCPS2
+        case EMIN:
+        case EMAX:
+#endif
         case EPMODULO:
         case EROTL:
         case EROTR:
+#if MWCCPSP && !MWCCPS2 // MWCCPS2 has these cases above
+        case EMIN:
+        case EMAX:
+#endif
             expr->data.diadic.left = CInline_SerializeExpr(expr->data.diadic.left);
             expr->data.diadic.right = CInline_SerializeExpr(expr->data.diadic.right);
             return expr;
@@ -3006,6 +4431,21 @@ static ENode* CInline_SerializeExpr(ENode* expr) {
             expr->data.mfpointer.accessnode = CInline_SerializeExpr(expr->data.mfpointer.mfpointer);
             return expr;
 
+#if MWCCPS2
+        case EOBJACCESS: // b210 asserts on it, then takes the default's assert too
+            CError_FATAL(3171);
+        default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 3 // mwccps2: line 3174
+#endif
+            CError_FATAL(3171);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
+            return expr;
+#else
         case EMEMBER:
             if (expr->data.emember->expr) {
                 return CInline_SerializeExpr(expr->data.emember->expr);
@@ -3019,6 +4459,7 @@ static ENode* CInline_SerializeExpr(ENode* expr) {
             CError_FATAL(2684);
 #endif
             return expr;
+#endif
     }
 }
 
@@ -3045,6 +4486,67 @@ void CInline_SerializeStatement(Statement* stmt) {
     }
 }
 
+#if MWCCPS2
+// SwitchInfo.depcases entries (CFunc.c's SwitchDepCase)
+typedef struct CI_DepCase {
+    struct CI_DepCase* next;
+    CLabel* label;
+    ENode* min;
+    ENode* max;
+} CI_DepCase;
+
+static void CInline_UnpackSwitch(Statement* stmt, CI_Statement* packstmt, CLabel** labels) {
+    SwitchInfo* info;
+    SwitchCase* swcase;
+    CI_DepCase* dep;
+    short n;
+    short i;
+
+    info = lalloc(sizeof(SwitchInfo));
+    info->cases = NULL;
+    info->depcases = NULL;
+    stmt->label = (CLabel*)info;
+    CError_ASSERT(3224, info->defaultlabel = labels[packstmt->u.switchdata->defaultlabelID]);
+    info->exprtype = packstmt->u.switchdata->exprtype;
+
+    for (i = 0, n = packstmt->u.switchdata->numcases; i < n; i++) {
+        if (info->cases != NULL) {
+            swcase->next = lalloc(sizeof(SwitchCase));
+            swcase = swcase->next;
+        } else {
+            swcase = lalloc(sizeof(SwitchCase));
+            info->cases = swcase;
+        }
+
+        swcase->next = NULL;
+        swcase->min = packstmt->u.switchdata->cases[i].u.c.min;
+        swcase->max = packstmt->u.switchdata->cases[i].u.c.max;
+        CError_ASSERT(3236, swcase->label = labels[packstmt->u.switchdata->cases[i].labelID]);
+    }
+
+    for (n = i = packstmt->u.switchdata->numcases, n += packstmt->u.switchdata->numdepcases; i < n;
+         i++) {
+        if (info->depcases != NULL) {
+            dep->next = lalloc(sizeof(CI_DepCase));
+            dep = dep->next;
+        } else {
+            dep = lalloc(sizeof(CI_DepCase));
+            info->depcases = dep;
+        }
+
+        dep->next = NULL;
+        dep->min =
+            CInline_CopyExpression(packstmt->u.switchdata->cases[i].u.dep.min, CopyModeExpand);
+        if (packstmt->u.switchdata->cases[i].u.dep.max) {
+            dep->max =
+                CInline_CopyExpression(packstmt->u.switchdata->cases[i].u.dep.max, CopyModeExpand);
+        } else {
+            dep->max = NULL;
+        }
+        CError_ASSERT(3251, dep->label = labels[packstmt->u.switchdata->cases[i].labelID]);
+    }
+}
+#else
 static void CInline_UnpackSwitch(Statement* stmt, CI_Statement* packstmt, CLabel** labels) {
     SwitchInfo* info;
     SwitchCase* swcase;
@@ -3069,6 +4571,7 @@ static void CInline_UnpackSwitch(Statement* stmt, CI_Statement* packstmt, CLabel
         CError_ASSERT(2740, swcase->label = labels[packstmt->u.switchdata->cases[i].labelID]);
     }
 }
+#endif
 
 #if !MWCCPSP // 3.0.1: keyed by uid, above
 Object* CInline_GetLocalObj(SInt32 id, Boolean inlineCopy) {
@@ -3241,6 +4744,9 @@ static ExceptionAction* CInline_UnpackActions(CI_Statement* packstmt, Boolean in
                 exc->data.active_catch_block.catch_info_object = CInline_GetLocalObj(
                     (SInt32)packexc->data.active_catch_block.catch_info_object, inlineCopy
                 );
+#if MWCCPS2
+                exc->data.active_catch_block.call_dtor = packexc->data.active_catch_block.call_dtor;
+#endif
                 break;
             case EAT_SPECIFICATION: {
                 LabelTrans* trans;
@@ -3261,8 +4767,25 @@ static ExceptionAction* CInline_UnpackActions(CI_Statement* packstmt, Boolean in
             }
             case EAT_TERMINATE:
                 break;
+#if MWCCPS2
+            case EAT_UNK19:
+                *(Object**)&exc->data = CInline_GetLocalObj(*(SInt32*)&packexc->data, inlineCopy);
+                ((Boolean*)&exc->data)[4] = ((Boolean*)&packexc->data)[4];
+                break;
+            case EAT_UNK18:
+                *(void**)&exc->data = *(void**)&packexc->data;
+                break;
+#endif
             default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: its assert is at line 0xD47
+#endif
                 CError_FATAL(2904);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         }
 
         packexc = packexc->prev;
@@ -3271,6 +4794,17 @@ static ExceptionAction* CInline_UnpackActions(CI_Statement* packstmt, Boolean in
     return last;
 }
 
+#if MWCCPS2
+// 3.0.1 folds node by node through the tree walker
+static inline ENode* CI_FoldConst301(ENode* expr) {
+    return CExpr_SearchExprTreeReplace(expr, func_00500090);
+}
+#define CI_FOLD(e) CI_FoldConst301(e)
+#else
+#if MWCCPSP
+#define CI_FOLD(e) CInline_FoldConst(e)
+#endif
+#endif
 static Statement* CInline_ExpandStatements(
     Object* funcobj,
     Statement* stmt,
@@ -3292,10 +4826,20 @@ static Statement* CInline_ExpandStatements(
     origStmt = *stmt;
     resultInMemory = CMach_GetFunctionResultClass(TYPE_FUNC(funcobj->type)) == 1;
 
+#if MWCCPS2
+    if ((setupArgs =
+             CInline_SetupArgsExpression(funcobj, funcdata, funccall->data.funccall.args)) !=
+        NULL) {
+#else
     if ((setupArgs =
              CInline_SetupArgsExpression(funcobj, funcdata, funccall->data.funccall.args))) {
+#endif
         stmt->type = ST_EXPRESSION;
+#if MWCCPSP
+        stmt->expr = CI_FOLD(setupArgs);
+#else
         stmt->expr = CInline_FoldConst(setupArgs);
+#endif
     } else {
         stmt->type = ST_NOP;
     }
@@ -3339,15 +4883,25 @@ static Statement* CInline_ExpandStatements(
             case ST_BEGINCATCH:
             case ST_ENDCATCH:
             case ST_ENDCATCHDTOR:
+#if !MWCCPS2 // b210 has no ST_GOTOEXPR case here (it reaches the default)
             case ST_GOTOEXPR:
+#endif
                 stmt->expr =
+#if MWCCPSP
+                    CI_FOLD(CInline_CopyExpression(packstmt->u.expr, CopyModeExpand));
+#else
                     CInline_FoldConst(CInline_CopyExpression(packstmt->u.expr, CopyModeExpand));
+#endif
                 break;
 
             case ST_RETURN:
                 if (packstmt->u.expr) {
                     stmt->expr =
+#if MWCCPSP
+                        CI_FOLD(CInline_CopyExpression(packstmt->u.expr, CopyModeExpand));
+#else
                         CInline_FoldConst(CInline_CopyExpression(packstmt->u.expr, CopyModeExpand));
+#endif
                     if (resultInMemory) {
                         stmt->expr =
                             makecommaexpression(stmt->expr, CInline_ReturnMemResult(funcobj));
@@ -3389,7 +4943,11 @@ static Statement* CInline_ExpandStatements(
 
             case ST_IFGOTO:
             case ST_IFNGOTO:
+#if MWCCPSP
+                stmt->expr = CI_FOLD(
+#else
                 stmt->expr = CInline_FoldConst(
+#endif
                     CInline_CopyExpression(packstmt->u.ifgoto.expr, CopyModeExpand)
                 );
             case ST_GOTO:
@@ -3402,7 +4960,11 @@ static Statement* CInline_ExpandStatements(
                 break;
 
             case ST_SWITCH:
+#if MWCCPSP
+                stmt->expr = CI_FOLD(
+#else
                 stmt->expr = CInline_FoldConst(
+#endif
                     CInline_CopyExpression(packstmt->u.switchdata->expr, CopyModeExpand)
                 );
             case ST_ASM:
@@ -3415,7 +4977,15 @@ static Statement* CInline_ExpandStatements(
                 break;
 
             default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: line 3535
+#endif
                 CError_FATAL(3040);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         }
     }
 
@@ -3440,6 +5010,10 @@ static Statement* CInline_ExpandStatements(
         packstmt = stmtLinks->ciStmt;
 
         switch (linkstmt->type) {
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: lines 3555, 3560
+#endif
             case ST_GOTO:
                 CError_ASSERT(3060, linkstmt->label = labels[packstmt->u.statementnum]);
                 break;
@@ -3447,23 +5021,49 @@ static Statement* CInline_ExpandStatements(
             case ST_IFNGOTO:
                 CError_ASSERT(3065, linkstmt->label = labels[packstmt->u.ifgoto.statementnum]);
                 break;
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
             case ST_SWITCH:
                 CInline_UnpackSwitch(linkstmt, packstmt, labels);
                 break;
             case ST_ASM:
+#if MWCCPS2
+                InlineAsm_UnpackAsmStatement(
+                    linkstmt, labels, FALSE, packstmt->u.asmdata.data, packstmt->u.asmdata.size
+                );
+#else
                 InlineAsm_UnpackAsmStatement(
                     linkstmt, labels, TRUE, packstmt->u.asmdata.data, packstmt->u.asmdata.size
                 );
+#endif
                 break;
             default:
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: line 3571
+#endif
                 CError_FATAL(3076);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         }
 
         stmtLinks = stmtLinks->next;
     }
 
     while (cinline_label_trans) {
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: line 3578
+#endif
         CError_ASSERT(3083, *cinline_label_trans->labelptr = labels[cinline_label_trans->id]);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
         cinline_label_trans = cinline_label_trans->next;
     }
 
@@ -3509,12 +5109,21 @@ static Statement* CInline_InlineFunctionStatement(Statement* stmt, Boolean* chan
 }
 
 static Statement* CInline_ExtractInlineFunction(Statement* stmt) {
+#if MWCCPS2
+    Object* funcObject;
+    Object* resultObject;
+    short i;
+    CI_FuncData* funcdata;
+    ENode* expr;
+    TypeFunc* tfunc;
+#else
     TypeFunc* tfunc;
     ENode* expr;
     CI_FuncData* funcdata;
     short i;
     Object* funcObject;
     Object* resultObject;
+#endif
 
     for (i = 0; i < cinline_stmtlevelexprs; i++) {
         expr = cinline_stmtlevelexpr[i];
@@ -3526,7 +5135,15 @@ static Statement* CInline_ExtractInlineFunction(Statement* stmt) {
 
         if ((funcdata = funcObject->u.func.u.ifuncdata)) {
             tfunc = TYPE_FUNC(funcObject->type);
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 495 // mwccps2: line 3636
+#endif
             CError_ASSERT(3141, IS_TYPE_FUNC(tfunc));
+#if MWCCPS2
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#endif
 
             if (!IS_TYPE_VOID(tfunc->functype)) {
                 if (CMach_GetFunctionResultClass(TYPE_FUNC(funcObject->type)) == 1) {
@@ -3543,11 +5160,15 @@ static Statement* CInline_ExtractInlineFunction(Statement* stmt) {
                 funcObject, stmt, funcdata, expr, newlabel(), resultObject, TRUE
             );
 
+#if MWCCPS2
+            *expr = *(resultObject ? create_objectnode2(resultObject) : nullnode());
+#else
             if (resultObject) {
                 *expr = *create_objectnode2(resultObject);
             } else {
                 *expr = *nullnode();
             }
+#endif
         }
     }
 
@@ -3609,7 +5230,13 @@ static Statement* CInline_ExpandStatement(Statement* stmt) {
     }
 
     if (inline_expanded) {
+#if MWCCPS2
+        // 3.0.1 folds node by node through the tree walker (b210 0x50E2B0,
+        // b219 0x500090)
+        stmt->expr = CExpr_SearchExprTreeReplace(stmt->expr, func_00500090);
+#else
         stmt->expr = CInline_FoldConst(stmt->expr);
+#endif
         any_inline_expanded = TRUE;
     }
 
@@ -3749,6 +5376,10 @@ static void CInline_ExportCheck(ENode* expr) {
             case EPMODULO:
             case EROTL:
             case EROTR:
+#if MWCCPSP
+            case EMIN:
+            case EMAX:
+#endif
             case EBCLR:
             case EBTST:
             case EBSET:
@@ -4090,6 +5721,51 @@ SInt16 CInline_GetStatementNumber(Statement* first, Statement* stmt) {
     return 0;
 }
 
+#if MWCCPS2
+static CI_Switch* CInline_PackSwitch(Statement* start, Statement* stmt) {
+    SwitchInfo* info;
+    SwitchCase* swcase;
+    CI_DepCase* dep;
+    short numcases;
+    int count;
+    CI_Switch* packed;
+
+    info = (SwitchInfo*)stmt->label;
+    numcases = 0;
+    for (swcase = info->cases; swcase; swcase = swcase->next) {
+        numcases++;
+    }
+    count = numcases;
+    for (dep = info->depcases; dep; dep = dep->next) {
+        numcases++;
+    }
+
+    packed = galloc(sizeof(CI_Switch) - sizeof(CI_SwitchCase) + numcases * sizeof(CI_SwitchCase));
+    packed->numcases = count;
+    packed->numdepcases = numcases - count;
+    packed->expr = CInline_CopyExpression(stmt->expr, CopyModePack);
+    packed->defaultlabelID = CInline_GetStatementNumber(start, info->defaultlabel->stmt);
+    packed->exprtype = info->exprtype;
+
+    for (swcase = info->cases, count = 0; swcase; swcase = swcase->next, count++) {
+        packed->cases[count].labelID = CInline_GetStatementNumber(start, swcase->label->stmt);
+        packed->cases[count].u.c.min = swcase->min;
+        packed->cases[count].u.c.max = swcase->max;
+    }
+
+    for (dep = info->depcases, numcases = packed->numcases; dep; dep = dep->next, numcases++) {
+        packed->cases[numcases].labelID = CInline_GetStatementNumber(start, dep->label->stmt);
+        packed->cases[numcases].u.dep.min = CInline_CopyExpression(dep->min, CopyModePack);
+        if (dep->max) {
+            packed->cases[numcases].u.dep.max = CInline_CopyExpression(dep->max, CopyModePack);
+        } else {
+            packed->cases[numcases].u.dep.max = NULL;
+        }
+    }
+
+    return packed;
+}
+#else
 static CI_Switch* CInline_PackSwitch(Statement* start, Statement* stmt) {
     SwitchInfo* info;
     SwitchCase* swcase;
@@ -4117,6 +5793,7 @@ static CI_Switch* CInline_PackSwitch(Statement* start, Statement* stmt) {
 
     return packed;
 }
+#endif
 
 static UInt8 CInline_CanInline(Object* object, Statement* stmt) {
     UInt8 resultClass;
@@ -4294,8 +5971,20 @@ static ExceptionAction* CInline_PackActions(Statement* start, Statement* stmt) {
                 break;
             case EAT_TERMINATE:
                 break;
+#if MWCCPS2
+            case EAT_UNK19:
+                *(void**)&packexc->data = (void*)CInline_GetLocalID(*(Object**)&exc->data);
+                ((Boolean*)&packexc->data)[4] = ((Boolean*)&exc->data)[4];
+                break;
+            case EAT_UNK18:
+                *(void**)&packexc->data = *(void**)&exc->data;
+                break;
+            default:
+                CError_FATAL(4222);
+#else
             default:
                 CError_FATAL(3720);
+#endif
         }
 
         exc = exc->prev;
@@ -4525,6 +6214,9 @@ void CInline_UnpackIFunctionData(Object* object, CI_FuncData* funcdata, Statemen
         obj->name = var->name;
         obj->type = var->type;
         obj->qual = var->qual;
+#if MWCCPSP
+        obj->u.var.uid = var->uid; // packed expressions refer to locals by uid
+#endif
         CInline_SetObjectSFlags(obj, var->sflags);
         CFunc_SetupLocalVarInfo(obj);
 
@@ -4559,6 +6251,9 @@ void CInline_UnpackIFunctionData(Object* object, CI_FuncData* funcdata, Statemen
         obj->name = var->name;
         obj->type = var->type;
         obj->qual = var->qual;
+#if MWCCPSP
+        obj->u.var.uid = var->uid; // packed expressions refer to locals by uid
+#endif
         CInline_SetObjectSFlags(obj, var->sflags);
         CFunc_SetupLocalVarInfo(obj);
 
@@ -4774,6 +6469,11 @@ void CInline_AddInlineFunctionAction(
     action->u.inlinefunc.tclass = tclass;
     action->u.inlinefunc.fileoffset = *fileoffset;
     action->u.inlinefunc.stream = *stream;
+#if MWCCPS2
+    if (object->qual & Q_IS_TEMPLATED) {
+        action->unk8 = CTemplTool_GetInstanceStack();
+    }
+#endif
 
     if (isTemplate) {
         action->next = cinline_tactionlist;
@@ -4909,6 +6609,9 @@ static void CInline_AddFRefList_ExAction(ExceptionAction* exc) {
             case EAT_ACTIVECATCHBLOCK:
             case EAT_SPECIFICATION:
             case EAT_TERMINATE:
+#if MWCCPS2
+            case EAT_UNK18:
+#endif
                 break;
             default:
 #if MWCCPSP
@@ -4964,7 +6667,9 @@ static void CInline_AddFRefList_Statement(Statement* stmt) {
             case ST_SWITCH:
             case ST_IFGOTO:
             case ST_IFNGOTO:
+#if !MWCCPS2 // b210 treats a computed goto as unexpected here
             case ST_GOTOEXPR:
+#endif
                 CInline_AddFRefList_Expr(stmt->expr);
                 break;
             default:
@@ -4994,7 +6699,9 @@ static void CInline_AddFRefList_InlineFunc(CI_FuncData* data) {
             case ST_BEGINCATCH:
             case ST_ENDCATCH:
             case ST_ENDCATCHDTOR:
+#if !MWCCPS2
             case ST_GOTOEXPR:
+#endif
                 CInline_AddFRefList_Expr(data->statements[i].u.expr);
                 break;
             case ST_RETURN:
@@ -5057,6 +6764,9 @@ static void CInline_AddFRefList_InlineFunc(CI_FuncData* data) {
                 case EAT_ACTIVECATCHBLOCK:
                 case EAT_SPECIFICATION:
                 case EAT_TERMINATE:
+#if MWCCPS2
+                case EAT_UNK18:
+#endif
                     break;
                 default:
 #if MWCCPSP
@@ -5195,6 +6905,21 @@ static Boolean CInline_IsSmallFunction(Object* object, Statement* stmt) {
     SInt32 localSize;
 
     statementCount = 0;
+#if MWCCPS2
+    // 0x507A90: scope markers don't count, and the limit is the copts short
+    // at 0x05A (the PSP 0x052 slot; 30 is fixed in 3.0.1 b219)
+    while (stmt) {
+        if (stmt->type != ST_NOP &&
+            stmt->type != ST_LABEL &&
+            !(stmt->type == ST_EXPRESSION && ENODE_IS2(stmt->expr, ESCOPEBEGIN, ESCOPEEND))) {
+            statementCount++;
+        }
+        if (statementCount > copts.unknown52) {
+            return FALSE;
+        }
+        stmt = stmt->next;
+    }
+#else
     while (stmt) {
         if (stmt->type != ST_NOP && stmt->type != ST_LABEL) {
             statementCount++;
@@ -5204,6 +6929,7 @@ static Boolean CInline_IsSmallFunction(Object* object, Statement* stmt) {
         }
         stmt = stmt->next;
     }
+#endif
 
     for (list = locals, localSize = 0; list; list = list->next) {
         localSize += list->object->type->size;
@@ -5268,6 +6994,12 @@ void CInline_GenFunc(Statement* stmt, Object* object, UInt8 oldStyleParameters) 
     }
 
     object->flags |= OBJECT_DEFINED;
+#if MWCCPS2
+    if (cparamblkptr->precompile == 1) { // b210 keeps 2.4.7's check
+        CError_Error(ERR_ILLEGAL_USE_PRECOMPILED_HEADER);
+        return;
+    }
+#endif
 
     cinline_freflist = NULL;
     CInline_AddFRefList_Statement(stmt);
@@ -5592,7 +7324,11 @@ Boolean CInline_GenerateDeferredFuncs(void) {
                     }
                     break;
                 default:
+#if MWCCPS2
+                    CError_FATAL(5663);
+#else
                     CError_FATAL(5002);
+#endif
             }
 
             cinline_gendeps = FALSE;

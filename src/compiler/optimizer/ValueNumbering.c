@@ -41,7 +41,7 @@ typedef struct StackedValue301 {
     MPCode* valuepcode; // +0x24
 } StackedValue301; // 0x28
 
-#define OPCODE_MAX_301 0x5C5
+#define OPCODE_MAX_301 BE_NUM_OPDEFS
 
 int nextvaluenumber;
 int data_006245C0; // removedcommonsubexpressions
@@ -163,6 +163,9 @@ void killmemory(Alias* alias, MPCode* newValue) {
 }
 
 // 0x4B2DC0
+#if MWCCPS2 && MWCCPS2_BUILD >= 210
+__declspec(noinline) // b210 calls it (functioncall); b145 inlines it
+#endif
 static void killallCSEs(void) {
     AvailableValue301* av;
     ValueLabel301* labelled;
@@ -233,11 +236,17 @@ static int matchvalues(AvailableValue301* av, MPCode* match) {
                         return FALSE;
                     }
                     break;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                case 1:
+                    CError_Internal("LocalCSE.c", 579); // b145's file name and line
+                    break;
+#else
                 case 1:
                     if (matchOp->reg != avOp->reg) {
                         return FALSE;
                     }
                     break;
+#endif
                 case 2:
                     if (matchOp->kind != 2 || matchOp->value != avOp->value) {
                         return FALSE;
@@ -257,8 +266,14 @@ static int matchvalues(AvailableValue301* av, MPCode* match) {
                     }
                     break;
                 case 5:
+#if MWCCPS2
+                    // b210 compares the word after the 128-bit constant (+0x14)
+                    if (matchOp->kind != 5 ||
+                        matchOp->value_mid[1] != avOp->value_mid[1] ||
+#else
                     if (matchOp->kind != 5 ||
                         matchOp->unk0C != avOp->unk0C ||
+#endif
                         !CInt64_Equal(*(CInt64*)&matchOp->value, *(CInt64*)&avOp->value)) {
                         return FALSE;
                     }
@@ -318,7 +333,11 @@ static int findavailablevalue(MPCode* pcode, MOperand* op) {
                 }
             }
             chooselocation(av, op);
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            return (int)av; // b145 returns the value itself
+#else
             return TRUE;
+#endif
         }
     }
     return FALSE;
@@ -373,9 +392,11 @@ static inline int isCSEop(MPCode* pcode) {
     MOperand* op;
     int i;
 
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210
     if (pcode->flags & 0x180) {
         return FALSE;
     }
+#endif
     for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
         if (op != baseOp &&
             op->kind == baseOp->kind &&
@@ -397,6 +418,223 @@ static inline void reusevalue(MPCode* pcode, MOperand* op, MOperand* base) {
     removedcommonsubexpressions = TRUE;
 }
 
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+// b145 (LocalCSE.c) also numbers stores, in the list of each store opcode: a
+// store of a value the location already holds goes away, and a load takes the
+// value an earlier store left in a register. Its loads have no copy kinds
+// (func_0048FFA0 only says yes or no)
+extern UInt16 storeopcode(MPCode* pcode); // b145 0x49AF40: a load's store opcode
+
+// drop store's entry from its opcode's list
+static inline void unlinkstore(MPCode* store) {
+    AvailableValue301** ptr = &opvalue[store->op];
+    AvailableValue301* av;
+
+    while ((av = *ptr)) {
+        if (av->pcode == store) {
+            *ptr = av->next;
+            break;
+        }
+        ptr = &av->next;
+    }
+}
+
+static inline Boolean storemayalias(MPCode* store, MPCode* pcode) {
+    if (store->flags & 0x108) {
+        return TRUE;
+    }
+    if (pcode->flags & 0x108) {
+        return TRUE;
+    }
+    return may_alias((PCode*)store, (PCode*)pcode) ? TRUE : FALSE;
+}
+
+static inline void killstoresof(int opcode, MPCode* pcode) {
+    AvailableValue301* av;
+
+    for (av = opvalue[opcode]; av; av = av->next) {
+        if (av->aliasnumber && storemayalias(av->pcode, pcode)) {
+            unlinkstore(av->pcode);
+            av->aliasnumber = 0;
+        }
+    }
+}
+
+// b145 0x4BCF20: forget the stores (and, unless pcode is a load, the loads)
+// that pcode may touch
+static void killstores(MPCode* pcode) {
+    int opcode;
+
+    for (opcode = 0xC3; opcode <= 0xD1; opcode++) {
+        killstoresof(opcode, pcode);
+    }
+    for (opcode = MACRO_OP(0x6C); opcode <= MACRO_OP(0x80); opcode++) {
+        killstoresof(opcode, pcode);
+    }
+    killstoresof(0x1D2, pcode);
+    killstoresof(0x268, pcode);
+    if (pcode->flags & 0x20002) {
+        return;
+    }
+    for (opcode = 0x91; opcode <= 0xA3; opcode++) {
+        killstoresof(opcode, pcode);
+    }
+    for (opcode = MACRO_OP(0x48); opcode <= MACRO_OP(0x5E); opcode++) {
+        killstoresof(opcode, pcode);
+    }
+    killstoresof(0x1D1, pcode);
+    killstoresof(0x264, pcode);
+}
+
+// b145 0x4BD3E0: the store pcode repeats, or whose value the load pcode reads.
+// The flags test is b145's as written: `!=` binds before `&`
+static AvailableValue301* findstore(MPCode* pcode) {
+    AvailableValue301* av;
+    MOperand swap;
+
+    for (av = opvalue[storeopcode(pcode)]; av; av = av->next) {
+        if (av->aliasnumber &&
+            !(av->pcode->flags & ~0x60006 != pcode->flags & ~0x60006) &&
+            av->pcode->argcount == pcode->argcount) {
+            if (matchvalues(av, pcode)) {
+                return av;
+            }
+            if (pcode->flags & 0x2000) {
+                swap = pcode->args[1];
+                pcode->args[1] = pcode->args[2];
+                pcode->args[2] = swap;
+                if (matchvalues(av, pcode)) {
+                    return av;
+                }
+                swap = pcode->args[1];
+                pcode->args[1] = pcode->args[2];
+                pcode->args[2] = swap;
+            }
+        }
+    }
+    return NULL;
+}
+
+// b145 0x4BD590
+static void addstore(MPCode* pcode) {
+    AvailableValue301* av;
+    MOperand* op;
+    int i;
+
+    if (pcode->flags & 0x80) {
+        return;
+    }
+    av = oalloc(offsetof(AvailableValue301, opnumbers) + sizeof(int) * pcode->argcount);
+    av->labelled = NULL;
+    av->pcode = pcode;
+    for (i = 0, op = &pcode->args[0]; i < pcode->argcount; i++, op++) {
+        if (op->kind == 0) {
+            av->opnumbers[i] = REGVALUE(op)->number;
+        }
+    }
+    if (pcode->flags & 0x40004) {
+        av->aliasnumber = pcode->alias->valuenumber;
+    }
+    av->killedregister = nextvaluenumber++;
+    av->next = opvalue[pcode->op];
+    opvalue[pcode->op] = av;
+}
+
+// b145 0x4BCDA0: for a store, delete an earlier identical store of this
+// level; for a load, the store whose value it can take (its register in op).
+// The store returned, or NULL
+static MPCode* storecse(MPCode* pcode, Boolean isload, MOperand* op) {
+    AvailableValue301* av;
+    MPCode* store;
+
+    if (!(pcode->flags & 0x80)) {
+        if ((av = findstore(pcode))) {
+            store = av->pcode;
+            if (!isload || func_0048FFA0(store, pcode)) {
+                if (!store || !store->block) {
+                    CError_Internal("LocalCSE.c", 1089);
+                }
+                if (store->flags & 0x80) {
+                    CError_Internal("LocalCSE.c", 1091);
+                }
+                if (isload) {
+                    if (av->aliasnumber == REGVALUE(&store->args[0])->number) {
+                        *op = store->args[0];
+                        return store;
+                    }
+                } else if (av->killedregister >= valueceiling || nextvaluenumber < valueceiling) {
+                    deletepcode(store);
+                    unlinkstore(store);
+                    return store;
+                }
+            }
+        } else if (!(pcode->flags & 0x40004) && findavailablevalue(pcode, op)) {
+            return NULL;
+        }
+    }
+    killstores(pcode);
+    return NULL;
+}
+
+// b145 0x4BC4D0
+static void pointerstore(MPCode* pcode) {
+    MOperand op;
+
+    if (storecse(pcode, FALSE, &op)) {
+        removedcommonsubexpressions = TRUE;
+    }
+    update_alias_value(pcode->alias, (PCode*)pcode);
+    addstore(pcode);
+    killregisters(pcode);
+}
+
+// b145 0x4BC940 (the same code)
+static void simplestore(MPCode* pcode) {
+    MOperand op;
+
+    if (storecse(pcode, FALSE, &op)) {
+        removedcommonsubexpressions = TRUE;
+    }
+    update_alias_value(pcode->alias, (PCode*)pcode);
+    addstore(pcode);
+    killregisters(pcode);
+}
+
+// b145 0x4BC630
+static void pointerload(MPCode* pcode, Boolean propagate) {
+    MOperand* base = RESULT_OP(pcode);
+    MOperand op;
+    MPCode* stored = storecse(pcode, TRUE, &op);
+
+    if ((pcode->flags & 0x80) || !isCSEload(pcode)) {
+        killregisters(pcode);
+    } else if (propagate && findavailablevalue(pcode, &op)) {
+        reusevalue(pcode, &op, base);
+    } else if (stored) {
+        func_0048FFA0(stored, pcode);
+        reusevalue(pcode, &op, base);
+    } else {
+        addavailablevalue(pcode);
+    }
+}
+
+// b145 0x4BCAA0
+static void simpleload(MPCode* pcode, Boolean propagate) {
+    MOperand* base = RESULT_OP(pcode);
+    MOperand op;
+    MPCode* stored = storecse(pcode, TRUE, &op);
+
+    if ((pcode->flags & 0x80) || !isCSEload(pcode)) {
+        killregisters(pcode);
+    } else if (propagate && findavailablevalue(pcode, &op)) {
+        reusevalue(pcode, &op, base);
+    } else if (stored) {
+        reusevalue(pcode, &op, base);
+    } else {
+        addavailablevalue(pcode);
+    }
+}
+#else
 // 0x4B20B0
 static void pointerload(MPCode* pcode, Boolean propagate) {
     MOperand* base = RESULT_OP(pcode);
@@ -456,6 +694,7 @@ static void simpleload(MPCode* pcode, Boolean propagate) {
         addavailablevalue(pcode);
     }
 }
+#endif
 
 // 0x4B1C80
 static void operatefrommemory(MPCode* pcode, Boolean propagate) {
@@ -463,7 +702,11 @@ static void operatefrommemory(MPCode* pcode, Boolean propagate) {
     MOperand op;
 
     if ((pcode->flags & 0x4000) && isCSEop(pcode) && !(pcode->flags & 0x80)) {
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+        if (findavailablevalue(pcode, &op)) { // b145 does not test propagate
+#else
         if (propagate && findavailablevalue(pcode, &op)) {
+#endif
             reusevalue(pcode, &op, base);
         } else {
             addavailablevalue(pcode);
@@ -476,6 +719,9 @@ static void operatefrommemory(MPCode* pcode, Boolean propagate) {
 // 0x4B1F60
 static void functioncall(MPCode* pcode) {
     killregisters(pcode);
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    killstores(pcode);
+#endif
     if (coloring) {
         update_all_alias_values();
         killallCSEs();
@@ -483,6 +729,12 @@ static void functioncall(MPCode* pcode) {
         update_alias_value(pcode->alias, NULL);
     }
 }
+
+#if MWCCPS2
+#define VN_VU0OP(op) ((op) > 0x21E && (op) <= 0x2E7)
+#define VN_MOVE_DST(pc) (VN_VU0OP((pc)->op) ? &(pc)->args[1] : &(pc)->args[0])
+#define VN_MOVE_SRC(pc) (VN_VU0OP((pc)->op) ? &(pc)->args[2] : &(pc)->args[1])
+#endif
 
 // 0x4B1470
 static void removecsesfrombasicblock(MPCodeBlock* block) {
@@ -492,6 +744,9 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
     MOperand* base;
     MOperand buf;
     RegValue301* value;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+    AvailableValue301* av;
+#endif
     Boolean propagate;
     int i;
 
@@ -513,12 +768,22 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
             }
         }
         if (pcode->flags & 0x10) {
+#if MWCCPS2
+            // b210: VU0 instructions (0x21F..0x2E7) have the dest field first
+            if (propagate && samevalue(VN_MOVE_DST(pcode), VN_MOVE_SRC(pcode))) {
+                deletepcode(pcode);
+                removedcommonsubexpressions = TRUE;
+            } else {
+                copyregister(VN_MOVE_SRC(pcode), VN_MOVE_DST(pcode));
+            }
+#else
             if (propagate && samevalue(&pcode->args[0], &pcode->args[1])) {
                 deletepcode(pcode);
                 removedcommonsubexpressions = TRUE;
             } else {
                 copyregister(&pcode->args[1], &pcode->args[0]);
             }
+#endif
         } else if (pcode->flags & 8) {
             functioncall(pcode);
         } else if (pcode->flags & 2) {
@@ -528,20 +793,50 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
                 simpleload(pcode, propagate);
             }
         } else if (pcode->flags & 4) {
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            if (pcode->flags & 0x20) {
+                pointerstore(pcode);
+            } else {
+                simplestore(pcode);
+            }
+#else
             update_alias_value(pcode->alias, (PCode*)pcode);
             killregisters(pcode);
+#endif
         } else if (pcode->flags & 0x20000) {
             operatefrommemory(pcode, propagate);
         } else if (pcode->flags & 0x40000) {
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            CError_Internal("LocalCSE.c", 1405);
+            update_alias_value(pcode->alias, NULL);
+#else
             update_alias_value(pcode->alias, (PCode*)pcode);
+#endif
             killregisters(pcode);
         } else if ((pcode->flags & 0x4000) && isCSEop(pcode)) {
             base = RESULT_OP(pcode);
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+            // b145: no propagate test; a %hi's partner is pointed at the kept value
+            if ((av = (AvailableValue301*)findavailablevalue(pcode, &buf))) {
+                if (REGVALUE(base)->number != REGVALUE(&buf)->number) {
+                    insertpcodebefore(pcode, func_00490280(&buf, base));
+                    copyregister(&buf, base);
+                    if (pcode->unk38 == 5) {
+                        pcode->pair->pair = av->pcode;
+                    }
+                }
+                deletepcode(pcode);
+                removedcommonsubexpressions = TRUE;
+            } else {
+                addavailablevalue(pcode);
+            }
+#else
             if (propagate && findavailablevalue(pcode, &buf)) {
                 reusevalue(pcode, &buf, base);
             } else {
                 addavailablevalue(pcode);
             }
+#endif
         } else {
             killregisters(pcode);
         }
@@ -639,11 +934,19 @@ static void initializecsedatastructures(void) {
 }
 
 // 0x4B11D0
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+// b145: no argument (no more-aggressive mode); a char class counter
+void func_004B11D0(void) {
+    MPCodeBlock* block;
+    char rclass;
+
+#else
 void func_004B11D0(int moreAggressive) {
     MPCodeBlock* block;
     int rclass;
 
     moreaggressiveoptimization = moreAggressive;
+#endif
     removedcommonsubexpressions = FALSE;
     gather_alias_info();
     for (rclass = 0; rclass < 7; rclass++) {

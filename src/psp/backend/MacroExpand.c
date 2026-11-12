@@ -18,7 +18,7 @@ extern struct Alias* make_alias(Object* obj, SInt32 offset, SInt32 size);
 extern Object* data_005F0BF8; // the function being expanded
 extern MPCodeBlock* data_00624C58; // block being expanded
 
-#define REAL_OP(op) data_00625CE4[(op) - 0x518]
+#define REAL_OP(op) data_00625CE4[(op) - BE_NUM_OPCODES]
 #define HA(v) (((UInt32)(v) >> 16) + (((v) & 0x8000) >> 15))
 #define NEWREG() (data_00625A98[0]++)
 
@@ -72,97 +72,112 @@ void func_0048AF30(MPCode* pc) {
     SInt32 offset;
 
     switch (pc->op) {
-        case 0x55F:
-            p = makepcode(0x55E, NEWREG(), pc->args[1].value, pc->args[1].value2);
+        case MACRO_OP(0x47):
+#if MWCCPS2 // the 128-bit constant
+            p = makepcode(MACRO_OP(0x46), NEWREG(), *(CInt64*)&pc->args[1].value);
+#elif MWCCPSP_NATIVE
+        {
+            // makepcode reads an 'I' operand as one CInt64; two ints only
+            // line up with that on a 32-bit stack
+            CInt64 v;
+            v.hi = pc->args[1].value;
+            v.lo = pc->args[1].value2;
+            p = makepcode(MACRO_OP(0x46), NEWREG(), v);
+        }
+#else
+            p = makepcode(MACRO_OP(0x46), NEWREG(), pc->args[1].value, pc->args[1].value2);
+#endif
             pc->op = 0xAD;
             pc->args[1] = pc->args[0];
             pc->args[0] = p->args[0];
             pc->args[0].flags = 1;
             insertpcodebefore(pc, p);
             return;
-        case 0x56D:
-        case 0x58F:
+        case MACRO_OP(0x55):
+        case MACRO_OP(0x77):
             if (pc->args[1].value % 4) {
-                if (pc->op == 0x56D) {
+                if (pc->op == MACRO_OP(0x55)) {
                     if (copts.littleendian) {
-                        split_unaligned(pc, 0x573, 0x572, 3);
+                        split_unaligned(pc, MACRO_OP(0x5B), MACRO_OP(0x5A), 3);
                     } else {
-                        split_unaligned(pc, 0x572, 0x573, 3);
+                        split_unaligned(pc, MACRO_OP(0x5A), MACRO_OP(0x5B), 3);
                     }
                 } else {
                     if (copts.littleendian) {
-                        split_unaligned(pc, 0x596, 0x595, 3);
+                        split_unaligned(pc, MACRO_OP(0x7E), MACRO_OP(0x7D), 3);
                     } else {
-                        split_unaligned(pc, 0x595, 0x596, 3);
+                        split_unaligned(pc, MACRO_OP(0x7D), MACRO_OP(0x7E), 3);
                     }
                 }
             }
             break;
-        case 0x562:
-        case 0x587:
+        case MACRO_OP(0x4A):
+        case MACRO_OP(0x6F):
             if (pc->args[1].value % 8) {
-                if (pc->op == 0x562) {
+                if (pc->op == MACRO_OP(0x4A)) {
                     if (copts.littleendian) {
-                        split_unaligned(pc, 0x567, 0x566, 7);
+                        split_unaligned(pc, MACRO_OP(0x4F), MACRO_OP(0x4E), 7);
                     } else {
-                        split_unaligned(pc, 0x566, 0x567, 7);
+                        split_unaligned(pc, MACRO_OP(0x4E), MACRO_OP(0x4F), 7);
                     }
                 } else {
                     if (copts.littleendian) {
-                        split_unaligned(pc, 0x58C, 0x58B, 7);
+                        split_unaligned(pc, MACRO_OP(0x74), MACRO_OP(0x73), 7);
                     } else {
-                        split_unaligned(pc, 0x58B, 0x58C, 7);
+                        split_unaligned(pc, MACRO_OP(0x73), MACRO_OP(0x74), 7);
                     }
                 }
             }
             break;
-        case 0x545:
-        case 0x546:
-        case 0x561:
-        case 0x563:
-        case 0x564:
-        case 0x565:
-        case 0x566:
-        case 0x567:
-        case 0x568:
-        case 0x569:
-        case 0x56A:
-        case 0x56B:
-        case 0x56C:
-        case 0x56E:
-        case 0x56F:
-        case 0x570:
-        case 0x571:
-        case 0x572:
-        case 0x573:
-        case 0x574:
-        case 0x575:
-        case 0x576:
-        case 0x585:
-        case 0x586:
-        case 0x588:
-        case 0x589:
-        case 0x58A:
-        case 0x58B:
-        case 0x58C:
-        case 0x58D:
-        case 0x58E:
-        case 0x590:
-        case 0x591:
-        case 0x592:
-        case 0x593:
-        case 0x594:
-        case 0x595:
-        case 0x596:
-        case 0x597:
-        case 0x598:
-        case 0x5B3:
-        case 0x5B4:
-        case 0x5B5:
-        case 0x5B6:
-        case 0x5B7:
-        case 0x5B8:
-        case 0x5B9:
+        case MACRO_OP(0x2D):
+        case MACRO_OP(0x2E):
+        case MACRO_OP(0x49):
+        case MACRO_OP(0x4B):
+        case MACRO_OP(0x4C):
+        case MACRO_OP(0x4D):
+        case MACRO_OP(0x4E):
+        case MACRO_OP(0x4F):
+        case MACRO_OP(0x50):
+        case MACRO_OP(0x51):
+        case MACRO_OP(0x52):
+        case MACRO_OP(0x53):
+        case MACRO_OP(0x54):
+        case MACRO_OP(0x56):
+        case MACRO_OP(0x57):
+        case MACRO_OP(0x58):
+        case MACRO_OP(0x59):
+        case MACRO_OP(0x5A):
+        case MACRO_OP(0x5B):
+        case MACRO_OP(0x5C):
+        case MACRO_OP(0x5D):
+        case MACRO_OP(0x5E):
+        case MACRO_OP(0x6D):
+        case MACRO_OP(0x6E):
+        case MACRO_OP(0x70):
+        case MACRO_OP(0x71):
+        case MACRO_OP(0x72):
+        case MACRO_OP(0x73):
+        case MACRO_OP(0x74):
+        case MACRO_OP(0x75):
+        case MACRO_OP(0x76):
+        case MACRO_OP(0x78):
+        case MACRO_OP(0x79):
+        case MACRO_OP(0x7A):
+        case MACRO_OP(0x7B):
+        case MACRO_OP(0x7C):
+        case MACRO_OP(0x7D):
+        case MACRO_OP(0x7E):
+        case MACRO_OP(0x7F):
+        case MACRO_OP(0x80):
+#if !MWCCPS2 // the VFPU macros (b210 has none)
+        case MACRO_OP(0x9B):
+        case MACRO_OP(0x9C):
+        case MACRO_OP(0x9D):
+        case MACRO_OP(0x9E):
+        case MACRO_OP(0x9F):
+        case MACRO_OP(0xA0):
+        case MACRO_OP(0xA1):
+#endif
             // loads and stores with a symbolic address
             break;
         default:

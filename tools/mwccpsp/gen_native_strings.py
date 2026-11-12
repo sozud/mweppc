@@ -23,8 +23,8 @@ from pe import PE  # noqa: E402
 RT_STRING = 6
 
 
-def main():
-    pe = PE(os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe"))
+def main(exe=None, dst=None):
+    pe = PE(exe or os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe"))
     rva, _ = pe.dirs[2]
     base = pe.off(rva)
     d = pe.data
@@ -66,7 +66,7 @@ def main():
     for k in sorted(strings):
         out.append(f"    {{{k}, {literal(strings[k].encode('latin-1', 'replace'))}}},")
     out.append("};")
-    dst = os.path.join(TOP, "src", "native", "strings.c")
+    dst = dst or os.path.join(TOP, "src", "native", "strings.c")
     open(dst, "w").write("\n".join(out) + "\n")
     print(f"wrote {dst}: {len(strings)} strings")
 

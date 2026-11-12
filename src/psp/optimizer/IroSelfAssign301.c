@@ -38,12 +38,31 @@ static Boolean IroSelfAssign_FitsType(CInt64 v, Type* type) {
 
 // 0x555B60: is linear an integer constant 2^n (n >= 0, so 1 counts with
 // n = 0); 64-bit, unlike 2.4.7's IRO_IsPow2. *powvalue is 0 on failure.
+#if MWCCPS2
+// b210 inlines IRO_IsIntConstant here
+static inline Boolean IsIntConstant210(IROLinear* linear) {
+    if (linear->type == IROLinearOperand &&
+        IS_TYPE_INT(linear->rtype) &&
+        TYPE_INTEGRAL(linear->rtype)->integral < 17 &&
+        linear->u.node &&
+        linear->u.node->type == EINTCONST) {
+        return TRUE;
+    }
+    return FALSE;
+}
+#define POW2_ISINTCONST IsIntConstant210
+#else
+#define POW2_ISINTCONST IRO_IsIntConstant
+#endif
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (UpdateUseForOtherSelfAssignment)
+#endif
 Boolean func_00555B60(IROLinear* linear, int* powvalue) {
     CInt64 value;
     int n;
 
     *powvalue = -1;
-    if (IRO_IsIntConstant(linear)) {
+    if (POW2_ISINTCONST(linear)) {
         value = linear->u.node->data.intval;
         n = 0;
         if (!CInt64_IsZero(&value)) {
@@ -139,6 +158,11 @@ Boolean IROUseDef_FoldMul(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* r
 // 0x566AC0: a is a use of the variable b (x op= c) defined; fold c into a's
 // father "a op2 c2" when possible, else replace a by "a op c".
 // The original inlines the folders into the switch cases.
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+#define B145_M6 -6 // b145 asserts
+#else
+#define B145_M6
+#endif
 void UpdateUseForOtherSelfAssignment(IROLinear* a, IROLinear* b, Type* type) {
     CInt64 val;
     CInt64 fatherval;
@@ -237,10 +261,17 @@ void UpdateUseForOtherSelfAssignment(IROLinear* a, IROLinear* b, Type* type) {
                 } else if (father->nodetype == ESHR || father->nodetype == ESHRASS) {
                     if (CInt64_Equal(fatherval, val) && is_unsigned(father->rtype)) {
                         father->nodetype = (father->nodetype == ESHR) ? EAND : EANDASS;
+#if MWCCPS2 // the 128-bit CInt64
+                        if (father->rtype->size * 8 > 128) {
+                            CError_Internal("IroPropagate.c", CError_B145_LINE(2672) B145_M6);
+                        }
+                        CInt64_SetLong(&v, 128 - father->rtype->size * 8);
+#else
                         if (father->rtype->size * 8 > 64) {
-                            CError_Internal("IroPropagate.c", 2672);
+                            CError_Internal("IroPropagate.c", CError_B145_LINE(2672) B145_M6);
                         }
                         CInt64_SetLong(&v, 64 - father->rtype->size * 8);
+#endif
                         v = CInt64_Add(val, v);
                         folded = CInt64_ShrU(cint64_negone, v);
                         IRO_TruncateValueToType(&folded, ctype);

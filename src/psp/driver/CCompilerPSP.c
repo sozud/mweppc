@@ -109,12 +109,36 @@ void ReleaseLicense(CWPluginContext context) {
 }
 
 // 0x439010
+#if MWCCPS2
+__declspec(dllimport) int __stdcall GetSystemDefaultLangID(void);
+
+// b210: feature "1" unless the system is Japanese; feature "3" for Japanese
+// systems or when "1" is not licensed
+void GetLicense(CWPluginContext context) {
+    if (!license_cookie) {
+#if MWCCPS2
+        if ((unsigned short)GetSystemDefaultLangID() != 0x411) { // b210 compares the LANGID word
+#else
+        if (GetSystemDefaultLangID() != 0x411) {
+#endif
+            CWCheckoutLicense(context, "Win32_Plugins_MIPS_PS2", "1", 0, NULL, &license_cookie);
+            if (license_cookie) {
+                goto done;
+            }
+        }
+        CWCheckoutLicense(context, "Win32_Plugins_MIPS_PS2", "3", 0, NULL, &license_cookie);
+done:
+        using_license_manager = TRUE;
+    }
+}
+#else
 void GetLicense(CWPluginContext context) {
     if (!license_cookie) {
         CWCheckoutLicense(context, "Win32_Plugins_MIPS_PSP", "1", 0, NULL, &license_cookie);
         using_license_manager = TRUE;
     }
 }
+#endif
 
 #pragma auto_inline on
 
@@ -236,7 +260,11 @@ static void GetGlobalOptimizerPrefs(PGlobalOptimizer* prefs) {
     CWMemHandle prefshand;
     void* prefsptr;
 
+#if MWCCPS2
+    if (CWGetNamedPreferences(cparams.context, "PS2 Global Optimizer", &prefshand) == cwNoErr &&
+#else
     if (CWGetNamedPreferences(cparams.context, "PSP Global Optimizer", &prefshand) == cwNoErr &&
+#endif
         CWLockMemHandle(cparams.context, prefshand, FALSE, &prefsptr) == cwNoErr) {
         *prefs = *(const PGlobalOptimizer*)prefsptr;
         CWUnlockMemHandle(cparams.context, prefshand);

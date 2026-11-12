@@ -6,3 +6,7 @@ src/native/exe_data.c
 src/native/strings.c
 src/psp/backend/OpcodeTable.c
 tools/mwccpsp/tests/**
+src/native/ps2/compileroptions.c
+src/native/ps2/exe_data.c
+src/native/ps2/parser_tables.c
+src/native/ps2/strings.c

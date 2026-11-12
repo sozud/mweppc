@@ -226,7 +226,7 @@ void func_0057B090(void) {
 static void MarkUsedAtCall301(Object* obj, void* arg) {
     VarRecord* var;
 
-    if ((var = IRO_FindVar(obj, FALSE, TRUE))) {
+    if ((var = IRO_FindVar(obj, FALSE, TRUE)) != NULL) {
         var->usedAtCall = TRUE;
     }
 }
@@ -841,9 +841,18 @@ Boolean IRO_PropagateSelfAssignments(void) {
     Boolean result = FALSE;
 
     if (copts.propagation) {
+#if MWCCPS2
+        for (;;) {
+            if (!PropagateIncsAndDecs301() && !PropagateOtherSelfAssignments301()) {
+                break;
+            }
+            result = TRUE;
+        }
+#else
         while (PropagateIncsAndDecs301() || PropagateOtherSelfAssignments301()) {
             result = TRUE;
         }
+#endif
     }
     IRO_CheckForUserBreak();
     return result;
@@ -860,6 +869,9 @@ BitVector* data_00608CC4; // the current range's definitions
 BitVector* data_00608CC0; // the current range's uses
 
 // 0x558810: the operand a definition assigns
+#if MWCCPS2
+#pragma auto_inline off
+#endif
 IROLinear* func_00558810(IROLinear* nd, Boolean* isBitfield) {
     IROLinear* target;
 
@@ -869,12 +881,24 @@ IROLinear* func_00558810(IROLinear* nd, Boolean* isBitfield) {
     if (!nd) {
         return NULL;
     }
+#if MWCCPS2
+    target = nd->u.monadic;
+    nd = target;
+    if (target->type == IROLinearOp1Arg && target->nodetype == EINDIRECT) {
+        nd = target->u.monadic;
+    }
+    return IRO_FindAssignedObjRef(nd, isBitfield);
+#else
     target = nd->u.monadic;
     if (target->type == IROLinearOp1Arg && target->nodetype == EINDIRECT) {
         target = target->u.monadic;
     }
     return IRO_FindAssignedObjRef(target, isBitfield);
+#endif
 }
+#if MWCCPS2
+#pragma auto_inline reset
+#endif
 
 // 0x594AF0: def joins the range, with the uses it reaches and their other
 // definitions (2.4.7's AddDefToRange, with AddUseToRange inlined)

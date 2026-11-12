@@ -1722,7 +1722,11 @@ CW_CALLBACK UCBFreeMemory(CWPluginContext context, void* ptr, Boolean isPermanen
         CLPrint("Callback: %s\n", "UCBFreeMemory");
     }
 
+#if MWCCPS2
+    if (ShellHandles_Find(context, ptr, FALSE) != NULL) {
+#else
     if (ShellHandles_Find(context, ptr, FALSE)) {
+#endif
         xfree(ptr);
         ShellHandles_Remove(context, ptr, FALSE);
         return cwNoErr;
@@ -1800,6 +1804,23 @@ CW_CALLBACK UCBAllocMemHandle(
 #if MWCCPSP
 // 0x42A0B0: the handles are OSHandles recorded in the request's table
 CW_CALLBACK UCBFreeMemHandle(CWPluginContext context, CWMemHandle memhandle) {
+#if MWCCPS2
+    ShellHandleEntry* entry;
+    int err;
+    void* handle = memhandle;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBFreeMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, handle, TRUE)) != NULL) {
+        err = OS_FreeHandle(static_cast<OSHandle*>(entry->ptr));
+        ShellHandles_Remove(context, memhandle, TRUE);
+        CWSetPluginOSError(context, err);
+        return err == 0 ? cwNoErr : cwErrRequestFailed;
+    }
+    return cwErrInvalidParameter;
+#else
     ShellHandleEntry* entry;
     int err;
 
@@ -1814,10 +1835,26 @@ CW_CALLBACK UCBFreeMemHandle(CWPluginContext context, CWMemHandle memhandle) {
         return err ? cwErrRequestFailed : cwNoErr;
     }
     return cwErrInvalidParameter;
+#endif
 }
 
 // 0x42A130
 CW_CALLBACK UCBGetMemHandleSize(CWPluginContext context, CWMemHandle memhandle, SInt32* size) {
+#if MWCCPS2
+    ShellHandleEntry* entry;
+    int err;
+    void* handle = memhandle;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBGetMemHandleSize");
+    }
+
+    if ((entry = ShellHandles_Find(context, handle, TRUE)) != NULL) {
+        err = OS_GetHandleSize(static_cast<OSHandle*>(entry->ptr), reinterpret_cast<UInt32*>(size));
+        CWSetPluginOSError(context, err);
+        return err == 0 ? cwNoErr : cwErrRequestFailed;
+    }
+#else
     ShellHandleEntry* entry;
     int err;
 
@@ -1830,11 +1867,28 @@ CW_CALLBACK UCBGetMemHandleSize(CWPluginContext context, CWMemHandle memhandle, 
         CWSetPluginOSError(context, err);
         return err ? cwErrRequestFailed : cwNoErr;
     }
+#endif
     return cwErrInvalidParameter;
 }
 
 // 0x42A1A0
 CW_CALLBACK UCBResizeMemHandle(CWPluginContext context, CWMemHandle memhandle, SInt32 newSize) {
+#if MWCCPS2
+    ShellHandleEntry* entry;
+    int err;
+    void* handle = memhandle;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBResizeMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, handle, TRUE)) != NULL) {
+        err = OS_ResizeHandle(static_cast<OSHandle*>(entry->ptr), newSize);
+        CWSetPluginOSError(context, err);
+        return err == 0 ? cwNoErr : cwErrOutOfMemory;
+    }
+    return cwErrInvalidParameter;
+#else
     ShellHandleEntry* entry;
     int err;
 
@@ -1848,12 +1902,28 @@ CW_CALLBACK UCBResizeMemHandle(CWPluginContext context, CWMemHandle memhandle, S
         return err ? cwErrOutOfMemory : cwNoErr;
     }
     return cwErrInvalidParameter;
+#endif
 }
 
 // 0x42A210
 CW_CALLBACK UCBLockMemHandle(
     CWPluginContext context, CWMemHandle handle, Boolean moveHi, void** ptr
 ) {
+#if MWCCPS2
+    ShellHandleEntry* entry;
+    void* h = handle;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBLockMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, h, TRUE)) != NULL) {
+        *ptr = OS_LockHandle(static_cast<OSHandle*>(entry->ptr));
+        CWSetPluginOSError(context, *ptr ? 0 : 8);
+        return *ptr ? cwNoErr : cwErrOutOfMemory;
+    }
+    return cwErrInvalidParameter;
+#else
     ShellHandleEntry* entry;
 
     if (optsCmdLine.verbose > 4) {
@@ -1866,10 +1936,25 @@ CW_CALLBACK UCBLockMemHandle(
         return *ptr ? cwNoErr : cwErrOutOfMemory;
     }
     return cwErrInvalidParameter;
+#endif
 }
 
 // 0x42A290
 CW_CALLBACK UCBUnlockMemHandle(CWPluginContext context, CWMemHandle handle) {
+#if MWCCPS2
+    ShellHandleEntry* entry;
+    void* h = handle;
+
+    if (optsCmdLine.verbose > 4) {
+        CLPrint("Callback: %s\n", "UCBUnlockMemHandle");
+    }
+
+    if ((entry = ShellHandles_Find(context, h, TRUE)) != NULL) {
+        OS_UnlockHandle(static_cast<OSHandle*>(entry->ptr));
+        return cwNoErr;
+    }
+    return cwErrInvalidParameter;
+#else
     ShellHandleEntry* entry;
 
     if (optsCmdLine.verbose > 4) {
@@ -1881,6 +1966,7 @@ CW_CALLBACK UCBUnlockMemHandle(CWPluginContext context, CWMemHandle handle) {
         return cwNoErr;
     }
     return cwErrInvalidParameter;
+#endif
 }
 #else
 CW_CALLBACK UCBFreeMemHandle(CWPluginContext context, CWMemHandle memhandle) {
@@ -2340,7 +2426,11 @@ CW_BasePluginCallbacks sBasePluginCallbacks = {
 };
 // clang-format on
 
+#if MWCCPS2
+static CWIDEInfo sIDEInfo = {4, 2, 0, 0, 13}; // b210 0x5DFE24
+#else
 static CWIDEInfo sIDEInfo = {3, 3, 0, 0, 10};
+#endif
 
 CWPluginPrivateContext::CWPluginPrivateContext(SInt32 thePluginType, SInt32 totalSize) {
     if (totalSize <= 0) {

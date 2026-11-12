@@ -1459,6 +1459,9 @@ static int ReduceConsecutiveIf(IRONode* startnode, IRONode* endnode) {
 // unsigned range test on the last node.
 extern Type* func_0055CA90(Type* type); // the unsigned type of the same size
 
+#if MWCCPS2 // IroUtil.c has b210's copy (0x566620)
+extern Object* func_00554070(IROLinear* nd);
+#else
 // 0x554070: cond is `var == c` (c an integer constant of a small int type);
 // the variable, else NULL
 Object* func_00554070(IROLinear* cond) {
@@ -1485,9 +1488,14 @@ Object* func_00554070(IROLinear* cond) {
     }
     return NULL;
 }
+#endif
 
 // the node holds nothing but nops and labels before its condition
+#if MWCCPS2
+static inline Boolean condonly(IRONode* fnode) { // b210 inlines it (0x58C000, 0x58C140)
+#else
 static Boolean condonly(IRONode* fnode) {
+#endif
     IROLinear* nd;
 
     if (fnode->numpred > 1) {

@@ -437,10 +437,22 @@ extern SInt32 IRO_MaxKillSize;
 extern BitVector* IRO_SizeKills[0x401];
 extern BitVector* IRO_KillAll;
 extern Boolean IRO_FunctionCallMightThrowException(IROLinear* linear);
-extern void PointerAnalysis_LookupGotoTargets(
-    Object* func, IROLinear* linear, IROListNode** list
-); // 0x4CEAB0
 extern void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* arg);
+
+#if MWCCPS2
+#line 443 "IroDependsKills.c" // b210 names this part in its asserts
+#endif
+#if MWCCPS2
+#define CSE_NOINLINE \
+    __declspec(noinline) // b210 calls these (IRO_AddExpression, IRO_CommonSubs, func_0058DFE0)
+#else
+#define CSE_NOINLINE
+#endif
+#if MWCCPS2
+#define CSE_BIT(x) ((UInt32)(x)) // b210 shifts a bit number unsigned
+#else
+#define CSE_BIT(x) (x)
+#endif
 
 // 0x569AC0: what an access may read: the variables a load of its size may
 // reach, else every addressed or global variable
@@ -467,6 +479,9 @@ void func_00569AC0(BitVector* bv, IROLinear* nd) {
 }
 
 // 0x56B4D0: an object of an exception action
+#if MWCCPSP && !MWCCPS2
+#line 469 "IroDependsKills.c"
+#endif
 static void DependsOnExceptionObject(Object* obj, void* arg) {
     VarRecord* var;
     int index;
@@ -481,6 +496,9 @@ static void DependsOnExceptionObject(Object* obj, void* arg) {
     }
     Bv_SetBit(index, IRO_Depends);
 }
+#if MWCCPSP && !MWCCPS2
+#line 486 "IroCSE.c"
+#endif
 
 static inline Boolean ListHasObject(IROListNode* scan) {
     IROLinear* nd;
@@ -511,7 +529,7 @@ static void GetDependsOfIndirect(IROLinear* nd) {
     result = FALSE;
     if (nd && copts.opt_pointer_analysis && nd->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, nd, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, nd, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail || !ListHasObject(scan)) {
@@ -585,6 +603,9 @@ static void GetDependsOfIndirect(IROLinear* nd) {
 }
 
 // 0x56B190
+#if MWCCPSP && !MWCCPS2
+#line 592 "IroDependsKills.c"
+#endif
 static void GetDependsOfFunctionCall(IROLinear* nd) {
     IROLinear* innernd;
     IROListNode* resultList;
@@ -603,7 +624,7 @@ static void GetDependsOfFunctionCall(IROLinear* nd) {
     innernd = nd->u.funccall.callee;
     if (innernd && copts.opt_pointer_analysis && innernd->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, innernd, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, innernd, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail) {
@@ -686,6 +707,9 @@ static void GetDependsOfFunctionCall(IROLinear* nd) {
         Bv_Or(data_00624DA8, IRO_Depends);
     }
 }
+#if MWCCPSP && !MWCCPS2
+#line 694 "IroCSE.c"
+#endif
 
 // 0x56ABD0
 static void DependsOn(IROLinear* linear, Boolean stop, Boolean recurse) {
@@ -832,7 +856,7 @@ static void DependsOn(IROLinear* linear, Boolean stop, Boolean recurse) {
 }
 
 // 0x56AB70: the variables linear depends on, in IRO_Depends
-void func_0056AB70(IROLinear* linear, Boolean alloc, Boolean stop, Boolean recurse) {
+CSE_NOINLINE void func_0056AB70(IROLinear* linear, Boolean alloc, Boolean stop, Boolean recurse) {
     if (alloc) {
         Bv_AllocVector(&IRO_Depends, IRO_NumVars + 1);
     } else {
@@ -868,10 +892,13 @@ static Boolean IRO_DoesNotHaveVectorOperand(IROLinear* linear) {
 
 #if MWCCPSP
 // 0x4C47F0: the back end's vector-operand check (none on the PSP)
-Boolean func_004C47F0(IROLinear* linear) {
+CSE_NOINLINE Boolean func_004C47F0(IROLinear* linear) {
     return TRUE;
 }
 
+#if MWCCPS2
+#line 873 "IroExprs.c" // b210 names this part in its asserts
+#endif
 // 0x575FE0: subable is the back end's call (IRO_Hook0)
 static void IRO_AddExpression(IROLinear* linear, IRONode* node, Boolean unused) {
     IROExpr* expr;
@@ -928,6 +955,21 @@ static inline void KillClassesOf(BitVector* bv) {
     }
 }
 
+// the classes reading the variable with this index
+#if MWCCPS2
+static inline void KillClassesOfVar(UInt32 index) {
+#else
+static inline void KillClassesOfVar(int index) {
+#endif
+    IROExpr* expr;
+
+    for (expr = IRO_FirstExpr; expr; expr = expr->next) {
+        if (Bv_IsBitSet(index, expr->depends)) {
+            Bv_SetBit(expr->x18, data_006258C4);
+        }
+    }
+}
+
 // 0x575BB0: the classes an indirect store kills (through pointer analysis
 // when it knows every target)
 void func_00575BB0(IROLinear* linear) {
@@ -951,7 +993,7 @@ void func_00575BB0(IROLinear* linear) {
         inner->pointsToFunction &&
         FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, inner, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, inner, &resultList);
         if (!resultList) {
             unknown = TRUE;
         } else {
@@ -986,11 +1028,15 @@ void func_00575BB0(IROLinear* linear) {
                             if (!var) {
                                 CError_FATAL(427);
                             }
+#if MWCCPS2
+                            KillClassesOfVar(var->index);
+#else
                             for (expr = IRO_FirstExpr; expr; expr = expr->next) {
                                 if (Bv_IsBitSet(var->index, expr->depends)) {
                                     Bv_SetBit(expr->x18, data_006258C4);
                                 }
                             }
+#endif
                         }
                     }
                 }
@@ -1007,17 +1053,6 @@ void func_00575BB0(IROLinear* linear) {
     if (unknown) {
         func_00569B40(data_00624DA8, target);
         KillClassesOf(data_00624DA8);
-    }
-}
-
-// the classes reading the variable with this index
-static inline void KillClassesOfVar(int index) {
-    IROExpr* expr;
-
-    for (expr = IRO_FirstExpr; expr; expr = expr->next) {
-        if (Bv_IsBitSet(index, expr->depends)) {
-            Bv_SetBit(expr->x18, data_006258C4);
-        }
     }
 }
 
@@ -1058,7 +1093,7 @@ void func_005756B0(IROLinear* linear) {
     result = FALSE;
     if (inner && copts.opt_pointer_analysis && inner->pointsToFunction && FunctionName) {
         resultList = NULL;
-        PointerAnalysis_LookupGotoTargets(FunctionName, inner, &resultList);
+        PointerAnalysis_LookupLinearNodePointerExpr(FunctionName, inner, &resultList);
         if (resultList) {
             for (scan = resultList; scan; scan = scan->nextList) {
                 if (!scan->list.head || !scan->list.tail) {
@@ -1192,7 +1227,7 @@ void func_00575520(IROLinear* linear) {
 }
 
 // 0x58E790: available expression classes (3.0.1's IRO_ComputeAvail)
-void func_0058E790(void) {
+CSE_NOINLINE void func_0058E790(void) {
     IRONode* node;
     IROLinear* nd;
     BitVector* bv;
@@ -1269,7 +1304,7 @@ typedef struct IROExprUse {
 
 // 0x58E4D0: within each node, link recomputations of an available class to
 // their earlier computation and mark first computations
-void func_0058E4D0(void) {
+CSE_NOINLINE void func_0058E4D0(void) {
     IRONode* node;
     IROLinear* nd;
     IROLinear* scan;
@@ -1304,7 +1339,7 @@ void func_0058E4D0(void) {
                 if (cls >= data_00608CA8) {
                     expr->use = NULL;
                 } else {
-                    if (Bv_IsBitSet(cls, here)) {
+                    if (Bv_IsBitSet(CSE_BIT(cls), here)) {
                         found = NULL;
                         for (scan = node->first; scan != nd; scan = scan->next) {
                             if (scan->expr && !scan->expr->use && scan->expr->x18 == cls) {
@@ -1318,12 +1353,12 @@ void func_0058E4D0(void) {
                         CSE_STATE(nd) = 0;
                     } else {
                         expr->use = NULL;
-                        if (Bv_IsBitSet(cls, first)) {
+                        if (Bv_IsBitSet(CSE_BIT(cls), first)) {
                             CSE_STATE(nd) = 1;
                         } else {
                             CSE_STATE(nd) = 2;
                             Bv_SetBit(cls, first);
-                            if (Bv_IsBitSet(cls, avail)) {
+                            if (Bv_IsBitSet(CSE_BIT(cls), avail)) {
                                 expr->x20 = TRUE;
                             }
                         }
@@ -1363,14 +1398,18 @@ static inline IROExprUse* NewUse(IROExpr* expr) {
 
 // 0x58E350: the computations of expr's class that reach the end of node
 // (searching back through the predecessors)
-IROExprUse* func_0058E350(IRONode* node, IROExpr* expr) {
+CSE_NOINLINE IROExprUse* func_0058E350(IRONode* node, IROExpr* expr) {
     IROLinear* nd;
     IROLinear* found;
     IROExpr* e;
     IROExprUse* list;
     IROExprUse* more;
     UInt32 cls;
+#if MWCCPS2
+    int i;
+#else
     UInt16 i;
+#endif
 
     if (node->marked) {
         return NULL;
@@ -1410,7 +1449,7 @@ IROExprUse* func_0058E350(IRONode* node, IROExpr* expr) {
 
 // 0x58E240: a first computation available on entry gets the computations
 // reaching it from the predecessors (IROExpr.use)
-void func_0058E240(void) {
+CSE_NOINLINE void func_0058E240(void) {
     IRONode* node;
     IRONode* scan;
     IROLinear* nd;
@@ -1449,7 +1488,7 @@ extern void func_00551FC0(IROLinear* nd, IROLinear* replacement); // IroUtil.c
 
 // 0x58E150: the computations a recomputation may come from share one
 // temporary
-void func_0058E150(void) {
+CSE_NOINLINE void func_0058E150(void) {
     IRONode* node;
     IROLinear* nd;
     IROExprUse* uses;
@@ -1471,7 +1510,11 @@ void func_0058E150(void) {
                         }
                         if (!temp) {
                             temp = t2;
+#if MWCCPS2
+                        } else if (t2 && (SInt32)temp >= (SInt32)t2) { // b210 compares them signed
+#else
                         } else if (t2 && (char*)temp >= (char*)t2) {
+#endif
                             temp = t2;
                         }
                         changed = TRUE;
@@ -1493,7 +1536,7 @@ void func_0058E150(void) {
 }
 
 // 0x58DFE0: computations with a temporary assign it; recomputations read it
-void func_0058DFE0(void) {
+CSE_NOINLINE void func_0058DFE0(void) {
     IRONode* node;
     IROLinear* nd;
     IROLinear* insertAt;
@@ -1506,7 +1549,11 @@ void func_0058DFE0(void) {
 
     for (node = IRO_FirstNode; node; node = node->nextnode) {
         insertAt = node->first;
+#if MWCCPS2
+        for (nd = node->first;; nd = nd->next) {
+#else
         for (nd = node->first; nd; nd = nd->next) {
+#endif
             if ((expr = nd->expr)) {
                 if (!expr->temp) {
                     if (expr->use) {
@@ -1545,7 +1592,7 @@ void func_0058DFE0(void) {
 }
 
 // 0x58EA00: put each expression in its class (IROExpr.x18 = class)
-void func_0058EA00(void) {
+CSE_NOINLINE void func_0058EA00(void) {
     IRONode* node;
     IROLinear* nd;
     IROExpr* expr;
@@ -1621,7 +1668,7 @@ void func_0058EB60(void) {
             nd->u.node &&
             nd->u.node->type == EOBJREF &&
             (var = IRO_FindVar(nd->u.node->data.objref, FALSE, TRUE)) &&
-            !Bv_IsBitSet(var->index, seen) &&
+            !Bv_IsBitSet(CSE_BIT(var->index), seen) &&
             ((Boolean (*)(IROLinear*, VarRecord*, Boolean))IRO_Hook14)(nd, var, data_00625ECA)) {
             copy = IRO_NewLinear(IROLinearNop);
             *copy = *nd;
@@ -1649,7 +1696,7 @@ void IRO_FindExpressions(BitVector* bv, Boolean unused) {
     IRO_FirstExpr = IRO_LastExpr;
     IRO_NumExprs = 0;
     for (fnode = IRO_FirstNode; fnode; fnode = fnode->nextnode) {
-        if (!bv || Bv_IsBitSet(fnode->index, bv)) {
+        if (!bv || Bv_IsBitSet(CSE_BIT(fnode->index), bv)) {
             for (nd = fnode->first; nd; nd = nd->next) {
                 nd->expr = NULL;
                 if (nd->type >= IROLinearOperand && nd->type <= IROLinearFunccall) {
@@ -1672,7 +1719,10 @@ void IRO_FindExpressions(BitVector* bv, Boolean unused) {
 }
 
 // 0x575EB0
-void IRO_RemoveExpr(IROExpr* expr) {
+#if MWCCPSP && !MWCCPS2 // b210: IroExprs.c from 873 on
+#line 1663 "IroExprs.c"
+#endif
+CSE_NOINLINE void IRO_RemoveExpr(IROExpr* expr) {
     IROExpr* prev;
     IROExpr* scan;
 
@@ -1692,6 +1742,11 @@ void IRO_RemoveExpr(IROExpr* expr) {
         IRO_FirstExpr = expr->next;
     }
 }
+#if MWCCPS2
+#line 1685 "IroCSE.c"
+#elif MWCCPSP
+#line 1686 "IroCSE.c"
+#endif
 #else
 static void IRO_AddExpression(IROLinear* linear, IRONode* node, Boolean unused) {
     IROExpr* expr;

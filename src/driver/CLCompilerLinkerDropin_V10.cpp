@@ -55,7 +55,11 @@ CW_CALLBACK UCBCachePrecompiledHeader(
         CLPrint("Callback: %s\n", "UCBCachePrecompiledHeader");
     }
 
+#if MWCCPS2
+    if (ShellHandles_Find(context, pchhandle, TRUE) != NULL) {
+#else
     if (ShellHandles_Find(context, pchhandle, TRUE)) {
+#endif
         spec = *reinterpret_cast<const OSSpec*>(filespec);
         CacheIncludeFile(&spec, reinterpret_cast<OSHandle*>(pchhandle), TRUE);
         ShellHandles_Remove(context, pchhandle, TRUE);
@@ -83,6 +87,16 @@ CW_CALLBACK UCBLoadObjectData(CWPluginContext context, SInt32 whichfile, CWMemHa
     if (!file->objectdata && file->objectOnDisk && !func_0041C280(file)) {
         return cwErrRequestFailed;
     }
+#if MWCCPS2
+    if (file->objectdata) {
+        *objectdata = reinterpret_cast<CWMemHandle>(file->objectdata);
+        if (!ShellHandles_Find(context, file->objectdata, TRUE)) {
+            ShellHandles_Add(context, file->objectdata, TRUE, TRUE, FALSE, FALSE);
+        }
+        return cwNoErr;
+    }
+    return cwErrRequestFailed;
+#else
     if (!file->objectdata) {
         return cwErrRequestFailed;
     }
@@ -91,6 +105,7 @@ CW_CALLBACK UCBLoadObjectData(CWPluginContext context, SInt32 whichfile, CWMemHa
         ShellHandles_Add(context, file->objectdata, TRUE, TRUE, FALSE, FALSE);
     }
     return cwNoErr;
+#endif
 }
 #else
 CW_CALLBACK UCBCachePrecompiledHeader(
@@ -923,7 +938,11 @@ CW_CALLBACK UCBGetSuggestedObjectFileSpec(
     }
 
     File* file;
+#if MWCCPS2
+    if ((file = Files_GetFile(&gTarg->files, whichfile)) == NULL) {
+#else
     if (!(file = Files_GetFile(&gTarg->files, whichfile))) {
+#endif
         return cwErrUnknownFile;
     }
 

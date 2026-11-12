@@ -2,10 +2,11 @@
 """Build the native mwccpsp: compile every unit, generate the glue for what
 the sources leave undefined, and link.
 
-    native_build.py [-j N] [--arch x86_64|arm64] [--asan] [-o OUT]
+    native_build.py [-j N] [--arch x86_64|arm64] [--asan] [--ps2] [-o OUT]
 
 Needs clang (and lld on Linux), and the original orig/PSP_3_0_1/mwccpsp.exe for the
-glue's data.
+glue's data. --ps2 builds build/PS2_3_0_1/native/<arch>/mwccps2 from
+orig/PS2_3_0_1/mwccps2.exe instead (see native.py).
 """
 
 import argparse
@@ -27,10 +28,27 @@ def main():
     ap.add_argument("--arch", default="arm64" if os.uname().machine in ("arm64", "aarch64") else "x86_64")
     ap.add_argument("--asan", action="store_true")
     ap.add_argument("-o", "--output")
+    ap.add_argument("--ps2", action="store_true")
+    ap.add_argument("--only", help="recompile only units whose path contains this (the rest are reused)")
     a = ap.parse_args()
+    native.configure(a.ps2)
     py = sys.executable
     asan = ["--asan"] if a.asan else []
-    subprocess.run([py, os.path.join(HERE, "native.py"), "-j", str(a.j), "--arch", a.arch, *asan], check=True)
+    if a.ps2:
+        asan.append("--ps2")
+    subprocess.run(
+        [
+            py,
+            os.path.join(HERE, "native.py"),
+            "-j",
+            str(a.j),
+            "--arch",
+            a.arch,
+            *asan,
+            *(["--only", a.only] if a.only else []),
+        ],
+        check=True,
+    )
     subprocess.run([py, os.path.join(HERE, "native_glue.py"), "--arch", a.arch, *asan], check=True)
     out = native.out_dir(a.arch, a.asan)
     glue = os.path.join(out, "glue")
@@ -51,7 +69,7 @@ def main():
     if missing:
         sys.exit("units failed to compile: " + " ".join(os.path.basename(o) for o in missing))
     ldflags = open(os.path.join(glue, "ldflags.txt")).read().split()
-    exe = os.path.join(out, "mwccpsp")
+    exe = os.path.join(out, native.name())
     subprocess.run(
         [
             "clang",

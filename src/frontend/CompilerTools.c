@@ -724,8 +724,13 @@ short initheaps(heaperror_t heaperrorproc) {
     memclrw(&oheap, sizeof(HeapMem));
     memclrw(&bheap, sizeof(HeapMem));
 
+#if MWCCPS2 // b145 and b210: larger first blocks, and every heap's block size set again
+    gheap.allocsize = 0x80000;
+    lheap.allocsize = 0x40000;
+#else
     gheap.allocsize = 0x38000;
     lheap.allocsize = 0x10000;
+#endif
     aheap.allocsize = 0x4000;
     oheap.allocsize = 0x40000;
     bheap.allocsize = 0x4000;
@@ -736,8 +741,16 @@ short initheaps(heaperror_t heaperrorproc) {
     MoreHeapSpace(&oheap, 0);
     MoreHeapSpace(&bheap, 0);
 
+#if MWCCPS2
+    gheap.allocsize = 0x40000;
+    lheap.allocsize = 0x20000;
+    aheap.allocsize = 0x4000;
+    oheap.allocsize = 0x40000;
+    bheap.allocsize = 0x4000;
+#else
     gheap.allocsize = 0x8000;
     lheap.allocsize = 0x8000;
+#endif
 
     heaperror = heaperrorproc;
 
@@ -1363,6 +1376,12 @@ void CTool_EndianConvertMem(void* data, short len) {
 
 void CTool_EndianConvertWord64(CInt64 ci, char* result) {
     UInt32 buf[2];
+#if MWCCPS2
+    // b210: always little-endian; the low two words of the 128-bit value
+    buf[0] = ci.lo;
+    buf[1] = ci.mid[1];
+    memcpy(result, buf, 8);
+#else
     if (!copts.littleendian) {
         buf[0] = CTool_EndianConvertWord32(ci.hi);
         buf[1] = CTool_EndianConvertWord32(ci.lo);
@@ -1371,6 +1390,7 @@ void CTool_EndianConvertWord64(CInt64 ci, char* result) {
         buf[1] = CTool_EndianConvertWord32(ci.hi);
     }
     memcpy(result, buf, 8);
+#endif
 }
 
 UInt16 CTool_EndianConvertInPlaceWord16Ptr(UInt16* x) {

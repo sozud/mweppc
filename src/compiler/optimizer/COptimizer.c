@@ -713,6 +713,14 @@ static void COpt_ELABELCallBack(ENode* expr) {
     expr->data.label->stmt->flags |= StmtFlag_KeepLabel;
 }
 
+#if MWCCPS2
+// b210 neither marks the ELABELs nor runs the return check here
+void COpt_SimpleOptimizer(Object* obj, Statement* stmt) {
+    static_for_inlines = TRUE;
+    cleanreturnlabel = NULL;
+    COpt_Optimize(obj, stmt);
+}
+#else
 void COpt_SimpleOptimizer(Object* obj, Statement* stmt) {
     Statement* scan;
 
@@ -731,6 +739,7 @@ void COpt_SimpleOptimizer(Object* obj, Statement* stmt) {
     COpt_Optimize(obj, stmt);
     COpt_ReturnCheck(obj, stmt);
 }
+#endif
 
 #if MWCCPSP
 // 3.0.1 (0x4A1A40): the objects a statement's exception actions use are

@@ -265,7 +265,11 @@ static CWResult StoreResults(CWPluginContext context) {
 
 CWPLUGIN_ENTRY(CWParser_GetDropInFlags)(const DropInFlags** flags, SInt32* flagsSize) {
     static const DropInFlags sFlags = {
+#if MWCCPS2
+        kCurrentDropInFlagsVersion, CWDROPINPARSERTYPE, 7, 0, 'Seep', 13 // b210 0x5D8F64
+#else
         kCurrentDropInFlagsVersion, CWDROPINPARSERTYPE, 7, 0, 'Seep', 12
+#endif
     };
     *flags = &sFlags;
     *flagsSize = sizeof(sFlags);

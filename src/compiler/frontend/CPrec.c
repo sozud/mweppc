@@ -172,6 +172,7 @@ static ObjMemberVar* CPrec_GetObjMemberVarPatch(ObjMemberVar* ivar);
 static Type* CPrec_GetTypePatch(Type* type);
 #if MWCCPSP
 static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass);
+static TypeClass* CPrec_GetTemplClassPatch301(TypeClass* tclass);
 // 3.0.1 patches class pointers with CPrec_GetTypeClassPatch directly
 #define CPREC_CLASSPATCH(x) CPrec_GetTypeClassPatch(TYPE_CLASS(x))
 #endif
@@ -1612,6 +1613,10 @@ static ObjCInfo* CPrec_GetObjCInfoPatch(ObjCInfo* info) {
     return p;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -3 // b145 asserts
+#endif
 static TemplArg* CPrec_GetTemplateArgPatch(TemplArg* arg) {
     TemplArg* first;
     TemplArg* current;
@@ -1663,6 +1668,10 @@ static TemplArg* CPrec_GetTemplateArgPatch(TemplArg* arg) {
 
     return first;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static TemplParam* CPrec_GetTemplateParamPatch(TemplParam* param) {
     SInt32 first;
@@ -1906,7 +1915,9 @@ static TemplPartialSpec* CPrec_GetTemplPartialSpecPatch(TemplPartialSpec* pspec)
         CPrec_AppendData(pspec, sizeof(TemplPartialSpec));
         if (pspec->templ) {
 #if MWCCPSP
-            CPrec_NewPointerPatch(&current->templ, CPREC_CLASSPATCH(pspec->templ));
+            CPrec_NewPointerPatch(
+                &current->templ, (TemplClass*)CPrec_GetTemplClassPatch301(TYPE_CLASS(pspec->templ))
+            );
 #else
             CPrec_NewPointerPatch(&current->templ, CPrec_GetTypePatch((Type*)pspec->templ));
 #endif
@@ -2120,7 +2131,75 @@ static TemplateFunction* CPrec_GetTemplateFunctionPatch(TemplateFunction* tf) {
     return (TemplateFunction*)first;
 }
 
+#if MWCCPSP
+static TypeClass* CPrec_GetTemplClassPatch301(TypeClass* tclass);
+
+// 0x4F4AB0: a class template instance (natively written by the 2.4.7 walker,
+// which handles instances too)
+static TypeClass* CPrec_GetTemplClassInstPatch301(TypeClass* tclass) {
+    return CPrec_GetTemplClassPatch301(tclass);
+}
+
+// 0x4F44D0: 3.0.1 writes a plain class here and leaves templates and their
+// instances to the walkers
 static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
+    AddrPatch* addrPatch;
+    SInt32 current;
+
+    CError_ASSERT(2581, tclass->type == TYPECLASS);
+    if (tclass->flags & CLASS_IS_TEMPL) {
+        return CPrec_GetTemplClassPatch301((TypeClass*)CTemplTool_GetTemplClass(tclass));
+    }
+    if (tclass->flags & CLASS_IS_TEMPL_INST) {
+        return CPrec_GetTemplClassInstPatch301((TypeClass*)CTemplTool_GetTemplClassInst(tclass));
+    }
+    if ((addrPatch = CPrec_FindAddrPatch(tclass))) {
+        return addrPatch->value;
+    }
+    current = CPrec_AppendAlign();
+    CPrec_NewAddrPatch(tclass, (void*)current);
+    CPrec_AppendData(tclass, sizeof(TypeClass));
+    if (tclass->nspace) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, nspace)), CPrec_GetNameSpacePatch(tclass->nspace)
+        );
+    }
+    if (tclass->classname) {
+        CPrec_NamePatch((void*)(current + offsetof(TypeClass, classname)), tclass->classname);
+    }
+    if (tclass->bases) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, bases)), CPrec_GetClassListPatch(tclass->bases)
+        );
+    }
+    if (tclass->vbases) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, vbases)), CPrec_GetVClassListPatch(tclass->vbases)
+        );
+    }
+    if (tclass->ivars) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, ivars)), CPrec_GetObjMemberVarPatch(tclass->ivars)
+        );
+    }
+    if (tclass->vtable) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, vtable)), CPrec_GetVTablePatch(tclass->vtable)
+        );
+    }
+    if (tclass->sominfo) {
+        CPrec_NewPointerPatch(
+            (void*)(current + offsetof(TypeClass, sominfo)), CPrec_GetSOMInfoPatch(tclass->sominfo)
+        );
+    }
+    return (TypeClass*)current;
+}
+
+// 0x4F4710: the 2.4.7 walker; in 3.0.1 it writes class templates
+static TypeClass* CPrec_GetTemplClassPatch301(TypeClass* tclass) {
+#else
+static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
+#endif
     SInt32 first;
     SInt32 current;
     SInt32 next;
@@ -2950,6 +3029,10 @@ static CI_FuncData* CPrec_GetInlineFuncPatch(CI_FuncData* ifunc) {
     return p;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -3 // b145 asserts
+#endif
 static ObjEnumConst* CPrec_GetObjEnumConstPatch(ObjEnumConst* obj) {
     AddrPatch* addrPatch;
     SInt32 first;
@@ -2997,6 +3080,10 @@ static ObjEnumConst* CPrec_GetObjEnumConstPatch(ObjEnumConst* obj) {
 
     return (ObjEnumConst*)first;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static ObjType* CPrec_GetObjTypePatch(ObjType* obj) {
     AddrPatch* addrPatch;
@@ -3795,7 +3882,11 @@ static void CPrec_GenerateTokenStreamPatches(void) {
 
 static OSErr CPrec_CompressWrite(const char* data, SInt32 size) {
     char buf[2048 + 256];
+#if MWCCPS2
+    int err; // mwccps2 b210 tests COS_FileWrite's whole int result
+#else
     OSErr err;
+#endif
     int bufpos = 0;
     int blockstart;
     int c;
@@ -4692,9 +4783,9 @@ extern void* data_006041A0;
 extern void* data_006041D0;
 
 void func_004F85E0(void) {
-    data_006041A0 = NULL;
-    data_006041D0 = NULL;
-    cprec_glist.data = NULL;
     cprec_refnum = 0;
+    cprec_glist.data = NULL;
+    data_006041D0 = NULL;
+    data_006041A0 = NULL;
 }
 #endif

@@ -240,7 +240,12 @@ void License_AutoCheckin(void) {
 
     for (index = 0; index < get_license_slot_count(); index++) {
         if (get_license_slot_values(index, &handle, &cookie) && cookie < 0) {
+#if MWCCPS2
+            delete_license(index);
+            lp_checkin(handle);
+#else
             License_Checkin(cookie);
+#endif
         }
     }
 }

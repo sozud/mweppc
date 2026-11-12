@@ -12,6 +12,8 @@
 // build's checks): operand queries and formatting.
 
 // A branch's label operand.
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 MOperand* func_0048FAE0(MPCode* pc) {
     int i;
     MOperand* op;
@@ -21,9 +23,11 @@ MOperand* func_0048FAE0(MPCode* pc) {
             return op;
         }
     }
-    CError_Internal("PCodeInfo.c", 1509);
+    CError_Internal("PCodeInfo.c", CError_B145_LINE(1509));
     return NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // The opcode of a nop.
 SInt16 func_004903F0(void) {
@@ -34,7 +38,12 @@ SInt16 func_004903F0(void) {
 // (6: loads and stores)
 
 // How many bytes the load or store accesses.
-SInt32 func_0048FBE0(UInt16 op) {
+#if MWCCPS2
+// b210 (0x49B4F0): its own opcode numbering (64- and 128-bit loads/stores; the
+// case lists are read from the original's compare chain); func_00490400 calls it
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
+__declspec(noinline) SInt32 func_0048FBE0(UInt16 op) {
     if (!(data_006115F8[op].flags & 6)) {
         CError_FATAL(1384);
         return 0;
@@ -43,16 +52,16 @@ SInt32 func_0048FBE0(UInt16 op) {
         case 0x91:
         case 0x92:
         case 0xC3:
-        case 0x561:
-        case 0x568:
-        case 0x58D:
+        case 0x453:
+        case 0x45A:
+        case 0x47F:
             return 1;
         case 0x94:
         case 0x95:
         case 0xCA:
-        case 0x569:
-        case 0x56A:
-        case 0x58E:
+        case 0x45B:
+        case 0x45C:
+        case 0x480:
             return 2;
         case 0x9B:
         case 0x9D:
@@ -70,24 +79,24 @@ SInt32 func_0048FBE0(UInt16 op) {
         case 0xCF:
         case 0xD0:
         case 0xD1:
-        case 0x56B:
-        case 0x56D:
-        case 0x56E:
-        case 0x56F:
-        case 0x570:
-        case 0x571:
-        case 0x572:
-        case 0x573:
-        case 0x574:
-        case 0x585:
-        case 0x58F:
-        case 0x590:
-        case 0x591:
-        case 0x592:
-        case 0x593:
-        case 0x594:
-        case 0x595:
-        case 0x596:
+        case 0x45D:
+        case 0x45F:
+        case 0x460:
+        case 0x461:
+        case 0x462:
+        case 0x463:
+        case 0x464:
+        case 0x465:
+        case 0x466:
+        case 0x477:
+        case 0x481:
+        case 0x482:
+        case 0x483:
+        case 0x484:
+        case 0x485:
+        case 0x486:
+        case 0x487:
+        case 0x488:
             return 4;
         case 0x93:
         case 0x96:
@@ -103,20 +112,141 @@ SInt32 func_0048FBE0(UInt16 op) {
         case 0xC7:
         case 0xC8:
         case 0xC9:
-        case 0x562:
-        case 0x563:
-        case 0x564:
-        case 0x565:
-        case 0x566:
-        case 0x567:
-        case 0x56C:
-        case 0x586:
-        case 0x587:
-        case 0x588:
-        case 0x589:
-        case 0x58A:
-        case 0x58B:
-        case 0x58C:
+        case 0x454:
+        case 0x455:
+        case 0x456:
+        case 0x457:
+        case 0x458:
+        case 0x459:
+        case 0x45E:
+        case 0x478:
+        case 0x479:
+        case 0x47A:
+        case 0x47B:
+        case 0x47C:
+        case 0x47D:
+        case 0x47E:
+            return 8;
+        // b210 keeps these in groups of their own (separate return blocks)
+        case 0x10B:
+        case 0x10D:
+            return 4;
+        case 0x10A:
+        case 0x10C:
+            return 8;
+        case 0x164:
+        case 0x173:
+            return 8;
+        case 0x1D1:
+        case 0x1D2:
+        case 0x263:
+        case 0x268:
+        case 0x284:
+        case 0x285:
+        case 0x286:
+        case 0x287:
+        case 0x289:
+        case 0x28A:
+        case 0x28B:
+        case 0x28C:
+        case 0x467:
+        case 0x468:
+        case 0x489:
+        case 0x48A:
+            return 16;
+        default:
+            CError_FATAL(1380);
+            return 0;
+    }
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#else
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
+SInt32 func_0048FBE0(UInt16 op) {
+    if (!(data_006115F8[op].flags & 6)) {
+        CError_FATAL(1384);
+        return 0;
+    }
+    switch (op) {
+        case 0x91:
+        case 0x92:
+        case 0xC3:
+        case MACRO_OP(0x49):
+        case MACRO_OP(0x50):
+        case MACRO_OP(0x75):
+            return 1;
+        case 0x94:
+        case 0x95:
+        case 0xCA:
+        case MACRO_OP(0x51):
+        case MACRO_OP(0x52):
+        case MACRO_OP(0x76):
+            return 2;
+        case 0x9B:
+        case 0x9D:
+        case 0x9E:
+        case 0x9F:
+        case 0xA0:
+        case 0xA1:
+        case 0xA2:
+        case 0xA3:
+        case 0xC1:
+        case 0xCB:
+        case 0xCC:
+        case 0xCD:
+        case 0xCE:
+        case 0xCF:
+        case 0xD0:
+        case 0xD1:
+        case MACRO_OP(0x53):
+        case MACRO_OP(0x55):
+        case MACRO_OP(0x56):
+        case MACRO_OP(0x57):
+        case MACRO_OP(0x58):
+        case MACRO_OP(0x59):
+        case MACRO_OP(0x5A):
+        case MACRO_OP(0x5B):
+        case MACRO_OP(0x5C):
+        case MACRO_OP(0x6D):
+        case MACRO_OP(0x77):
+        case MACRO_OP(0x78):
+        case MACRO_OP(0x79):
+        case MACRO_OP(0x7A):
+        case MACRO_OP(0x7B):
+        case MACRO_OP(0x7C):
+        case MACRO_OP(0x7D):
+        case MACRO_OP(0x7E):
+            return 4;
+        case 0x93:
+        case 0x96:
+        case 0x97:
+        case 0x98:
+        case 0x99:
+        case 0x9A:
+        case 0x9C:
+        case 0xC2:
+        case 0xC4:
+        case 0xC5:
+        case 0xC6:
+        case 0xC7:
+        case 0xC8:
+        case 0xC9:
+        case MACRO_OP(0x4A):
+        case MACRO_OP(0x4B):
+        case MACRO_OP(0x4C):
+        case MACRO_OP(0x4D):
+        case MACRO_OP(0x4E):
+        case MACRO_OP(0x4F):
+        case MACRO_OP(0x54):
+        case MACRO_OP(0x6E):
+        case MACRO_OP(0x6F):
+        case MACRO_OP(0x70):
+        case MACRO_OP(0x71):
+        case MACRO_OP(0x72):
+        case MACRO_OP(0x73):
+        case MACRO_OP(0x74):
             return 8;
         case 0x10B:
         case 0x10D:
@@ -129,30 +259,35 @@ SInt32 func_0048FBE0(UInt16 op) {
             return 8;
         case 0x41B:
         case 0x41C:
-        case 0x5B3:
-        case 0x5B5:
+        case MACRO_OP(0x9B):
+        case MACRO_OP(0x9D):
             return 4;
         case 0x4CC:
         case 0x4CD:
         case 0x4CE:
         case 0x4CF:
         case 0x4D0:
-        case 0x5B4:
-        case 0x5B6:
-        case 0x5B7:
-        case 0x5B8:
-        case 0x5B9:
+        case MACRO_OP(0x9C):
+        case MACRO_OP(0x9E):
+        case MACRO_OP(0x9F):
+        case MACRO_OP(0xA0):
+        case MACRO_OP(0xA1):
             return 16;
         default:
             CError_FATAL(1380);
             return 0;
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 extern SInt16 data_00625E48; // move
 extern SInt16 data_00625E74; // 16-byte register move
 
 // An instruction copying register operand src to dst.
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 3 // b145 asserts
 MPCode* func_00490280(MOperand* src, MOperand* dst) {
     if (src->kind == 0) {
         if (src->rclass == 0) {
@@ -160,7 +295,9 @@ MPCode* func_00490280(MOperand* src, MOperand* dst) {
                 (src->flags & 0x2000) ? data_00625E74 : data_00625E48, dst->reg, src->reg
             );
         } else if (src->rclass == 1) {
-            return makepcode((src->flags & 0x8000) ? 0x5B2 : 0x5B1, dst->reg, src->reg);
+            return makepcode(
+                (src->flags & 0x8000) ? MACRO_OP(0x9A) : MACRO_OP(0x99), dst->reg, src->reg
+            );
         } else if (src->rclass == 5) {
             return makepcode(0x2AF, 0xF, dst->reg, src->reg);
         } else if (src->rclass == 3) {
@@ -170,6 +307,8 @@ MPCode* func_00490280(MOperand* src, MOperand* dst) {
     CError_FATAL(979);
     return NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // A copy of kind 1 (a register move) or 2..7 (0x59A / 0x599 with 8, 16 or
 // 32).
@@ -178,17 +317,17 @@ MPCode* func_0048FDC0(int kind, MOperand* src, MOperand* dst) {
         case 1:
             return func_00490280(src, dst);
         case 2:
-            return makepcode(0x59A, dst->reg, src->reg, 8);
+            return makepcode(MACRO_OP(0x82), dst->reg, src->reg, 8);
         case 3:
-            return makepcode(0x599, dst->reg, src->reg, 8);
+            return makepcode(MACRO_OP(0x81), dst->reg, src->reg, 8);
         case 4:
-            return makepcode(0x59A, dst->reg, src->reg, 0x10);
+            return makepcode(MACRO_OP(0x82), dst->reg, src->reg, 0x10);
         case 5:
-            return makepcode(0x599, dst->reg, src->reg, 0x10);
+            return makepcode(MACRO_OP(0x81), dst->reg, src->reg, 0x10);
         case 6:
-            return makepcode(0x59A, dst->reg, src->reg, 0x20);
+            return makepcode(MACRO_OP(0x82), dst->reg, src->reg, 0x20);
         case 7:
-            return makepcode(0x599, dst->reg, src->reg, 0x20);
+            return makepcode(MACRO_OP(0x81), dst->reg, src->reg, 0x20);
         default:
             CError_FATAL(1183);
             return NULL;
@@ -199,39 +338,275 @@ extern SInt32 data_00624788;
 
 // 0x48FB20: the move kind (func_0048FDC0's) of a load or store's value; 0
 // when it has none.
+#if MWCCPS2
 int func_0048FB20(MPCode* pc) {
     switch (pc->op) {
         case 0x91:
-        case 0x568:
+        case MACRO_OP(0x50):
             return 3;
         case 0x92:
-        case 0x561:
+        case MACRO_OP(0x49):
+            return 2;
+        case 0x94:
+        case MACRO_OP(0x51):
+            return 5;
+        case 0x95:
+        case MACRO_OP(0x52):
+            return 4;
+        case 0x9D:
+        case MACRO_OP(0x55):
+            return (UInt8)((data_00624788 == 4) ? (UInt8)1 : (UInt8)7);
+        case 0xA0:
+        case MACRO_OP(0x5C):
+            return (UInt8)((data_00624788 == 4) ? (UInt8)1 : (UInt8)6);
+        case 0x93:
+        case 0x99:
+        case 0x9A:
+            return 1;
+        default:
+            return 0;
+    }
+}
+#else
+int func_0048FB20(MPCode* pc) {
+    switch (pc->op) {
+        case 0x91:
+        case MACRO_OP(0x50):
+            return 3;
+        case 0x92:
+        case MACRO_OP(0x49):
             return 2;
         case 0x93:
         case 0x99:
         case 0x9A:
             return 1;
         case 0x94:
-        case 0x569:
+        case MACRO_OP(0x51):
             return 5;
         case 0x95:
-        case 0x56A:
+        case MACRO_OP(0x52):
             return 4;
         case 0x9D:
-        case 0x56D:
+        case MACRO_OP(0x55):
             return (data_00624788 == 4) ? 1 : 7;
         case 0xA0:
-        case 0x574:
+        case MACRO_OP(0x5C):
             return (data_00624788 == 4) ? 1 : 6;
         default:
             return 0;
     }
 }
+#endif
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 17 // b145 asserts
 extern SInt32 func_0048FBE0(UInt16 op); // bytes an opcode moves
 
 // 0x48FFA0: how load can take the value store wrote (func_0048FDC0's kind,
 // 0 when it cannot)
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+#include "compiler/Alias.h"
+// b145 (0x49AF40): the store opcode whose list holds the stores a load
+// (flags 0x20002) can read; other instructions keep their own opcode
+UInt16 storeopcode(MPCode* pcode) {
+    UInt16 op = pcode->op;
+
+    if (pcode->flags & 0x20002) {
+        switch (pcode->op) {
+            case 0x91:
+                op = 0xC3;
+                break;
+            case MACRO_OP(0x50):
+                op = MACRO_OP(0x75);
+                break;
+            case 0x94:
+                op = 0xCA;
+                break;
+            case MACRO_OP(0x51):
+                op = MACRO_OP(0x76);
+                break;
+            case 0x9D:
+                op = 0xCB;
+                break;
+            case 0x9E:
+                op = 0xD0;
+                break;
+            case 0x9F:
+                op = 0xD1;
+                break;
+            case MACRO_OP(0x55):
+                op = MACRO_OP(0x77);
+                break;
+            case MACRO_OP(0x5A):
+                op = MACRO_OP(0x7D);
+                break;
+            case MACRO_OP(0x5B):
+                op = MACRO_OP(0x7E);
+                break;
+            case 0xA1:
+                op = 0xCD;
+                break;
+            case 0xA2:
+                op = 0xCE;
+                break;
+            case 0xA3:
+                op = 0xCF;
+                break;
+            case MACRO_OP(0x56):
+            case MACRO_OP(0x57):
+                op = MACRO_OP(0x79);
+                break;
+            case 0x93:
+                op = 0xC4;
+                break;
+            case MACRO_OP(0x4A):
+                op = MACRO_OP(0x6F);
+                break;
+            case 0x99:
+                op = 0xC8;
+                break;
+            case 0x9A:
+                op = 0xC9;
+                break;
+            case 0x9C:
+                op = 0xC8;
+                break;
+            case 0x96:
+                op = 0xC5;
+                break;
+            case 0x97:
+                op = 0xC6;
+                break;
+            case 0x98:
+                op = 0xC7;
+                break;
+            case MACRO_OP(0x4F):
+                op = MACRO_OP(0x74);
+                break;
+            case MACRO_OP(0x4B):
+                op = MACRO_OP(0x70);
+                break;
+            case MACRO_OP(0x4C):
+                op = MACRO_OP(0x71);
+                break;
+            case MACRO_OP(0x4D):
+                op = MACRO_OP(0x72);
+                break;
+            case 0x1D1:
+                op = 0x1D2;
+                break;
+            case 0x263:
+                op = 0x268;
+                break;
+            case MACRO_OP(0x5D):
+                op = MACRO_OP(0x7F);
+                break;
+        }
+    }
+    return op;
+}
+
+// b145 (0x49B490): whether load can take the value store wrote, by the
+// store's alias size (no copy kinds yet)
+SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
+    SInt32 size;
+
+    if (!store->alias) {
+        return 0;
+    }
+    size = store->alias->size;
+    if (copts.mips_option41) {
+        if (size > 16) {
+            return 0;
+        }
+        if ((store->op == 0x1D2 && load->op == 0x1D1) ||
+            (store->op == MACRO_OP(0x7F) && load->op == MACRO_OP(0x5D))) {
+            return 1;
+        }
+    }
+    if (size > 8) {
+        return 0;
+    }
+    if ((store->op == 0xC4 && load->op == 0x93) ||
+        (store->op == MACRO_OP(0x6F) && load->op == MACRO_OP(0x4A))) {
+        return 1;
+    }
+    if (size == 4) {
+        if ((store->op == 0xCB && load->op == 0x9D) ||
+            (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x55))) {
+            return 1;
+        }
+        if ((store->op == 0xCD && load->op == 0xA1) ||
+            (store->op == MACRO_OP(0x79) && load->op == MACRO_OP(0x56))) {
+            return 1;
+        }
+    }
+    if (size == 1) {
+        if ((store->op == 0xC3 && load->op == 0x91) ||
+            (store->op == MACRO_OP(0x75) && load->op == MACRO_OP(0x50))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+#elif MWCCPS2
+// b210 (0x49B8C0): copts+0x41 for the quadword pairs, a doubleword pair, and
+// the pairs with the same result tested together
+SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
+    SInt32 size = func_0048FBE0(store->op);
+
+    if (size > 16) {
+        return 0;
+    }
+    if (copts.mips_option41) {
+        if ((store->op == 0x1D2 && load->op == 0x1D1) ||
+            (store->op == MACRO_OP(0x7F) && load->op == MACRO_OP(0x5D))) {
+            return 1;
+        }
+    }
+    if (size > 8) {
+        return 0;
+    }
+    if ((store->op == 0xC4 && load->op == 0x93) ||
+        (store->op == MACRO_OP(0x6F) && load->op == MACRO_OP(0x4A))) {
+        return 1;
+    }
+    if (size > 4) {
+        return 0;
+    }
+    if ((store->op == 0xCD && load->op == 0xA1) ||
+        (store->op == MACRO_OP(0x79) && load->op == MACRO_OP(0x56))) {
+        return 1;
+    }
+    if ((store->op == 0xCB && load->op == 0x9D) ||
+        (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x55))) {
+        return 1;
+    }
+    if ((store->op == 0xCB && load->op == 0x94) ||
+        (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x51))) {
+        return 5;
+    }
+    if ((store->op == 0xCA && load->op == 0x94) ||
+        (store->op == MACRO_OP(0x76) && load->op == MACRO_OP(0x51))) {
+        return 5;
+    }
+    if ((store->op == 0xC3 && load->op == 0x91) ||
+        (store->op == MACRO_OP(0x75) && load->op == MACRO_OP(0x50))) {
+        return 3;
+    }
+    if ((store->op == 0xCB && load->op == 0x91) ||
+        (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x50))) {
+        return 5; // mwccpsp: 3
+    }
+    if ((store->op == 0xCA && load->op == 0x91) ||
+        (store->op == MACRO_OP(0x76) && load->op == MACRO_OP(0x50))) {
+        return 3;
+    }
+    return 0;
+}
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#else
 SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
     SInt32 size = func_0048FBE0(store->op);
 
@@ -244,7 +619,7 @@ SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
         if (store->op == 0x1D2 && load->op == 0x1D1) {
             return 1;
         }
-        if (store->op == 0x597 && load->op == 0x575) {
+        if (store->op == MACRO_OP(0x7F) && load->op == MACRO_OP(0x5D)) {
             return 1;
         }
     }
@@ -257,47 +632,48 @@ SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
     if (store->op == 0xCD && load->op == 0xA1) {
         return 1;
     }
-    if (store->op == 0x591 && load->op == 0x56E) {
+    if (store->op == MACRO_OP(0x79) && load->op == MACRO_OP(0x56)) {
         return 1;
     }
     if (store->op == 0xCB && load->op == 0x9D) {
         return 1;
     }
-    if (store->op == 0x58F && load->op == 0x56D) {
+    if (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x55)) {
         return 1;
     }
     if (store->op == 0xCB && load->op == 0x94) {
         return 5;
     }
-    if (store->op == 0x58F && load->op == 0x569) {
+    if (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x51)) {
         return 5;
     }
     if (store->op == 0xCA && load->op == 0x94) {
         return 5;
     }
-    if (store->op == 0x58E && load->op == 0x569) {
+    if (store->op == MACRO_OP(0x76) && load->op == MACRO_OP(0x51)) {
         return 5;
     }
     if (store->op == 0xC3 && load->op == 0x91) {
         return 3;
     }
-    if (store->op == 0x58D && load->op == 0x568) {
+    if (store->op == MACRO_OP(0x75) && load->op == MACRO_OP(0x50)) {
         return 3;
     }
     if (store->op == 0xCB && load->op == 0x91) {
         return 3;
     }
-    if (store->op == 0x58F && load->op == 0x568) {
+    if (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x50)) {
         return 3;
     }
     if (store->op == 0xCA && load->op == 0x91) {
         return 3;
     }
-    if (store->op == 0x58E && load->op == 0x568) {
+    if (store->op == MACRO_OP(0x76) && load->op == MACRO_OP(0x50)) {
         return 3;
     }
     return 0;
 }
+#endif
 
 extern SInt16 data_00625E3E; // frame register
 
@@ -320,9 +696,9 @@ int func_004901D0(MPCode* pc) {
     }
     switch (pc->op) {
         case 0x90:
-        case 0x55E:
+        case MACRO_OP(0x46):
             return 1;
-        case 0x55C:
+        case MACRO_OP(0x44):
             if (pc->args[2].kind == 0 && pc->args[1].rclass == 0) {
                 if (pc->args[2].reg == 28) {
                     return 1;
@@ -350,7 +726,7 @@ void func_00490370(void) {
     }
     if ((SInt8)copts.mips_option39 > 2) {
         CInt64_SetLong(&n, (SInt8)copts.mips_option39);
-        emitpcode(0x5C3, n);
+        emitpcode(BE_NUM_OPDEFS - 2, n);
         data_006246B4->last->flags |= 0x100;
     }
 }
@@ -361,6 +737,8 @@ extern Boolean is_const_object(Object* obj);
 
 // vformatpcode: build an instruction from its opcode's operand format string
 // and the arguments.
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 1 // b145 asserts
 MPCode* func_00490400(UInt16 op, va_list args) {
     OpcodeDef* info;
     MPCode* pc;
@@ -515,8 +893,14 @@ MPCode* func_00490400(UInt16 op, va_list args) {
                 arg->kind = 0;
                 arg->rclass = 2;
                 arg->reg = 0;
+#if MWCCPS2 && MWCCPS2_BUILD < 210
+                arg->flags = effect;
+                format++;
+                pc->flags = 0x100; // b145
+#else
                 format++;
                 arg->flags = effect;
+#endif
                 break;
             case 'H':
                 arg->kind = 0;
@@ -535,21 +919,33 @@ MPCode* func_00490400(UInt16 op, va_list args) {
             case 'A':
                 arg->kind = 0;
                 arg->rclass = 2;
+#if MWCCPS2
+                arg->reg = 3; // mwccps2 b210's numbering
+#else
                 arg->reg = 2;
+#endif
                 format++;
                 arg->flags = effect;
                 break;
             case 'R':
                 arg->kind = 0;
                 arg->rclass = 2;
+#if MWCCPS2
+                arg->reg = 4; // mwccps2 b210's numbering
+#else
                 arg->reg = 3;
+#endif
                 format++;
                 arg->flags = effect;
                 break;
             case 'Y':
                 arg->kind = 0;
                 arg->rclass = 2;
+#if MWCCPS2
+                arg->reg = 6; // mwccps2 b210's numbering
+#else
                 arg->reg = 7;
+#endif
                 format++;
                 arg->flags = effect;
                 break;
@@ -643,7 +1039,11 @@ MPCode* func_00490400(UInt16 op, va_list args) {
             case 'Q':
                 arg->kind = 0;
                 arg->rclass = 2;
+#if MWCCPS2
+                arg->reg = 2; // mwccps2 b210's numbering
+#else
                 arg->reg = 1;
+#endif
                 format++;
                 arg->flags = effect;
                 break;
@@ -658,17 +1058,22 @@ MPCode* func_00490400(UInt16 op, va_list args) {
                     case 0x1CF:
                     case 0x1D0:
                         arg->kind = 0;
+#if MWCCPS2
+#define K_REG(psp) ((psp) + 1) // mwccps2 b210 numbers these one higher
+#else
+#define K_REG(psp) (psp)
+#endif
                         if (pc->args[1].reg == 0x14) {
                             arg->rclass = 6;
-                            arg->reg = 3;
+                            arg->reg = K_REG(3);
                             arg->flags = effect;
                         } else if (pc->args[1].reg == 0x15) {
                             arg->rclass = 6;
-                            arg->reg = 0;
+                            arg->reg = K_REG(0);
                             arg->flags = effect;
                         } else if (pc->args[1].reg == 0x16) {
                             arg->rclass = 6;
-                            arg->reg = 1;
+                            arg->reg = K_REG(1);
                             arg->flags = effect;
                         } else {
                             arg->kind = 7;
@@ -741,3 +1146,5 @@ MPCode* func_00490400(UInt16 op, va_list args) {
     }
     return pc;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0

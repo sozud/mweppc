@@ -168,9 +168,10 @@ void ShellHandles_Free(CWPluginContext context) {
 
 // 0x41AED0: after a request, what the plugin did not keep is freed
 void func_0041AED0(Plugin* plugin) {
-    if (plugin->context) {
-        ShellHandles_Free(plugin->context);
+    if (!plugin->context) {
+        return;
     }
+    ShellHandles_Free(plugin->context);
 }
 
 #endif

@@ -103,7 +103,11 @@ int func_004AFE40(MPCode* a, MPCode* b, MOperand* reg) {
 }
 
 // 0x4AFEB0: every register use in the block learns its defining instruction
+#if MWCCPS2
+void func_004AFEB0(MPCodeBlock* block) { // b210: pipeline1.c calls it too
+#else
 static void func_004AFEB0(MPCodeBlock* block) {
+#endif
     RegClass301 rclass;
     int i;
     MPCode* pc;
@@ -128,6 +132,18 @@ static void func_004AFEB0(MPCodeBlock* block) {
     }
 }
 
+#if MWCCPS2
+// b210 0x4BBC10: the def tables alone, for pipeline1.c
+void ps2_peepinit_4BBC10(void) {
+    RegClass301 rclass;
+
+    for (rclass = 0; rclass < 7; rclass++) {
+        data_005F0EF4[rclass] = oalloc(data_00625A98[rclass] * sizeof(MPCode*));
+    }
+    data_005F0EF0 = makepcode(func_004903F0());
+}
+#endif
+
 // 0x4AFBE0: the peephole pass
 void func_004AFBE0(Object* func) {
     RegClass301 rclass;
@@ -138,7 +154,7 @@ void func_004AFBE0(Object* func) {
         data_005F0EF4[rclass] = oalloc(data_00625A98[rclass] * sizeof(MPCode*));
     }
     data_005F0EF0 = makepcode(func_004903F0());
-    for (i = 0; i < 0x5C5; i++) {
+    for (i = 0; i < BE_NUM_OPDEFS; i++) {
         data_005F0F10[i] = NULL;
     }
     func_005469C0();

@@ -64,6 +64,10 @@ extern Boolean CTemplTool_IsSameTemplateType(Type* a, Type* b);
 extern TemplClass* CTemplTool_GetTemplClass(TypeClass* tclass);
 extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
 #endif
+#if MWCCPS2
+extern TemplClass* CTemplTool_TemplClassFromHeader(void* header);
+extern TemplClassInst* CTemplTool_TemplClassInstFromHeader(void* header);
+#endif
 #if MWCCPSP
 
 #endif

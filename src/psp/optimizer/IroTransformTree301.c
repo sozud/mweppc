@@ -35,8 +35,17 @@ ENode* data_00608AEC; // IndirectRef
 Boolean data_00608AF0; // FirstTime
 CInt64 data_00608AF4; // OperandConst
 Object* data_00608AFC; // OperandObject
+#if MWCCPS2 && MWCCPSP_NATIVE
+// IroTransform.c defines them under their names (one b210 address each):
+// natively one storage, not two
+#define data_00608B00 LastAddend
+#define data_00608B04 FirstAddend
+extern ENodeList* LastAddend;
+extern ENodeList* FirstAddend;
+#else
 ENodeList* data_00608B00; // LastAddend
 ENodeList* data_00608B04; // FirstAddend
+#endif
 
 static inline Boolean IsIntType(Type* type) {
     return type->type == TYPEINT && TYPE_INTEGRAL(type)->integral < IT_17;
@@ -312,6 +321,22 @@ Boolean func_0056EEC0(ENode* expr) {
     return FALSE;
 }
 
+#if MWCCPS2
+// b210 has no AppendAddend: every use in 0x56F0F0 (and its inlined
+// recursion) is expanded in place; a macro keeps CW from leaving calls
+#define AppendAddend(expr) \
+    do { \
+        ENodeList* list_ = IRO_malloc(sizeof(ENodeList)); \
+        list_->node = (expr); \
+        list_->next = NULL; \
+        if (data_00608B04) { \
+            data_00608B00->next = list_; \
+        } else { \
+            data_00608B04 = list_; \
+        } \
+        data_00608B00 = list_; \
+    } while (0)
+#else
 static void AppendAddend(ENode* expr) {
     ENodeList* list = IRO_malloc(sizeof(ENodeList));
 
@@ -324,6 +349,7 @@ static void AppendAddend(ENode* expr) {
     }
     data_00608B00 = list;
 }
+#endif
 
 // 0x56F0F0: AddAddend, the leaves of an EADD tree onto the addend list
 void func_0056F0F0(ENode* expr) {

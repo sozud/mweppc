@@ -291,8 +291,13 @@ static Object* CRTTI_ConstructTypeInfoObject(Type* type, UInt32 qual) {
         object = CParser_NewCompilerDefDataObject();
         object->name = rttiname;
         object->type = CDecl_NewStructType(sizeof(data), 4);
+#if MWCCPSP
+        object->qual = Q_IMPLICIT_WEAK; // 3.0.1: a weak global, not a static
+        object->qual |= Q_CONST;
+#else
         object->qual = Q_CONST;
         object->sclass = TK_STATIC;
+#endif
 
         refs = lalloc(sizeof(OLinkList));
         refs->next = NULL;
@@ -843,6 +848,29 @@ ENode* CRTTI_Parse_dynamic_cast(void) {
     return expr;
 }
 
+#if MWCCPSP
+ENode* func_00543CD0(ENode* expr, Type* type, UInt32 qual);
+
+// 0x543CA0: static_cast<type>(expr)
+ENode* func_00543CA0(void) {
+    ENode* expr;
+    DeclInfo di;
+
+    expr = CRTTI_ParseCast(&di);
+    if (!expr) {
+        return nullnode();
+    }
+    return func_00543CD0(expr, di.thetype, di.qual);
+}
+
+// 0x543CD0, the static_cast conversion. Not 3.0.1's code yet: 2.4.7's
+// CRTTI_Parse_static_cast after the parse, which the native build runs
+ENode* func_00543CD0(ENode* expr, Type* type, UInt32 qual) {
+    DeclInfo di;
+
+    di.thetype = type;
+    di.qual = qual;
+#else
 ENode* CRTTI_Parse_static_cast(void) {
     ENode* expr;
     DeclInfo di;
@@ -851,6 +879,7 @@ ENode* CRTTI_Parse_static_cast(void) {
     if (!expr) {
         return nullnode();
     }
+#endif
 
     CRTTI_ConstCastCheck(expr->rtype, expr->flags, di.thetype, di.qual);
 

@@ -16,8 +16,13 @@ typedef struct IGEdge {
     struct IGEdge* hashnext; // data_005F3DBC chain
     struct IGEdge* next_lo; // +0x04: next edge for the lower-numbered end
     struct IGEdge* next_hi; // +0x08: next edge for the higher-numbered end
+#if MWCCPS2
+    SInt16 lo; // +0x0C (b210 compares them as signed shorts)
+    SInt16 hi; // +0x0E
+#else
     UInt16 lo; // +0x0C
     UInt16 hi; // +0x0E
+#endif
 } IGEdge;
 
 typedef struct IGNode {
@@ -168,7 +173,11 @@ void BE_ColorRegisters(SInt32 arg) {
             if (data_006242FC > 10) {
                 CError_FATAL(408);
             }
+#if MWCCPS2
+            ((void (*)(SInt32))func_004B3740)(arg); // b210 passes the argument along (unused)
+#else
             func_004B3740();
+#endif
             failed = BE_AssignColors(BE_SimplifyGraph()) == 0;
             if (failed) {
                 func_0054B9B0();
@@ -189,13 +198,76 @@ void BE_ColorRegisters(SInt32 arg) {
 }
 
 extern void* oalloc(SInt32 size);
+#if MWCCPS2
+extern UInt32 func_004620D0(char rclass); // free registers of the class (one word)
+#else
 extern UInt32* func_004620D0(char rclass); // free registers of the class
+#endif
 extern SInt32 func_00462090(char rclass); // next register from the allocation order
 extern int bitvectorisempty(UInt32* a, int len);
 #define OBJECT_VARINFO(obj) (*(char**)&((Object*)(obj))->u.var.info) // +0x28
 
 // Pop the coloring stack, giving each node a free register. Returns 0 if some
 // node could not be colored (it is marked for spilling).
+#if MWCCPS2
+// b210: register sets are one word (classes have at most 32 registers)
+SInt32 BE_AssignColors(IGNode* node) {
+    UInt32 avail;
+    IGEdge* e;
+    IGNode* nb;
+    SInt32 r;
+    SInt32 reg;
+    SInt32 ok;
+    UInt32 freeregs;
+
+    data_00625478[data_00625ECC] = data_00603F68;
+    ok = 1;
+    freeregs = func_004620D0(data_00625ECC);
+    while (node) {
+        avail = freeregs;
+        for (e = node->edges; e; e = (node->index < e->hi) ? e->next_lo : e->next_hi) {
+            nb = &data_0062520C[(node->index < e->hi) ? e->hi : e->lo];
+            if (nb->color != -1) {
+                if (nb->flags & 0x200) {
+                    avail &= ~(3 << nb->color);
+                } else {
+                    avail &= ~(1 << nb->color);
+                }
+            }
+        }
+        if (avail) {
+            if (node->flags & 0x200) {
+                for (r = 0; r < data_00624744[data_00625ECC]; r += 2) {
+                    if ((avail & (3 << r)) == (3 << r)) {
+                        node->color = r;
+                        break;
+                    }
+                }
+            } else {
+                for (r = 0; r < data_00624744[data_00625ECC]; r++) {
+                    if ((1 << r) & avail) {
+                        node->color = r;
+                        break;
+                    }
+                }
+            }
+        }
+        if (node->color == -1) {
+            reg = (SInt16)func_00462090(data_00625ECC);
+            if (reg != -1) {
+                freeregs |= 1 << reg;
+                continue; // try this node again with one more register
+            }
+        }
+        if (node->color == -1) {
+            node->flags |= 1;
+            ok = 0;
+        }
+        node = node->next;
+    }
+    return ok;
+}
+#else
 SInt32 BE_AssignColors(IGNode* node) {
     SInt32 k;
     SInt32 ok;
@@ -256,9 +328,13 @@ SInt32 BE_AssignColors(IGNode* node) {
     }
     return ok;
 }
+#endif
 
 // Rewrite register operands of the current class to their colors, drop
 // moves that became no-ops, and record each variable's register.
+#if MWCCPS2
+#define COLOR_VU0OP(op) ((op) > 0x21E && (op) <= 0x2E7)
+#endif
 void BE_ApplyColoring(void) {
     MPCodeBlock* block;
     MPCode* pc;
@@ -277,22 +353,40 @@ void BE_ApplyColoring(void) {
                 }
                 op++;
             }
+#if MWCCPS2
+            // b210: VU0 instructions (0x21F..0x2E7) have the dest field first
+            if ((pc->flags & 0x10) &&
+                data_00625ECC == (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->rclass &&
+                (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->reg ==
+                    (COLOR_VU0OP(pc->op) ? &pc->args[1] : &pc->args[0])->reg) {
+                deletepcode(pc);
+            }
+#else
             if ((pc->flags & 0x10) &&
                 pc->args[1].rclass == data_00625ECC &&
                 pc->args[1].reg == pc->args[0].reg) {
                 deletepcode(pc);
             }
+#endif
         }
     }
 
     for (i = data_00624744[data_00625ECC]; i < data_00625A98[data_00625ECC]; i++) {
         node = &data_0062520C[i];
         if (node->object && !(node->flags & 1)) {
+#if MWCCPS2
+            if (node->flags & 0x10) {
+                ((VarInfo*)OBJECT_VARINFO(node->object))->regHi = node->color;
+            } else {
+                ((VarInfo*)OBJECT_VARINFO(node->object))->reg = node->color;
+            }
+#else
             if (node->flags & 0x10) {
                 *(SInt16*)(OBJECT_VARINFO(node->object) + 0x2A) = node->color;
             } else {
                 *(SInt16*)(OBJECT_VARINFO(node->object) + 0x28) = node->color;
             }
+#endif
         }
     }
 }
@@ -462,6 +556,9 @@ void func_004B3910(void) {
 
 // After coalescing: flag merged nodes, color the ones merged into a physical
 // register, and mark variables whose node absorbed others.
+#if MWCCPS2 // b210 builds this one from InterferenceGraph.c (its assert names it)
+#line 580 "InterferenceGraph.c"
+#endif
 void func_004B3A70(void) {
     UInt32 n;
     UInt32 i;
@@ -493,6 +590,9 @@ void func_004B3A70(void) {
         }
     }
 }
+#if MWCCPS2
+#line 614 "Coloring.c"
+#endif
 
 extern IGEdge* data_005F3DBC[0x4000]; // edge hash table
 
@@ -526,7 +626,7 @@ extern UInt32 data_005F3DAC;
 extern UInt32 data_005F3DB0; // size of the call-argument register set
 extern SInt32* data_005F3DB4; // its dense array
 extern UInt32* data_005F3DB8; // its index array
-extern SInt32 data_0060E038[7][128]; // caller-saved registers of each class
+extern SInt32 data_0060E038[7][BE_MAX_CLASS_REGS]; // caller-saved registers of each class
 extern void func_004C3190(char rclass); // compute liveness
 void func_004B46E0(UInt32 a, UInt32 b);
 extern SInt32 func_004B8990(void);
@@ -587,7 +687,13 @@ void func_004B3EE0(void) {
             for (k = pc->argcount, op = pc->args; k--; op++) {
                 if (op->kind == 0 && op->rclass == data_00625ECC && (op->flags & 2)) {
                     for (j = 0; j < count; j++) {
+#if MWCCPS2
+                        if (!(pc->flags & 0x10) ||
+                            (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->reg !=
+                                (SInt32)dense[j]) {
+#else
                         if (!(pc->flags & 0x10) || pc->args[1].reg != (SInt32)dense[j]) {
+#endif
                             func_004B46E0(op->reg, dense[j]);
                         }
                     }
@@ -728,15 +834,32 @@ SInt32 func_004B3B80(void) {
     SInt16 gone;
     IGNode* node;
     IGEdge* e;
+#if MWCCPS2
+    int vu;
+#endif
 
     changed = 0;
     for (block = data_00624FD0; block; block = block->next) {
         for (pc = block->first; pc; pc = pc->next) {
+#if MWCCPS2
+            // b210 (0x4BE880): a VU0 copy (0x21F..0x2E7) has its operands
+            // one slot later
+            if (!(pc->flags & 0x10)) {
+                continue;
+            }
+            vu = pc->op > 0x21E && pc->op <= 0x2E7;
+            if (pc->args[vu ? 2 : 1].rclass != data_00625ECC) {
+                continue;
+            }
+            src = coalesce_find(pc->args[vu ? 2 : 1].reg);
+            dst = coalesce_find(pc->args[vu ? 1 : 0].reg);
+#else
             if (!(pc->flags & 0x10) || pc->args[1].rclass != data_00625ECC) {
                 continue;
             }
             src = coalesce_find(pc->args[1].reg);
             dst = coalesce_find(pc->args[0].reg);
+#endif
             if (src == dst) {
                 deletepcode(pc);
                 continue;
@@ -797,12 +920,14 @@ SInt32 func_004B4650(UInt32 a, UInt32 b) {
 }
 
 // Never coalesce into or out of $zero (register 0 of the GPR class).
+#if !MWCCPS2 // mwccps2 has it in RegisterInfo.c
 Boolean func_004B89A0(SInt32 a, SInt32 b) {
     if (data_00625ECC == 0) {
         return (a == 0) || (b == 0);
     }
     return 0;
 }
+#endif
 
 // Spill costs of the current class: uses and definitions weighted by the
 // block's loop weight.
@@ -895,15 +1020,15 @@ MPCode* func_004B8A00(SInt16 reg, IGNode* node) {
 
     PAIR_OFFSET(node, off);
     op = func_0047FFD0(type);
-    if (data_00625ECC == 5 && op == 0x597) {
-        op = 0x598;
+    if (data_00625ECC == 5 && op == MACRO_OP(0x7F)) {
+        op = MACRO_OP(0x80);
     }
     pc = func_00480420(op, 3);
     pc->args[0].kind = 0;
     pc->args[0].rclass = data_00625ECC;
     pc->args[0].reg = reg;
     pc->args[0].flags = 1;
-    if (pc->op == 0x597) {
+    if (pc->op == MACRO_OP(0x7F)) {
         pc->args[0].flags |= 0x2000;
     }
     frame_operands(pc, obj, off);
@@ -920,18 +1045,25 @@ MPCode* func_004B8B00(SInt16 reg, IGNode* node) {
 
     PAIR_OFFSET(node, off);
     op = func_0047FD20(type, &extra);
-    if (op == 0x575 && data_00625ECC == 5) {
-        op = 0x576;
+    if (op == MACRO_OP(0x5D) && data_00625ECC == 5) {
+        op = MACRO_OP(0x5E);
     }
     pc = func_00480420(op, 3);
     pc->args[0].kind = 0;
     pc->args[0].rclass = data_00625ECC;
     pc->args[0].reg = reg;
     pc->args[0].flags = 2;
-    if (pc->op == 0x575) {
+    if (pc->op == MACRO_OP(0x5D)) {
         pc->args[0].flags |= 0x2000;
     }
-    if (pc->op == ((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? 0x563 : 0x560)) {
+#if MWCCPS2
+    if (pc->op ==
+        (UInt16)((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B)
+                                                                 : MACRO_OP(0x48))) {
+#else
+    if (pc->op ==
+        ((copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x4B) : MACRO_OP(0x48))) {
+#endif
         pc->args[0].flags |= 0x8000;
         if (copts.mips_option1A) {
             pc->args[0].flags |= 0x20;
@@ -941,6 +1073,7 @@ MPCode* func_004B8B00(SInt16 reg, IGNode* node) {
     return pc;
 }
 
+#if !MWCCPS2 // mwccps2 has it in RegisterInfo.c
 // The type a spill slot of the current class holds.
 Type* func_004B89D0(IGNode* node) {
     if (data_00625ECC != 0) {
@@ -951,6 +1084,9 @@ Type* func_004B89D0(IGNode* node) {
     }
     return TYPE(&stunsignedlong);
 }
+#else
+Type* func_004B89D0(IGNode* node);
+#endif
 #define SPILL_ASSERT(line, cond) \
     do { \
         if (!(cond)) { \
@@ -968,8 +1104,16 @@ static MPCode* remat(MPCode* def, SInt16 reg) {
 
 // Rewrite a register move whose source or destination was spilled.
 void func_0054BD20(MPCodeBlock* block, MPCode* pc) {
+#if MWCCPS2
+    // b210 (0x55E0A0): a VU0 instruction (0x21F..0x2E7) has its operands
+    // one slot later
+    int vu = pc->op > 0x21E && pc->op <= 0x2E7;
+    SInt16 src = pc->args[vu ? 2 : 1].reg;
+    SInt16 dst = pc->args[vu ? 1 : 0].reg;
+#else
     SInt16 src = pc->args[1].reg;
     SInt16 dst = pc->args[0].reg;
+#endif
     IGNode* srcnode = &data_0062520C[src];
     IGNode* dstnode = &data_0062520C[dst];
     SInt16 tmp;

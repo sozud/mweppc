@@ -80,7 +80,11 @@ enum {
 };
 
 // clang-format off
-#if MWCCPSP
+#if MWCCPS2 && MWCCPSP_NATIVE
+// the native PS2 build's table is b210's, generated from mwccps2.exe
+// (src/native/ps2/compileroptions.c)
+extern CompilerOption compileroptions[];
+#elif MWCCPSP
 // The 3.0.1 table, extracted from mwccpsp.exe in order.
 CompilerOption compileroptions[] = {
     "little_endian", OPT_FLAG_NOPRAGMA | OPT_OFFSET(littleendian),
@@ -93,7 +97,7 @@ CompilerOption compileroptions[] = {
     "peephole", OPT_OFFSET(peephole),
     "schedule", OPT_OFFSET(schedule),
     "tailcall", OPT_OFFSET(tailcall),
-    "late_conditional_move", OPT_OFFSET(late_conditional_move),
+    COPTS_B210_OPTION("late_conditional_move", late_conditional_move)
     "conditional_move", OPT_OFFSET(conditional_move),
     "gencvtcheck", OPT_OFFSET(gencvtcheck),
     "trunc", OPT_OFFSET(trunc),
@@ -104,15 +108,15 @@ CompilerOption compileroptions[] = {
     "divbyzerocheck", OPT_OFFSET(divbyzerocheck),
     "nomacro", OPT_OFFSET(nomacro),
     "warn_inlineasm", OPT_OFFSET(warn_inlineasm),
-    "no_branch_likely", OPT_OFFSET(no_branch_likely),
-    "debug_1", OPT_OFFSET(debug_1),
-    "debug_2", OPT_OFFSET(debug_2),
-    "debug_3", OPT_OFFSET(debug_3),
-    "debug_4", OPT_OFFSET(debug_4),
-    "debug_5", OPT_OFFSET(debug_5),
-    "int_multiply_add", OPT_OFFSET(int_multiply_add),
+    COPTS_B210_OPTION("no_branch_likely", no_branch_likely)
+    COPTS_B210_OPTION("debug_1", debug_1)
+    COPTS_B210_OPTION("debug_2", debug_2)
+    COPTS_B210_OPTION("debug_3", debug_3)
+    COPTS_B210_OPTION("debug_4", debug_4)
+    COPTS_B210_OPTION("debug_5", debug_5)
+    COPTS_B210_OPTION("int_multiply_add", int_multiply_add)
     "cats", OPT_OFFSET(cats),
-    "mwabi_bitfields", OPT_OFFSET(mwabi_bitfields),
+    COPTS_B210_OPTION("mwabi_bitfields", mwabi_bitfields)
     "fastmath", OPT_OFFSET(fastmath),
     "volatileasm", OPT_OFFSET(volatileasm),
     "memoryrewrite", OPT_OFFSET(memoryrewrite),
@@ -315,7 +319,7 @@ CompilerOption compileroptions[] = {
     "force_active", OPT_OFFSET(force_active),
     "block_assign", OPT_OFFSET(block_assign),
     "has8bytebitfields", OPT_OFFSET(has8bytebitfields),
-    "mwabi_bitfields", OPT_OFFSET(mwabi_bitfields),
+    COPTS_B210_OPTION("mwabi_bitfields", mwabi_bitfields)
     "sym", OPT_OFFSET(filesyminfo),
     "symstringtypes", OPT_OFFSET(symstringtypes),
     NULL, 0
@@ -499,8 +503,8 @@ extern void func_00439EA0(void); // FEInterface.c: the optimizer options from co
 UInt8 cprep_eoltokens;
 static IfStack ifstack[64];
 static SInt16 iflevel;
-#if MWCCPSP
-TokenStack tokenstack[256]; // 3.0.1 nests macros 256 deep
+#if MWCCPSP && !MWCCPS2
+TokenStack tokenstack[256]; // 3.0.1 nests macros 256 deep (b210: 128)
 #else
 TokenStack tokenstack[128];
 #endif
@@ -578,7 +582,11 @@ static PrepValue CPrep_ParseBinary(PrepValue* rhs, short precLimit);
 static char* XpandMacro(Macro* macro);
 #if MWCCPSP
 
+#if MWCCPSP && !MWCCPS2 // b210 keeps 2.4.7's 128 KB
 #define CPREP_MACRO_LIMIT 0x100000 // 3.0.1: expanded macro text up to 1 MB
+#else
+#define CPREP_MACRO_LIMIT 0x20000
+#endif
 #endif
 static void prepmacro(Macro* macro);
 static void prepifskip(void);
@@ -893,6 +901,15 @@ void cleanupprep(void) {
 }
 
 #if MWCCPSP
+// b210's name buffers are 0x100 bytes longer (the clamp is the same)
+#if MWCCPS2
+#define PRAGMA_ONCE_NAMEBUF 520
+#else
+#define PRAGMA_ONCE_NAMEBUF 264
+#endif
+
+#endif
+#if MWCCPSP
 // 3.0.1: #pragma once keys are made from the file's full path (and, unless
 // old_pragma_once, from the name as written as well); a header that is
 // already known is not even loaded; precompiled headers start with the magic
@@ -913,10 +930,13 @@ static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImpor
     HashNameNode* writtenname;
     Macro* macro;
     char pathbuf[0x104];
-    char namebuf[0x108];
+    char namebuf[PRAGMA_ONCE_NAMEBUF];
     char* dst;
     int i;
     int sys;
+#if MWCCPS2
+    char* base;
+#endif
 
     if (filesp >= 31) {
         was_prep_error = TRUE;
@@ -972,6 +992,35 @@ static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImpor
             spec = &fileinfo.filespec;
             path = CTool_GetPathName(&fileinfo.filespec, (COSFileTime*)&prepinfo.fileModDate);
 
+#if MWCCPS2
+            // b210 builds both keys through a pointer past the prefix byte
+            sys = prepinfo.isSystemInclude;
+            base = pathbuf + 1;
+            strncpy(base, path, 0x103);
+            base[0x102] = 0;
+            for (dst = base; *dst; dst++) {
+                *dst = tolower(*dst);
+            }
+            *(--base) = (copts.syspath_once && sys) ? '$' : -'\\';
+            pathname = GetHashNameNodeExport(base);
+
+            sys = prepinfo.isSystemInclude;
+            base = namebuf + 1;
+            if (filename[0] > 0x104U) {
+                dst = base + 0x104;
+                i = 0x104;
+            } else {
+                dst = base + filename[0];
+                i = filename[0];
+            }
+            dst[1] = 0;
+            while (i >= 0) {
+                *(dst--) = tolower((signed char)filename[i]);
+                i--;
+            }
+            *(--base) = (copts.syspath_once && sys) ? '$' : -'\\';
+            writtenname = GetHashNameNodeExport(base);
+#else
             sys = prepinfo.isSystemInclude;
             strncpy(pathbuf + 1, path, 0x103);
             pathbuf[1 + 0x102] = 0;
@@ -994,6 +1043,7 @@ static Boolean setupfile(StringPtr filename, Boolean fullsearch, Boolean isImpor
             }
             *dst = (copts.syspath_once && sys) ? '$' : -'\\';
             writtenname = GetHashNameNodeExport(dst);
+#endif
 
             if (ismacroname4(pathname)) {
                 if (fileinfo.filedata) {
@@ -1330,6 +1380,10 @@ void CPrep_TokenStreamSetState(SInt32* state) {
     ts_current = ts_first + *state;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -4 // b145 asserts
+#endif
 void CPrep_UnLex(void) {
     ++ts_preread_elements;
     --ts_current;
@@ -1339,6 +1393,10 @@ void CPrep_UnLex(void) {
     CError_ASSERT(909, ts_current >= ts_first);
 #endif
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void CPrep_TokenStreamSetCurState(SInt32* state) {
     ts_preread_elements += ts_current - ts_first - (*state - 1);
@@ -1818,6 +1876,10 @@ TStreamElement* CPrep_CurStreamElement(void) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -6 // b145 asserts
+#endif
 void CPrep_GetTokenContext(
     TStreamElement* token,
     CPrepFileInfo** file,
@@ -1895,12 +1957,31 @@ void CPrep_GetTokenContext(
     } else {
         release = FALSE;
     }
+#if MWCCPS2
+    // b210: a file with #line directives reports the current line number
+    if (cprep_hasprepline) {
+        *line = linenumber;
+    } else
+#endif
+#if MWCCPSP
+    {
+        for (j = 0, n = 1; j < offset; j++) {
+            if (base[j] == 13) {
+                n++;
+            }
+#else
     for (j = 0, n = 1; j < offset; j++) {
         if (base[j] == 13) {
             n++;
+#endif
         }
+#if MWCCPSP
+        *line = n;
+#endif
     }
+#if !MWCCPSP
     *line = n;
+#endif
     c = CPrep_TokenSize(end = base + offset);
     *column = c;
     if (!token && tokenstacklevel == 1) {
@@ -1921,10 +2002,27 @@ void CPrep_GetTokenContext(
         if (!i) {
             *textpos = j;
         }
+#if MWCCPS2
+        // b210 also shows a macro boundary as a space
+        switch (c) {
+            case TK_MACRO_NOEXPAND:
+                break;
+            case TK_MACRO_BOUNDARY:
+            case 9:
+                text[j] = 32;
+                j++;
+                break;
+            default:
+                text[j] = c;
+                j++;
+                break;
+        }
+#else
         if (c != TK_MACRO_NOEXPAND) {
             text[j] = c == 9 ? 32 : c;
             j++;
         }
+#endif
         --i;
     }
     if (!i) {
@@ -1952,6 +2050,10 @@ void CPrep_GetTokenContext(
     }
     was_prep_error = FALSE;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void CPrep_Error(short code) {
     Boolean save = in_assembler;
@@ -2254,6 +2356,10 @@ SInt32 CPrep_GetFileOffsetInfo(FileOffsetInfo* foi) {
     return foi->tokenline;
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -6 // b145 asserts
+#endif
 void CPrep_GetFileOffsetInfo2(FileOffsetInfo* foi, SInt32* pLine, HashNameNode** pName) {
     SInt32 p;
     SInt32 i;
@@ -2323,6 +2429,10 @@ void CPrep_GetFileOffsetInfo2(FileOffsetInfo* foi, SInt32* pLine, HashNameNode**
     *pName = foi->file ? foi->file->nameNode : NULL;
 #endif
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 void CPrep_ResetFileInfo(CPrepFileInfo* file) {
 #if MWCCPSP
@@ -2398,7 +2508,7 @@ static void CPrep_SetDefaultOptions(void) {
     copts.opt_classresults = FALSE;
     copts.show_error_filestack = TRUE;
     copts.warn_illunionmembers = TRUE;
-    copts.mwabi_bitfields = TRUE;
+    COPTS_B210_SET(mwabi_bitfields, TRUE);
 }
 #endif
 
@@ -2654,7 +2764,7 @@ UInt8 C_Compiler(CompilerLinkerParamBlk* param) {
 #endif
 
 static void pushtokenseq(Macro* macro) {
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2
     if (tokenstacklevel >= 256) {
 #else
     if (tokenstacklevel >= 128) {
@@ -2999,13 +3109,15 @@ static void goendofline(void) {
         skipendofline();
     }
 }
-#if MWCCPSP
 
-#endif
 #if MWCCPSP
 static char* CPrep_CopyQuoted(char* p, signed char quote);
 #endif
+#if MWCCPSP
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
+#endif
 static void CPrep_Define(void) {
     Macro* existing_macro;
     Macro* macro;
@@ -3263,7 +3375,7 @@ innerLoop:
 
         AppendGListByte(&mlist, 0);
         length = mlist.size;
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2
         if (length > 0x100000) {
 #else
         if (length > 0x20000) {
@@ -3310,6 +3422,10 @@ innerLoop:
         }
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static void prepundefine(void) {
     short t;
@@ -3992,19 +4108,27 @@ static inline char* CTool_PtoCstr(StringPtr str) {
 }
 
 static void CPrep_GetQuotedFileName(char* buffer) {
+#if MWCCPS2
+    char filename[260]; // b210: MAX_PATH, the name read as a C string
+#else
     char filename[256];
+#endif
     char* src;
     int len;
 
     if (copts.fullpath_file) {
         COS_FileGetPathName(filename, &filestack[filesp]->textfile, NULL);
     } else {
-#if MWCCPSP
+#if MWCCPS2
+        COS_FileGetFSSpecInfo(&filestack[filesp]->textfile, NULL, 0, filename, sizeof(filename));
+#elif MWCCPSP
         COS_FileGetPascalName(&filestack[filesp]->textfile, filename);
 #else
         COS_FileGetFSSpecInfo(&filestack[filesp]->textfile, NULL, NULL, (StringPtr)filename);
 #endif
+#if !MWCCPS2
         CTool_PtoCstr((StringPtr)filename);
+#endif
     }
 
     src = filename;
@@ -4019,13 +4143,13 @@ static void CPrep_GetQuotedFileName(char* buffer) {
     *buffer = '"';
     buffer[1] = 0;
 }
-#if MWCCPSP
 
-#endif
 #if MWCCPSP
 static char cprep_mwerks_version[16]; // 0x5E8DD0
 #endif
+#if MWCCPSP
 
+#endif
 static char* XpandSpecialMacro(Macro* macro) {
 #if MWCCPSP
     char buf[256];
@@ -4073,7 +4197,11 @@ do_string:
         return "1";
     } else if (macro == &casmM || macro == &MWRSM) {
 #if MWCCPSP
+#if MWCCPS2
+        sprintf(cprep_mwerks_version, "0x%lx", 0x3004L); // mwccps2 b210: __MWERKS__ is 0x3004
+#else
         sprintf(cprep_mwerks_version, "0x%lx", 0x3014L); // 3.0.1: 0x3014
+#endif
         return cprep_mwerks_version;
 #else
         return "0x2407";
@@ -4100,6 +4228,10 @@ do_string:
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
+#endif
 static char* XpandMacro(Macro* macro) {
     char* text;
     Boolean variadicArgument;
@@ -4128,7 +4260,11 @@ static char* XpandMacro(Macro* macro) {
     variadic = (macro->nargs & 0x8000) != 0;
     if (nargs != 0) {
         gotonexttoken();
+#if MWCCPS2
+        CError_ASSERT(4439, prepnextchar() == '(');
+#else
         CError_ASSERT(3360, prepnextchar() == '(');
+#endif
 
         if (nargs > 1) {
             variadicArgument = variadic && nargs == 2;
@@ -4395,6 +4531,10 @@ argumentFinished:
     memcpy(result, *mlist.data, mlist.size);
     return XpandString(macro, result);
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static void prepmacro(Macro* macro) {
     Boolean save_spaceskip;
@@ -4533,6 +4673,10 @@ static void CPrep_PragmaImExport(int flags) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
+#endif
 static void pragma_on_off_reset(int bits) {
 #if MWCCPSP
     short imex_flags;
@@ -4589,6 +4733,10 @@ static void pragma_on_off_reset(int bits) {
         CPrep_Warning(ERR_ILLEGAL_PRAGMA);
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 #if MWCCPSP
 extern UInt8 data_0062455C; // 3.0.1, set while precompiling (not identified)
@@ -4636,14 +4784,35 @@ static HashNameNode* CPrep_OldPragmaOnceName(StringPtr name, Boolean isSystemInc
 
 // 3.0.1: the key is the whole (lower-case) path, length byte included
 static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSystemInclude) {
-    char buf[264];
+    char buf[PRAGMA_ONCE_NAMEBUF];
     char* dst;
     int i;
+#if MWCCPS2
+    char* base;
+#endif
 
     if (copts.old_pragma_once) {
         return CPrep_OldPragmaOnceName(name, isSystemInclude);
     }
 
+#if MWCCPS2
+    base = buf + 1;
+    if (name[0] > 260U) {
+        dst = base + 260;
+        i = 260;
+    } else {
+        dst = base + name[0];
+        i = name[0];
+    }
+    dst[1] = 0;
+    while (i >= 0) {
+        *(dst--) = tolower((signed char)name[i]);
+        i--;
+    }
+
+    *(--base) = (copts.syspath_once && isSystemInclude) ? '$' : -'\\';
+    return GetHashNameNodeExport(base);
+#else
     i = name[0];
     if (i > 260) {
         i = 260;
@@ -4657,6 +4826,7 @@ static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSyste
 
     *dst = (copts.syspath_once && isSystemInclude) ? '$' : -'\\';
     return GetHashNameNodeExport(dst);
+#endif
 }
 #else
 static inline HashNameNode* CPrep_PragmaOnceName(StringPtr name, Boolean isSystemInclude) {
@@ -6001,7 +6171,11 @@ static void prepinclude(Boolean isImport) {
 
     goendofline();
 #if MWCCPSP
+#if MWCCPS2
+    namenode = CPrep_PragmaOnceName(ptr, !fullsearch);
+#else
     namenode = CPrep_PragmaOnceName((StringPtr)buf, !fullsearch);
+#endif
     if (!ismacroname4(namenode)) {
         if ((isImport || copts.always_import) && !ismacroname4(namenode)) {
             macro = galloc(sizeof(Macro));
@@ -6593,6 +6767,10 @@ static void prepifndef(void) {
     }
 }
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
+#endif
 static void prepelif(void) {
 #if MWCCPSP
     int state;
@@ -6639,7 +6817,15 @@ static void prepelif(void) {
 #endif
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -10 // b145 asserts
+#endif
 static void prepelse(void) {
     if (iflevel <= 0 ||
 #if MWCCPSP
@@ -6679,6 +6865,10 @@ static void prepelse(void) {
 #endif
     }
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
 
 static void prependif(void) {
     if (iflevel <= 0) {

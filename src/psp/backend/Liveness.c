@@ -76,8 +76,13 @@ void func_004C3460(MPCodeBlock* block) {
 
 // Is pc dead? (no side effects, no live result; only when optimizing)
 SInt32 func_004C3310(MPCode* pc) {
+#if MWCCPS2
+    MOperand* op;
+    SInt32 k;
+#else
     SInt32 k;
     MOperand* op;
+#endif
 
     if (pc->flags & 0x14098D) {
         return 0;

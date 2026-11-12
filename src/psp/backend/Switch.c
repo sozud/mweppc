@@ -23,6 +23,12 @@ typedef struct MSwitchTable {
 } MSwitchTable;
 
 #define IS_LONGLONG(t) (((t)->type == TYPEINT || (t)->type == TYPEENUM) && (t)->size == 8)
+#if MWCCPS2
+// b210 (0x4B0380): a long long selector is one 64-bit register; no
+// split compare of the halves
+#undef IS_LONGLONG
+#define IS_LONGLONG(t) 0
+#endif
 
 extern SwitchCase* data_00625268; // the case being looked at
 extern SInt32 data_005F0EC4; // number of cases
@@ -157,9 +163,9 @@ void func_004A4A40(ENode* expr, SwitchInfo* info) {
         t.object = (PtrInt)obj;
         t.offset = 0;
         if (!CInt64_IsZero(&lo)) {
-            data_006247C4 = func_00479E40(0x5AE, &data_006247C4, lo);
+            data_006247C4 = func_00479E40(MACRO_OP(0x96), &data_006247C4, lo);
         }
-        func_00479310(0x523, &data_006247C4, n, info->defaultlabel);
+        func_00479310(MACRO_OP(0x0B), &data_006247C4, n, info->defaultlabel);
         if (t.kind) {
             func_004A64C0(&t, NULL, 0);
         }

@@ -140,9 +140,12 @@ static void NopNonLabels(IRONode* node) {
 // reference (the left side). The counted-loop builders first run the
 // constant evaluator over the value; the while-loop builders do not, and
 // 0x5604B0 leaves the value without the reffed flag.
-static IROLinear* AssignToNewTemp(
-    IROLinear* value, Type* type, IROList* list, Boolean eval, Boolean reff
-) {
+#if MWCCPS2 // b210 inlines it into every builder
+inline
+#endif
+    static IROLinear* AssignToNewTemp(
+        IROLinear* value, Type* type, IROList* list, Boolean eval, Boolean reff
+    ) {
     Object* obj;
     IROLinear* ass;
 
@@ -160,7 +163,11 @@ static IROLinear* AssignToNewTemp(
     ass->u.diadic.left->u.monadic->flags |= IROLF_Assigned | IROLF_Ind;
     ass->u.diadic.right = value;
     if (reff) {
+#if MWCCPS2
+        ass->u.diadic.right->flags |= IROLF_Reffed;
+#else
         value->flags |= IROLF_Reffed;
+#endif
     }
     ass->rtype = type;
     IRO_AddToList(ass, list);
@@ -251,6 +258,9 @@ void func_00587340(IRONaturalLoop* loops) {
 }
 
 // 0x5887E0 (IroLoop.c): free the induction update linears list
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0055CFC0)
+#endif
 void func_005887E0(IRONaturalLoop* loop) {
     IROElmList* elm;
     IROElmList* next;
@@ -265,6 +275,9 @@ void func_005887E0(IRONaturalLoop* loop) {
 }
 
 // 0x588820 (IroLoop.c): collect the counting induction's update linears
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0055CFC0)
+#endif
 void func_00588820(IRONaturalLoop* loop) {
     if (loop && loop->induction) {
         func_005530D0(((IROLoopInd301*)loop->induction)->nd, func_00588880, loop);
@@ -272,6 +285,11 @@ void func_00588820(IRONaturalLoop* loop) {
 }
 
 // 0x5888B0 (IroLoop.c): the induction side of the loop test
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_0055D090)
+#endif
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 2 // b145 asserts
 IROLinear* func_005888B0(IRONaturalLoop* loop) {
     IROLinear* cond = loop->cond;
 
@@ -281,9 +299,17 @@ IROLinear* func_005888B0(IRONaturalLoop* loop) {
     if (cond->type == IROLinearOp1Arg) {
         return cond->u.monadic;
     }
-    CError_Internal("IroLoop.c", 0x870);
+    CError_Internal("IroLoop.c", CError_B145_LINE(0x870));
     return NULL;
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+
+#if MWCCPS2 // b210's calls pass only the induction (func_00583FD0 ignores the type)
+#define IND_STEP(ind) (((CInt64 (*)(IROLoopInd301*))func_00583FD0)(ind))
+#else
+#define IND_STEP(ind) func_00583FD0(ind, NULL)
+#endif
 
 // 0x55CCF0: UpdateInductionIncrement: i += count * step (or -=) before
 // `before`; returns the assignment
@@ -361,11 +387,17 @@ void func_0055CDE0(
 
 // 0x55CF00: a copy of expr relinearized on its own (delinearized to a
 // statement and linearized again with the linear state saved around it)
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -24 // b145 asserts
 void func_0055CF00(IROLinear* expr, IROList* list) {
     IROLinearState state;
     Statement* stmt;
     IROLinear* nd;
+#if MWCCPS2 // b210 leaves it unset (the list always holds an expression)
+    IROLinear* last;
+#else
     IROLinear* last = NULL;
+#endif
 
     func_00561390(&state);
     IRO_InitList(list);
@@ -373,7 +405,7 @@ void func_0055CF00(IROLinear* expr, IROList* list) {
     IRO_DuplicateExpr(expr, list);
     stmt = IRO_Delinearize(NULL, list->head);
     if (!stmt) {
-        CError_Internal(UNROLL_FILE, 0xE1D);
+        CError_Internal(UNROLL_FILE, CError_B145_LINE(0xE1D));
     }
     IRO_Linearize(IRO_PreLinearize301(stmt));
     IRO_InitList(list);
@@ -387,6 +419,8 @@ void func_0055CF00(IROLinear* expr, IROList* list) {
     list->tail->next = NULL;
     func_00561320(&state);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x55CFC0: unroll one inner loop
 void func_0055CFC0(IRONaturalLoop* loop) {
@@ -569,7 +603,7 @@ void func_0055D090(IRONaturalLoop* loop, CInt64 factor) {
     // the trip count in a temporary
     IRO_InitList(&list);
     if (bottomTest) {
-        adjust = func_00583FD0(loop->induction, NULL);
+        adjust = IND_STEP(loop->induction);
     } else {
         adjust = cint64_zero;
     }
@@ -810,7 +844,7 @@ void func_0055DC70(IRONaturalLoop* loop, IROLinear* before, CInt64* val, Boolean
     }
 
     if (notFirst) {
-        *val = CInt64_Add(*val, func_00583FD0(loop->induction, NULL));
+        *val = CInt64_Add(*val, IND_STEP(loop->induction));
         func_0055DDA0(first, last, *val, loop);
     }
 }
@@ -1015,13 +1049,9 @@ IROLinear* func_0055E500(
 
     type = IRO_UnqualifiedType(func_00588900(loop)->rtype);
     if (loop->cond->nodetype == ENOTEQU) {
-        value = IRO_NewIntConst(
-            CInt64_Mul(func_00583FD0(loop->induction, NULL), leftover), ConstType(type)
-        );
+        value = IRO_NewIntConst(CInt64_Mul(IND_STEP(loop->induction), leftover), ConstType(type));
     } else {
-        value = IRO_NewIntConst(
-            CInt64_Mul(func_00583FD0(loop->induction, NULL), factor), ConstType(type)
-        );
+        value = IRO_NewIntConst(CInt64_Mul(IND_STEP(loop->induction), factor), ConstType(type));
     }
     IRO_AddToList(value, list);
     dup = IRO_DuplicateExpr(func_00588900(loop), list);
@@ -1038,6 +1068,8 @@ IROLinear* func_0055E500(
 // 0x55E6D0: BuildOrigIterationCount: a temporary holding the trip count:
 // the constant count, the count expression, or
 // ((bound - (init + adjust)) + step [+-1 for < / >]) / step
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
 IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
     IROLoopInd301* ind;
     IROLinear* init;
@@ -1069,7 +1101,11 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
             IRO_DuplicateExpr(loop->countExpr.tail, list);
             expr = list->tail;
         }
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 does not evaluate the count first
+        return AssignToNewTemp(expr, expr->rtype, list, FALSE, TRUE);
+#else
         return AssignToNewTemp(expr, expr->rtype, list, TRUE, TRUE);
+#endif
     }
 
     initCancels = IRO_IsIntConstant(init);
@@ -1095,10 +1131,10 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
     bound = IRO_DuplicateExpr(bound, list);
     ind = loop->induction;
     if (!ind) {
-        CError_Internal(UNROLL_FILE, 0x81D);
+        CError_Internal(UNROLL_FILE, CError_B145_LINE(0x81D));
     }
     if (CInt64_IsZero(&ind->step)) {
-        CError_Internal(UNROLL_FILE, 0x822);
+        CError_Internal(UNROLL_FILE, CError_B145_LINE(0x822));
     }
     if (!initCancels) {
         left = IRO_NewLinear(IROLinearOp2Arg);
@@ -1115,7 +1151,7 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
         }
     }
 
-    value = IRO_NewIntConst(func_00583FD0(loop->induction, NULL), left->rtype);
+    value = IRO_NewIntConst(IND_STEP(loop->induction), left->rtype);
     IRO_AddToList(value, list);
     expr = IRO_NewLinear(IROLinearOp2Arg);
     expr->index = ++IRO_NumLinear;
@@ -1150,7 +1186,7 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
         IRO_AddToList(expr, list);
     }
 
-    value = IRO_NewIntConst(func_00583FD0(loop->induction, NULL), expr->rtype);
+    value = IRO_NewIntConst(IND_STEP(loop->induction), expr->rtype);
     if (CInt64_Equal(value->u.node->data.intval, cint64_one)) {
         return AssignToNewTemp(expr, expr->rtype, list, TRUE, TRUE);
     }
@@ -1178,11 +1214,15 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
     IRO_AddToList(op, list);
     return AssignToNewTemp(op, op->rtype, list, TRUE, TRUE);
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x55EC40: the unroll factor (when no back end hook chooses it): at most
 // count / stride, the whole loop when that is within copts.unknownF6, else the
 // factor (searching downwards with opt_findoptimalunrollfactor) that leaves
 // the fewest iterations over
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
 void func_0055EC40(IRONaturalLoop* loop, int stride, CInt64* factor) {
     CInt64 count = loop->count;
     CInt64 strideV;
@@ -1200,7 +1240,7 @@ void func_0055EC40(IRONaturalLoop* loop, int stride, CInt64* factor) {
     if (loop->hasCount && !CInt64_Equal(count, cint64_negone)) {
         isUnsigned = is_unsigned(IRO_UnqualifiedType(func_00588900(loop)->rtype));
         if (stride == 0) {
-            CError_Internal(UNROLL_FILE, 0x744);
+            CError_Internal(UNROLL_FILE, CError_B145_LINE(0x744));
         }
         CInt64_SetLong(&strideV, stride);
         if (isUnsigned) {
@@ -1297,6 +1337,8 @@ void func_0055EC40(IRONaturalLoop* loop, int stride, CInt64* factor) {
         (int)factor->lo
     );
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x5605D0: IsLoopUnrollable
 Boolean func_005605D0(IRONaturalLoop* loop, CInt64* factor, UnrollWhilePattern* pat) {
@@ -1678,6 +1720,8 @@ void func_0055F1B0(IRONaturalLoop* loop, CInt64 factor, UnrollWhilePattern* pat)
     n7->nextnode = n8;
 }
 
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -1 // b145 asserts
 // 0x55FB20: eight copies of the body's op= statement, one per word:
 // *(base + k * (1 << shift) + index) op= mask (an and of an all-zero mask,
 // an or of a full word: plain assignments)
@@ -1720,7 +1764,7 @@ void func_0055FB20(IRONaturalLoop* loop, UnrollWhilePattern* pat, CInt64 factor)
                     if (nd->nodetype != EORASS &&
                         nd->nodetype != EANDASS &&
                         nd->nodetype != EXORASS) {
-                        CError_Internal(UNROLL_FILE, 0x4C4);
+                        CError_Internal(UNROLL_FILE, CError_B145_LINE(0x4C4));
                     }
                     IRO_DuplicateExpr(pat->index, &list);
                     idx = list.tail;
@@ -1796,6 +1840,8 @@ void func_0055FB20(IRONaturalLoop* loop, UnrollWhilePattern* pat, CInt64 factor)
         }
     }
 }
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
 
 // 0x55FF80: a temporary holding count * step + i (where the original loop
 // stops)
@@ -1959,8 +2005,13 @@ Boolean func_00560840(IRONaturalLoop* loop, CInt64* factor, UnrollWhilePattern* 
     IROLoopInd301* ind;
     Type* type;
     UInt32 flags;
+#if MWCCPS2 // b210 leaves them to func_00560C50
+    int numMatches;
+    int numAssigns;
+#else
     int numMatches = 0;
     int numAssigns = 0;
+#endif
 
     if (loop->x10 != loop->header) {
         IRO_Dump("IsWhileLoopUnrollable:No because the loop form is currently unsupported\n");
@@ -2066,7 +2117,11 @@ Boolean func_00560840(IRONaturalLoop* loop, CInt64* factor, UnrollWhilePattern* 
     func_00588820(loop);
     memset(pat, 0, sizeof(UnrollWhilePattern));
     for (node = IRO_FirstNode; node; node = node->nextnode) {
+#if MWCCPS2 // b210 shifts the bit number unsigned
+        if (Bv_IsBitSet((UInt32)node->index, loop->nodes) && node != loop->header) {
+#else
         if (Bv_IsBitSet(node->index, loop->nodes) && node != loop->header) {
+#endif
             if (!func_00560C50(node, loop, ind, factor, &numMatches, &numAssigns, pat)) {
                 IRO_Dump(
                     "IsWhileLoopUnrollable: No because PatternMatchWhileLoop returned false\n"

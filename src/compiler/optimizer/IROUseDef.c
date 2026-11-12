@@ -254,6 +254,15 @@ static Boolean IsOtherSelfAssignment(IROLinear* linear) {
     return FALSE;
 }
 
+#if MWCCPS2
+#line 251 "IroUtil.c" // b210 has it in IroUtil.c
+#elif MWCCPSP
+#line 252 "IroUtil.c"
+#endif
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT -32 // b145 asserts
+#endif
 CInt64 IRO_GetSelfAssignmentVal(IROLinear* linear) {
     CInt64 result;
 
@@ -314,6 +323,15 @@ CInt64 IRO_GetSelfAssignmentVal(IROLinear* linear) {
 
     return result;
 }
+#if MWCCPSP
+#undef CError_B145_SHIFT
+#define CError_B145_SHIFT 0
+#endif
+#if MWCCPS2
+#line 302 "IROUseDef.c"
+#elif MWCCPSP
+#line 305 "IROUseDef.c"
+#endif
 
 #if VERSION >= VERSION_GC_2_5
 static IROLinear* IRO_AddTypeConversion(IROLinear* node, Type* type, IROList* list) {

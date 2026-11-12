@@ -105,6 +105,13 @@ static const char *STR12000[] = {
     "Pref panel data for '%s' is out-of-date or invalid",
     "Changing primary user access path to '%s'",
     "The linker does not expect duplicate files; ignoring repeated '%s'",
+#if MWCCPS2
+    // b210 (0x5D8080) has four more
+    "Flushing object data for '%s'",
+    "Retrieving object data for '%s'",
+    "Object data for '%s' could not be reloaded from disk",
+    "Plugin wrote text file to '%s'",
+#endif
     "",
     NULL
 };

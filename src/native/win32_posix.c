@@ -812,3 +812,24 @@ DWORD __stdcall ShiftJIS_SetFilePointer(
 BOOL __stdcall ShiftJIS_IsDBCSLeadByte(BYTE TestChar) {
     return FALSE;
 }
+
+#if MWCCPS2
+// b210's RegisterResource (ClientGlue.c) loads the exe as a library to read
+// its string table (LoadStringA above serves it from src/native/ps2/strings.c)
+DWORD __stdcall GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
+    return (DWORD)snprintf(lpFilename, nSize, "mwccps2.exe");
+}
+
+HMODULE __stdcall LoadLibraryA(LPCSTR lpLibFileName) {
+    return (HMODULE)(intptr_t)1;
+}
+
+BOOL __stdcall FreeLibrary(HMODULE hLibModule) {
+    return TRUE;
+}
+
+// GetLicense (CCompilerPSP.c): not a Japanese system
+int __stdcall GetSystemDefaultLangID(void) {
+    return 0x409;
+}
+#endif

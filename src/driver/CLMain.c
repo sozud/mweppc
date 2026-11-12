@@ -65,7 +65,11 @@ static CWPLUGIN_ENTRY(CLT_GetDropInFlags)(const DropInFlags** flags, SInt32* fla
         7,
         0,
         0,
+#if MWCCPS2
+        13 // b210 0x5D6EAC
+#else
         12
+#endif
     };
     // clang-format on
     *flags = &sFlags;

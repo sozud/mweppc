@@ -316,6 +316,11 @@ static Boolean CanCreateHandleMemberObject(Type* type) {
 }
 
 void makethetypepointer(DeclInfo* declinfo, UInt32 qual) {
+#if MWCCPS2
+    if (IS_TYPE_REFERENCE(declinfo->thetype)) {
+        CError_Error(ERR_ILLEGAL_AMPERSAND_REFERENCE);
+    }
+#endif
     declinfo->thetype = CDecl_NewPointerType(declinfo->thetype);
     TYPE_POINTER(declinfo->thetype)->qual = qual;
 }
@@ -573,7 +578,15 @@ static void scandirectdecl1(DeclInfo* declinfo) {
         if (!copts.cplusplus ||
             !declinfo->name ||
             IS_TYPE_VOID(declinfo->thetype) ||
+#if MWCCPS2
+            // b210 (0x4CEA30): two more DeclInfo flags, and the
+            // stop-at-comma flag from the declinfo
+            declinfo->unk66[1] ||
+            declinfo->unk66[0] ||
+            CParser_TryParamList((Boolean)(UInt32)declinfo->unk10)) {
+#else
             CParser_TryParamList(declinfo->thetype->type != TYPECLASS)) {
+#endif
             tk = lex();
             CDecl_ParseDirectFuncDecl(declinfo);
         }
@@ -1088,6 +1101,128 @@ void makememberpointertype(DeclInfo* declinfo, TypeClass* tclass, UInt32 qual) {
     declinfo->thetype = (Type*)tmemp;
 }
 
+#if MWCCPS2
+// b210 (3.0.1): a repeated qualifier (or one on a reference) is reported as
+// ERR_ILLEGAL_USE with the keyword; 'Template::*' outside a template
+// declaration makes a member pointer to the template.
+void CDecl_ScanPointer(DeclInfo* declinfo, NameSpace* nspace, Boolean scanDeclarator) {
+    NameResult pr;
+    UInt32 qual;
+    TypeMemberPointer* tmptr;
+
+    while (1) {
+        qual = (tk == '&') ? Q_REFERENCE : 0;
+
+        for (tk = lex();; tk = lex()) {
+            switch (tk) {
+                case TK_CONST:
+                    if (qual & (Q_CONST | Q_REFERENCE)) {
+                        CError_Error(ERR_ILLEGAL_USE, "const");
+                    }
+                    qual |= Q_CONST;
+                    continue;
+                case TK_VOLATILE:
+                    if (qual & (Q_VOLATILE | Q_REFERENCE)) {
+                        CError_Error(ERR_ILLEGAL_USE, "volatile");
+                    }
+                    qual |= Q_VOLATILE;
+                    continue;
+                case TK_RESTRICT:
+                    if (qual & Q_RESTRICT) {
+                        CError_Error(ERR_ILLEGAL_USE, "restrict");
+                    }
+                    qual |= Q_RESTRICT;
+                    continue;
+                default:
+                    break;
+            }
+            break;
+        }
+
+        if (IS_TYPE_REFERENCE(declinfo->thetype) ||
+            ((qual & Q_REFERENCE) && IS_TYPE_VOID(declinfo->thetype))) {
+            CError_Error(ERR_ILLEGAL_AMPERSAND_REFERENCE);
+            return;
+        }
+
+        if (nspace) {
+            makememberpointertype(declinfo, nspace->theclass, qual);
+            nspace = NULL;
+        } else {
+            makethetypepointer(declinfo, qual);
+        }
+
+        switch (tk) {
+            case '*':
+                continue;
+            case '&':
+                if (!copts.cplusplus) {
+                    if (scanDeclarator) {
+                        scandirectdeclarator(declinfo, NULL);
+                    }
+                    return;
+                }
+                continue;
+            case TK_IDENTIFIER:
+                if (!copts.cplusplus) {
+                    break;
+                }
+                if (copts.cpp_extensions &&
+                    cscope_current->theclass &&
+                    cscope_current->theclass->classname == tkidentifier &&
+                    lookahead() == TK_COLON_COLON) {
+                    tk = lex();
+                    tk = lex();
+                    break;
+                }
+            case TK_COLON_COLON:
+                if (CSCOPE_PARSEQUALNS(&pr, TRUE, FALSE)) {
+                    if (pr.type && IS_TYPE_TEMPLATE(pr.type)) {
+                        if (declinfo->templateParameters) {
+                            if (CTempl_IsQualifiedMember(declinfo, pr.type, &nspace)) {
+                                scandirectdeclarator(declinfo, nspace);
+                            } else {
+                                declinfo->templateType = pr.type;
+                            }
+                            return;
+                        }
+                        if ((tk = lex()) == TK_COLON_COLON && (tk = lex()) == '*') {
+                            Type* templ = pr.type;
+
+                            tmptr = galloc(sizeof(TypeMemberPointer));
+                            tmptr->type = TYPEMEMBERPOINTER;
+                            if (IS_TYPE_FUNC(declinfo->thetype)) {
+                                CDecl_MakePTMFuncType(TYPE_FUNC(declinfo->thetype));
+                                tmptr->size = 12;
+                            } else {
+                                tmptr->size = 4;
+                            }
+                            tmptr->ty1 = declinfo->thetype;
+                            tmptr->ty2 = templ;
+                            tmptr->qual = 0;
+                            declinfo->thetype = TYPE(tmptr);
+                            tk = lex();
+                        } else {
+                            CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                        }
+                    } else if ((nspace = pr.nspace)) {
+                        if (nspace->theclass && tk == '*') {
+                            continue;
+                        }
+                    } else {
+                        CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+                    }
+                }
+                break;
+        }
+        break;
+    }
+
+    if (scanDeclarator) {
+        scandirectdeclarator(declinfo, nspace);
+    }
+}
+#else
 void CDecl_ScanPointer(DeclInfo* declinfo, NameSpace* nspace, Boolean scanDeclarator) {
     NameResult pr;
     UInt32 qual;
@@ -1188,6 +1323,7 @@ void CDecl_ScanPointer(DeclInfo* declinfo, NameSpace* nspace, Boolean scanDeclar
         scandirectdeclarator(declinfo, nspace);
     }
 }
+#endif
 
 static void CDecl_TemplatePTM(DeclInfo* declinfo, Type* type) {
     TypeMemberPointer* tmemp = galloc(sizeof(TypeMemberPointer));
@@ -1219,6 +1355,11 @@ void scandeclarator(DeclInfo* declinfo) {
             }
         case '*':
             CDecl_ScanPointer(declinfo, NULL, TRUE);
+#if MWCCPS2 // b210 (0x4CD760): asm("reg") binds a global to a register
+            if (tk == TK_ASM) {
+                CMach_ParseGlobalRegisterVariable(declinfo);
+            }
+#endif
             if (tk == TK_UU_ATTRIBUTE_UU) {
                 CParser_ParseAttribute(NULL, declinfo);
             }
@@ -1265,6 +1406,11 @@ void scandeclarator(DeclInfo* declinfo) {
 
     scandirectdeclarator(declinfo, NULL);
 attributes:
+#if MWCCPS2
+    if (tk == TK_ASM) {
+        CMach_ParseGlobalRegisterVariable(declinfo);
+    }
+#endif
     if (tk == TK_UU_ATTRIBUTE_UU) {
         CParser_ParseAttribute(NULL, declinfo);
     }
@@ -1683,7 +1829,11 @@ void CheckDefaultArgs(FuncArg* args) {
     }
 }
 
+#if MWCCPS2 // inlined into CDecl_GetFunctionObject in b210
+static inline void CDecl_MergeArrayArgFlags(FuncArg* a, FuncArg* b) {
+#else
 static void CDecl_MergeArrayArgFlags(FuncArg* a, FuncArg* b) {
+#endif
     if (!b) {
         return;
     }
@@ -1928,8 +2078,12 @@ Object* CDecl_GetFunctionObject(
                 declinfo->qual |= obj->qual & (Q_PASCAL | Q_CONST);
                 TYPE_FUNC(declinfo->thetype)->qual |=
                     TYPE_FUNC(obj->type)->qual & (Q_PASCAL | Q_CONST);
+#if MWCCPS2 // b210 (and mwccpsp) copy all of the 0x3F000000 flags
+                TYPE_FUNC(declinfo->thetype)->flags |= TYPE_FUNC(obj->type)->flags & 0x3F000000;
+#else
                 TYPE_FUNC(declinfo->thetype)->flags |=
                     TYPE_FUNC(obj->type)->flags & (FUNC_FLAGS_4000000 | FUNC_FLAGS_10000000);
+#endif
             }
 
             if (!is_typesame(declinfo->thetype, obj->type) ||
@@ -2068,6 +2222,9 @@ Object* CDecl_GetFunctionObject(
         }
 #endif
     } else {
+#if MWCCPS2
+        CError_ASSERT(2399, declinfo->name);
+#endif
         if (TYPE_FUNC(declinfo->thetype)->flags & (FUNC_VOLATILE | FUNC_CONST)) {
             CError_Error(ERR_ILLEGAL_CV_FUNCTION_QUALIFIER_SEQUENCE);
         }
@@ -3444,12 +3601,20 @@ static TypeEnum* CDecl_ParseEnumList(TypeEnum* tenum, HashNameNode* name) {
     do {
         if ((tk = lex()) != TK_IDENTIFIER) {
             if (tk == '}') {
+#if MWCCPS2 // b210: C++ only excuses an empty list
+                if (is_first ? !copts.cplusplus
+                             : (copts.warn_extracomma &&
+                                !copts.c9x &&
+                                !copts.cpp_extensions &&
+                                !copts.gcc_extensions)) {
+#else
                 if ((is_first ||
                      (copts.warn_extracomma &&
                       !copts.c9x &&
                       !copts.cpp_extensions &&
                       !copts.gcc_extensions)) &&
                     !copts.cplusplus) {
+#endif
                     CError_Warning(ERR_IDENTIFIER_EXPECTED);
                 }
             } else {
@@ -4663,6 +4828,19 @@ static void InlineFunctionObject(Object* obj, TypeClass* tclass) {
 
     CPrep_StreamGetBlock(&stream, NULL, 1);
     if (stream.tokens) {
+#if MWCCPS2
+        if (!copts.parse_mfunc_templ &&
+            IS_TYPEFUNC_METHOD(TYPE_FUNC(obj->type)) &&
+            (TYPE_METHOD(obj->type)->theclass->flags & CLASS_IS_TEMPL)) {
+            TYPE_FUNC(obj->type)->flags |= FUNC_IS_TEMPL_INSTANCE;
+            CTemplClass_DefineMember(
+                CTemplTool_GetTemplClass(TYPE_METHOD(obj->type)->theclass),
+                obj,
+                &member_fileoffset,
+                &stream
+            );
+        } else {
+#else
         if (IS_TYPEFUNC_METHOD(TYPE_FUNC(obj->type)) &&
             (TYPE_METHOD(obj->type)->theclass->flags & CLASS_IS_TEMPL)) {
             TYPE_FUNC(obj->type)->flags |= FUNC_IS_TEMPL_INSTANCE;
@@ -4670,6 +4848,7 @@ static void InlineFunctionObject(Object* obj, TypeClass* tclass) {
                 TEMPL_CLASS(TYPE_METHOD(obj->type)->theclass), obj, &member_fileoffset, &stream
             );
         } else {
+#endif
             CInline_AddInlineFunctionAction(obj, tclass, &member_fileoffset, &stream, FALSE);
         }
     }

@@ -41,6 +41,14 @@ typedef struct IRONodeQueue {
     UInt16 head;
 } IRONodeQueue;
 
+#if MWCCPS2
+#line 120 "IroFlowgraph.h" // b210 has the queue in IroFlowgraph.h
+#else
+#line 43 "IroFlowgraph.h"
+#endif
+#if MWCCPS2
+#define SQ_FATAL CError_Internal("IroFlowgraph.h", CError_B145_LINE(127))
+#endif
 static inline void Enqueue(IRONodeQueue* q, UInt16 index) {
     if (q->count >= IRO_NumNodes) {
         CError_FATAL(127);
@@ -49,6 +57,9 @@ static inline void Enqueue(IRONodeQueue* q, UInt16 index) {
         q->count++;
     }
 }
+#if MWCCPS2
+#line 55 "IroLoopInvariants.c"
+#endif
 
 static inline UInt16 Dequeue(IRONodeQueue* q) {
     UInt16 index = 0xFFFF;
@@ -60,6 +71,7 @@ static inline UInt16 Dequeue(IRONodeQueue* q) {
     }
     return index;
 }
+#line 63 "IroLoopInvariants.c"
 
 // an assignment (not a modify op) of a non-volatile value
 static inline Boolean IsPlainAssignment(IROLinear* nd) {
@@ -258,6 +270,27 @@ static inline void StartQueue(IRONodeQueue* q, IRONaturalLoop* loop) {
     Enqueue(q, loop->header->index);
     loop->header->marked = TRUE;
 }
+#if MWCCPS2
+// StartQueue as a macro for OtherKills: b210 inlines it there, where CW 9.2's
+// inline depth stops short
+#define StartQueueInl(q, loop) \
+    do { \
+        IRONode* sq_node; \
+        for (sq_node = IRO_FirstNode; sq_node; sq_node = sq_node->nextnode) { \
+            sq_node->marked = FALSE; \
+        } \
+        (q)->data = IRO_malloc(IRO_NumNodes * sizeof(UInt16)); \
+        (q)->count = 0; \
+        (q)->head = 0; \
+        if ((q)->count >= IRO_NumNodes) { /* Enqueue, inline */ \
+            SQ_FATAL; \
+        } else { \
+            (q)->data[((q)->head + (q)->count) % IRO_NumNodes] = (loop)->header->index; \
+            (q)->count++; \
+        } \
+        (loop)->header->marked = TRUE; \
+    } while (0)
+#endif
 
 // queue node's unmarked successors in the loop
 static inline void QueueSuccessors(IRONodeQueue* q, IRONaturalLoop* loop, IRONode* node) {
@@ -304,9 +337,11 @@ Boolean func_00592FF0(IRONode* node, IROInvariantRec* rec, BitVector* kills) {
 }
 
 // 0x592E80
-Boolean func_00592E80(
-    IRONodeQueue* q, IROInvariantRec* rec, IRONaturalLoop* loop, BitVector* kills
-) {
+#if MWCCPS2
+__declspec(noinline) // b210 calls it from func_00592C10
+#endif
+Boolean
+func_00592E80(IRONodeQueue* q, IROInvariantRec* rec, IRONaturalLoop* loop, BitVector* kills) {
     IRONode* node;
     Boolean found = FALSE;
 
@@ -356,6 +391,9 @@ static inline Boolean ReadsKills(IROLinear* nd, BitVector* kills, BitVector* use
 }
 
 // 0x593370: a statement of node other than the candidate reads what it kills
+#if MWCCPS2
+__declspec(noinline) // b210 calls it (func_005931F0)
+#endif
 Boolean func_00593370(IRONode* node, IROInvariantRec* rec, BitVector* kills, BitVector* used) {
     IROLinear* nd;
 
@@ -386,6 +424,9 @@ Boolean func_005931F0(
 }
 
 // 0x5930C0: the loop reads what the (not invariant) candidate kills
+#if MWCCPS2
+__declspec(noinline) // b210 calls it from func_00592C10
+#endif
 Boolean func_005930C0(IROInvariantRec* rec, IRONaturalLoop* loop, BitVector* kills) {
     BitVector* used;
     IRONodeQueue q;
@@ -454,6 +495,9 @@ Boolean func_005935A0(
 }
 
 // 0x593470: the loop reads what the invariant candidate kills before it
+#if MWCCPS2
+__declspec(noinline) // b210 calls it from func_00592C10
+#endif
 Boolean func_00593470(IROInvariantRec* rec, IRONaturalLoop* loop, BitVector* kills) {
     BitVector* used;
     IRONodeQueue q;
@@ -481,7 +525,11 @@ static inline Boolean OtherKills(IROInvariantRec* rec, IRONaturalLoop* loop, Bit
     Boolean found;
 
     Bv_AllocVector(&IRO_VarKills, IRO_NumVars + 1);
+#if MWCCPS2
+    StartQueueInl(&q, loop);
+#else
     StartQueue(&q, loop);
+#endif
     found = func_00592E80(&q, rec, loop, kills);
     IRO_free(q.data);
     if (IRO_VarKills) {
