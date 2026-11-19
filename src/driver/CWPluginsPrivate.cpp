@@ -2,6 +2,7 @@
 #include "driver/CLDropinCallbacks_V10.h"
 #include "driver/CWPlugins.h"
 #include "driver/Files.h"
+#include "driver/MsDos.h"
 #if MWCCPSP
 #include <string.h>
 #endif
@@ -97,6 +98,7 @@ CW_CALLBACK CWGetProjectFileCount(CWPluginContext context, SInt32* count) {
     return cwNoErr;
 }
 
+#if !MWCCPSP
 CW_CALLBACK CWGetFileInfo(
     CWPluginContext context,
     SInt32 whichfile,
@@ -112,6 +114,7 @@ CW_CALLBACK CWGetFileInfo(
 
     return context->callbacks->cbGetFileInfo(context, whichfile, checkFileLocation, fileinfo);
 }
+#endif
 
 #if MWCCPSP
 // a CWPLUGIN_API 2 plugin's file info: the file is a Windows path
@@ -131,6 +134,22 @@ typedef struct PluginFileInfo2 {
     Boolean recordbrowseinfo; // +0x119
 } PluginFileInfo2;
 
+// a CWPLUGIN_API 1 plugin's file info: the file is a Mac FSSpec
+typedef struct PluginFileInfo1 {
+    Boolean fullsearch;
+    char dependencyType;
+    SInt32 isdependentoffile;
+    Boolean suppressload;
+    Boolean padding;
+    const char* filedata;
+    SInt32 filedatalength;
+    short filedatatype;
+    short fileID;
+    char filespec[70]; // +0x14
+    Boolean alreadyincluded; // +0x5A
+    Boolean recordbrowseinfo; // +0x5B
+} PluginFileInfo1;
+
 // a CWPLUGIN_API 2 plugin's message ref
 typedef struct PluginMessageRef2 {
     char sourcefile[260];
@@ -140,13 +159,57 @@ typedef struct PluginMessageRef2 {
     SInt32 selectionoffset;
     SInt32 selectionlength;
 } PluginMessageRef2;
+
+// a CWPLUGIN_API 2 plugin's project file info: a Windows path and FILETIMEs
+typedef struct PluginProjectFileInfo2 {
+    char filespec[260];
+    OSTime moddate; // +0x104
+    short segment; // +0x10C
+    Boolean hasobjectcode;
+    Boolean hasresources;
+    Boolean isresourcefile;
+    Boolean weakimport;
+    Boolean initbefore;
+    Boolean gendebug;
+    OSTime objmoddate; // +0x114
+    char dropinname[256]; // +0x11C
+    short fileID; // +0x21C
+    Boolean recordbrowseinfo;
+    Boolean reserved;
+    OSType filetype; // +0x220
+    OSType filecreator;
+    Boolean hasunitdata; // +0x228
+    Boolean mergeintooutput;
+    UInt32 unitdatadependencytag; // +0x22A
+} PluginProjectFileInfo2;
+
+// a CWPLUGIN_API 1 plugin's project file info: a Mac FSSpec and Mac times
+typedef struct PluginProjectFileInfo1 {
+    char filespec[70];
+    UInt32 moddate; // +0x46
+    short segment; // +0x4A
+    Boolean hasobjectcode;
+    Boolean hasresources;
+    Boolean isresourcefile;
+    Boolean weakimport;
+    Boolean initbefore;
+    Boolean gendebug;
+    UInt32 objmoddate; // +0x52
+    char dropinname[32]; // +0x56
+    short fileID; // +0x76
+    Boolean recordbrowseinfo;
+    Boolean reserved;
+    OSType filetype; // +0x7A
+    OSType filecreator;
+    Boolean hasunitdata; // +0x82
+    Boolean mergeintooutput;
+    UInt32 unitdatadependencytag; // +0x84
+} PluginProjectFileInfo1;
 #pragma pack(pop)
 
 extern "C" {
 extern SInt32 func_00424690(CWPluginContext context);
 extern int func_00415730(CWPluginContext context, const void* pluginspec, OSSpec* spec);
-// 0x4164A0: the shell's file info for a CWPLUGIN_API 1 plugin
-extern void func_004164A0(CWPluginContext context, const ShellFileInfo* in, CWFileInfo* out);
 }
 
 // 0x416440: the shell's file info for a CWPLUGIN_API 2 plugin
@@ -160,6 +223,99 @@ extern "C" void func_00416440(
     func_00415710(context, &in->filespec, reinterpret_cast<CWFileSpec*>(out->filespec));
     out->alreadyincluded = in->alreadyincluded;
     out->recordbrowseinfo = in->recordbrowseinfo;
+}
+
+// 0x4164A0: the shell's file info for a CWPLUGIN_API 1 plugin (a Mac file spec)
+extern "C" void func_004164A0(
+    CWPluginContext context, const ShellFileInfo* in, PluginFileInfo1* out
+) {
+    out->filedata = in->filedata;
+    out->filedatalength = in->filedatalength;
+    out->filedatatype = in->filedatatype;
+    out->fileID = in->fileID;
+    func_00415710(context, &in->filespec, reinterpret_cast<CWFileSpec*>(out->filespec));
+    out->alreadyincluded = in->alreadyincluded;
+    out->recordbrowseinfo = in->recordbrowseinfo;
+}
+
+extern "C" {
+extern void func_00415750(CWPluginContext context, OSTime time, void* filetime);
+}
+
+// 0x416500: the shell's project file info for a CWPLUGIN_API 2 plugin
+extern "C" void func_00416500(
+    CWPluginContext context, const CWProjectFileInfo* in, PluginProjectFileInfo2* out
+) {
+    func_00415710(context, &in->filespec, reinterpret_cast<CWFileSpec*>(out->filespec));
+    func_00415750(context, in->moddate, &out->moddate);
+    out->segment = in->segment;
+    out->hasobjectcode = in->hasobjectcode;
+    out->hasresources = in->hasresources;
+    out->isresourcefile = in->isresourcefile;
+    out->weakimport = in->weakimport;
+    out->initbefore = in->initbefore;
+    out->gendebug = in->gendebug;
+    func_00415750(context, in->objmoddate, &out->objmoddate);
+    OS_NameSpecToString(&in->dropinname, out->dropinname, 260);
+    out->fileID = in->fileID;
+    out->recordbrowseinfo = in->recordbrowseinfo;
+    out->filetype = in->filetype;
+    out->filecreator = in->filecreator;
+    out->hasunitdata = in->hasunitdata;
+    out->mergeintooutput = in->mergeintooutput;
+    out->unitdatadependencytag = in->unitdatadependencytag;
+}
+
+// 0x416630: the shell's project file info for a CWPLUGIN_API 1 plugin
+extern "C" void func_00416630(
+    CWPluginContext context, const CWProjectFileInfo* in, PluginProjectFileInfo1* out
+) {
+    func_00415710(context, &in->filespec, reinterpret_cast<CWFileSpec*>(out->filespec));
+    func_00415750(context, in->moddate, &out->moddate);
+    out->segment = in->segment;
+    out->hasobjectcode = in->hasobjectcode;
+    out->hasresources = in->hasresources;
+    out->isresourcefile = in->isresourcefile;
+    out->weakimport = in->weakimport;
+    out->initbefore = in->initbefore;
+    out->gendebug = in->gendebug;
+    func_00415750(context, in->objmoddate, &out->objmoddate);
+    OS_NameSpecToString(&in->dropinname, out->dropinname, 260);
+    out->fileID = in->fileID;
+    out->recordbrowseinfo = in->recordbrowseinfo;
+    out->filetype = in->filetype;
+    out->filecreator = in->filecreator;
+    out->hasunitdata = in->hasunitdata;
+    out->mergeintooutput = in->mergeintooutput;
+    out->unitdatadependencytag = in->unitdatadependencytag;
+}
+
+// 0x4159F0: the shell's project file info, converted for this plugin
+CW_CALLBACK CWGetFileInfo(
+    CWPluginContext context,
+    SInt32 whichfile,
+    Boolean checkFileLocation,
+    CWProjectFileInfo* fileinfo
+) {
+    CWProjectFileInfo info; // the shell's
+    CWResult result;
+
+    if (IsVCSContext(context) || !ValidateContext(context)) {
+        return cwErrInvalidParameter;
+    }
+    if (fileinfo == NULL) {
+        return cwErrInvalidParameter;
+    }
+
+    result = context->callbacks->cbGetFileInfo(context, whichfile, checkFileLocation, &info);
+    if (!result) {
+        if (func_00424690(context) == 1) {
+            func_00416630(context, &info, reinterpret_cast<PluginProjectFileInfo1*>(fileinfo));
+        } else {
+            func_00416500(context, &info, reinterpret_cast<PluginProjectFileInfo2*>(fileinfo));
+        }
+    }
+    return result;
 }
 
 // 0x415AB0: the shell looks the file up with its own file info
@@ -187,7 +343,7 @@ CW_CALLBACK CWFindAndLoadFile(CWPluginContext context, const char* filename, CWF
     );
     if (!result) {
         if (func_00424690(context) == 1) {
-            func_004164A0(context, &info, fileinfo);
+            func_004164A0(context, &info, reinterpret_cast<PluginFileInfo1*>(fileinfo));
         } else {
             func_00416440(context, &info, reinterpret_cast<PluginFileInfo2*>(fileinfo));
         }
@@ -244,6 +400,38 @@ CW_CALLBACK CWGetAccessPathListInfo(CWPluginContext context, CWAccessPathListInf
     return cwNoErr;
 }
 
+#if MWCCPSP
+// 0x415C90: the shell takes its own spec
+CW_CALLBACK CWGetFileText(
+    CWPluginContext context,
+    const CWFileSpec* filespec,
+    const char** text,
+    SInt32* textLength,
+    short* filedatatype
+) {
+    OSSpec spec;
+
+    if (!ValidateContext(context)) {
+        return cwErrInvalidParameter;
+    }
+    if (!filespec) {
+        return cwErrInvalidParameter;
+    }
+    if (!text) {
+        return cwErrInvalidParameter;
+    }
+    if (!textLength) {
+        return cwErrInvalidParameter;
+    }
+    if (!filedatatype) {
+        return cwErrInvalidParameter;
+    }
+    func_00415730(context, filespec, &spec); // the shell's spec
+    return context->callbacks->cbGetFileText(
+        context, reinterpret_cast<const CWFileSpec*>(&spec), text, textLength, filedatatype
+    );
+}
+#else
 CW_CALLBACK CWGetFileText(
     CWPluginContext context,
     const CWFileSpec* filespec,
@@ -268,6 +456,7 @@ CW_CALLBACK CWGetFileText(
     }
     return context->callbacks->cbGetFileText(context, filespec, text, textLength, filedatatype);
 }
+#endif
 
 CW_CALLBACK CWReleaseFileText(CWPluginContext context, const char* text) {
     if (!ValidateContext(context)) {
@@ -294,7 +483,7 @@ typedef struct ShellMessageRef {
 
 // 0x4163E0: converts a plugin message ref for the shell
 extern "C" void func_004163E0(
-    CWPluginContext context, ShellMessageRef* out, const CWMessageRef* in
+    CWPluginContext context, ShellMessageRef* out, const PluginMessageRef2* in
 );
 #endif
 
@@ -314,7 +503,7 @@ CW_CALLBACK CWReportMessage(
         return cwErrInvalidParameter;
     }
     if (msgRef) {
-        func_004163E0(context, &ref, msgRef);
+        func_004163E0(context, &ref, reinterpret_cast<const PluginMessageRef2*>(msgRef));
     }
     return context->callbacks->cbReportMessage(
         context, msgRef ? (const CWMessageRef*)&ref : NULL, line1, line2, errorlevel, errorNumber
@@ -367,6 +556,33 @@ CW_CALLBACK CWGetNamedPreferences(
     return context->callbacks->cbGetNamedPreferences(context, prefsname, prefsdata);
 }
 
+#if MWCCPSP
+extern "C" int func_00415730(CWPluginContext context, const void* pluginspec, OSSpec* spec);
+extern "C" void func_00415770(CWPluginContext context, const void* filetime, OSTime* time);
+
+// 0x415F60: the shell takes its own spec and time (converted from the plugin's)
+CW_CALLBACK CWSetModDate(
+    CWPluginContext context, const CWFileSpec* filespec, CWFileTime* moddate, Boolean isGenerated
+) {
+    OSSpec spec;
+    OSTime time;
+
+    if (IsVCSContext(context) || !ValidateContext(context)) {
+        return cwErrInvalidParameter;
+    }
+    if (!filespec) {
+        return cwErrInvalidParameter;
+    }
+    func_00415730(context, filespec, &spec);
+    func_00415770(context, moddate, &time);
+    return context->callbacks->cbSetModDate(
+        context,
+        reinterpret_cast<CWFileSpec*>(&spec),
+        reinterpret_cast<CWFileTime*>(&time),
+        isGenerated
+    );
+}
+#else
 CW_CALLBACK CWSetModDate(
     CWPluginContext context, const CWFileSpec* filespec, CWFileTime* moddate, Boolean isGenerated
 ) {
@@ -378,6 +594,7 @@ CW_CALLBACK CWSetModDate(
     }
     return context->callbacks->cbSetModDate(context, filespec, moddate, isGenerated);
 }
+#endif
 
 #if MWCCPSP
 extern "C" int func_00415730(CWPluginContext context, const void* pluginspec, OSSpec* spec);
@@ -427,6 +644,21 @@ CW_CALLBACK CWCreateNewTextDocument(CWPluginContext context, const CWNewTextDocu
     }
     return context->callbacks->cbCreateNewTextDocument(context, docinfo);
 }
+
+#if MWCCPSP
+// 0x416110
+CW_CALLBACK CWAllocateMemory(
+    CWPluginContext context, SInt32 size, Boolean isPermanent, void** ptr
+) {
+    if (!ValidateContext(context) && !ValidateInitTermContext(context)) {
+        return cwErrInvalidParameter;
+    }
+    if (!ptr) {
+        return cwErrInvalidParameter;
+    }
+    return context->callbacks->cbAllocateMemory(context, size, isPermanent, ptr);
+}
+#endif
 
 CW_CALLBACK CWAllocMemHandle(
     CWPluginContext context, SInt32 size, Boolean useTempMemory, CWMemHandle* handle
@@ -520,9 +752,8 @@ set:
 
 // 0x4163E0
 extern "C" void func_004163E0(
-    CWPluginContext context, ShellMessageRef* out, const CWMessageRef* cwin
+    CWPluginContext context, ShellMessageRef* out, const PluginMessageRef2* in
 ) {
-    const PluginMessageRef2* in = reinterpret_cast<const PluginMessageRef2*>(cwin);
     func_00415730(context, in->sourcefile, &out->sourcefile);
     out->linenumber = in->linenumber;
     out->tokenoffset = in->tokenoffset;

@@ -1470,7 +1470,7 @@
    "-Iinclude/libc"
   ]
  },
-  {
+ {
   "path": "src/compiler/optimizer/IroSerializeAssignments.c",
   "host": "cw92",
   "args": [
@@ -3343,7 +3343,7 @@
    "-Iinclude/libc"
   ]
  },
-  {
+ {
   "path": "src/driver/OverlayOptions.c",
   "host": "cw92",
   "args": [
@@ -3713,6 +3713,27 @@
   ]
  },
  {
+  "path": "src/psp/driver/CompilerSetupOptions-ps2.c",
+  "host": "cw92",
+  "args": [
+   "-O2",
+   "-sym",
+   "off",
+   "-Cpp_exceptions",
+   "off",
+   "-enum",
+   "min",
+   "-DMWCCPS2=1",
+   "-DMWCCPS2_BUILD=198",
+   "-DVERSION=4",
+   "-DMWCCPSP=1",
+   "-Isrc/psp/driver",
+   "-Iinclude",
+   "-i-",
+   "-Iinclude/libc"
+  ]
+ },
+ {
   "path": "src/psp/driver/cc-psp-mw.c",
   "host": "cw92",
   "args": [
@@ -3827,6 +3848,52 @@
  },
  {
   "path": "src/psp/optimizer/IroLoopInvariants.c",
+  "host": "cw92",
+  "args": [
+   "-O4,p",
+   "-inline",
+   "auto,deferred",
+   "-sym",
+   "on",
+   "-Cpp_exceptions",
+   "off",
+   "-enum",
+   "min",
+   "-DMWCCPS2=1",
+   "-DMWCCPS2_BUILD=198",
+   "-DVERSION=4",
+   "-DMWCCPSP=1",
+   "-Isrc/psp/optimizer",
+   "-Iinclude",
+   "-i-",
+   "-Iinclude/libc"
+  ]
+ },
+ {
+  "path": "src/psp/optimizer/IroLoopReversal.c",
+  "host": "cw92",
+  "args": [
+   "-O4,p",
+   "-inline",
+   "auto,deferred",
+   "-sym",
+   "on",
+   "-Cpp_exceptions",
+   "off",
+   "-enum",
+   "min",
+   "-DMWCCPS2=1",
+   "-DMWCCPS2_BUILD=198",
+   "-DVERSION=4",
+   "-DMWCCPSP=1",
+   "-Isrc/psp/optimizer",
+   "-Iinclude",
+   "-i-",
+   "-Iinclude/libc"
+  ]
+ },
+ {
+  "path": "src/psp/optimizer/IroDependenceAnalysis.c",
   "host": "cw92",
   "args": [
    "-O4,p",

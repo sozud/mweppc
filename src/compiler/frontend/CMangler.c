@@ -567,8 +567,6 @@ static void CMangler_CheckTemplateArguments(TemplArg* arg) {
 // &linkname (an object) or &member__class (a member)
 static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
     ENode* expr;
-    ObjBase* obj;
-    TypeClass* tclass;
     char buf[32];
 
     AppendGListByte(&name_mangle_list, '<');
@@ -576,7 +574,7 @@ static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
     while (arg) {
         if (arg->pid.type == TPT_NONTYPE) {
             expr = arg->data.paramdecl.expr;
-            CError_ASSERT(434, expr);
+            CError_ASSERT(434, expr != NULL);
             if (!CTemplTool_IsTemplDepExpr(expr)) {
                 switch (expr->type) {
                     case EINTCONST:
@@ -591,19 +589,23 @@ static void CMangler_AppendTemplateArgumentList(TemplArg* arg) {
                         break;
                     case EOBJACCESS:
                         AppendGListByte(&name_mangle_list, '&');
-                        obj = expr->data.objaccess.list->object;
-                        switch (obj->otype) {
+                        switch (expr->data.objaccess.list->object->otype) {
                             case OT_MEMBERVAR:
-                                AppendGListName(&name_mangle_list, OBJ_MEMBER_VAR(obj)->name->name);
+                                AppendGListName(
+                                    &name_mangle_list,
+                                    OBJ_MEMBER_VAR(expr->data.objaccess.list->object)->name->name
+                                );
                                 AppendGListName(&name_mangle_list, "__");
-                                CError_ASSERT(458, tclass = expr->data.objaccess.tclass);
+                                CError_ASSERT(458, expr->data.objaccess.tclass != NULL);
                                 CMangler_MangleNameSpaceName(
-                                    tclass->nspace->parent, tclass->nspace->name->name
+                                    expr->data.objaccess.tclass->nspace->parent,
+                                    expr->data.objaccess.tclass->nspace->name->name
                                 );
                                 break;
                             case OT_OBJECT:
+                                expr = (ENode*)expr->data.objaccess.list->object;
                                 AppendGListName(
-                                    &name_mangle_list, CMangler_GetLinkName(OBJECT(obj))->name
+                                    &name_mangle_list, CMangler_GetLinkName(OBJECT(expr))->name
                                 );
                                 break;
                             default:
@@ -736,7 +738,7 @@ static void CMangler_MangleNameSpaceName(NameSpace* nspace, char* str) {
 }
 
 static void CMangler_MangleClassName(TypeClass* tclass) {
-    if (!tclass->classname) {
+    if (tclass->classname == NULL) {
         CMangler_MangleNameSpaceName(tclass->nspace->parent, "class");
     } else {
         CMangler_MangleNameSpaceName(tclass->nspace->parent, tclass->nspace->name->name);
@@ -755,7 +757,11 @@ static void CMangler_MangleQualifier(UInt32 qual) {
 static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
     char buf[16];
 
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+    switch ((SInt8)type->type) {
+#else
     switch (type->type) {
+#endif
         case TYPEVOID:
             CMangler_MangleQualifier(qual);
             AppendGListByte(&name_mangle_list, 'v');
@@ -895,6 +901,7 @@ static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
             return;
         case TYPESTRUCT:
             CMangler_MangleQualifier(qual);
+#if !(MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)) // 3.0.1 has no AltiVec vector structs
             switch (TYPE_STRUCT(type)->stype) {
                 case STRUCT_VECTOR_UCHAR:
                     AppendGListName(&name_mangle_list, "XUc");
@@ -931,10 +938,15 @@ static void CMangler_MangleTypeAppend(Type* type, UInt32 qual) {
                     return;
             }
 
+#endif
             if (TYPE_STRUCT(type)->name && !IsTempName(TYPE_STRUCT(type)->name)) {
                 CMangler_MangleTypeName(TYPE_STRUCT(type)->name->name);
             } else {
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+                switch ((SInt8)TYPE_STRUCT(type)->stype) {
+#else
                 switch (TYPE_STRUCT(type)->stype) {
+#endif
                     case STRUCT_TYPE_STRUCT:
                         AppendGListName(&name_mangle_list, "struct");
                         return;

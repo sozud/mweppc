@@ -1592,6 +1592,34 @@ static CI_TemplInit* ps2_CopyTemplInit_50DC00(CI_TemplInit* init) {
 }
 
 // 0x50DC90: copies an initializer tree
+#if MWCCPS2 // b210/b198: the ?: allocations, the sub-list read again
+static CI_TemplInitTree* ps2_CopyTemplInitTree_50DC90(CI_TemplInitTree* tree) {
+    CI_TemplInitTree* first;
+    CI_TemplInitTree* last;
+
+    first = NULL;
+    while (tree) {
+        if (first) {
+            last->next = enode_globalcopy ? galloc(sizeof(CI_TemplInitTree))
+                                          : lalloc(sizeof(CI_TemplInitTree));
+            last = last->next;
+        } else {
+            first = last = enode_globalcopy ? galloc(sizeof(CI_TemplInitTree))
+                                            : lalloc(sizeof(CI_TemplInitTree));
+        }
+        *last = *tree;
+        if (last->expr) {
+            last->expr = CInline_CopyNodes(last->expr);
+        }
+        if (*(CI_TemplInitTree* volatile*)&last->sub) {
+            last->sub = ps2_CopyTemplInitTree_50DC90(last->sub);
+        }
+        tree = tree->next;
+    }
+
+    return first;
+}
+#else
 static CI_TemplInitTree* ps2_CopyTemplInitTree_50DC90(CI_TemplInitTree* tree) {
     CI_TemplInitTree* first;
     CI_TemplInitTree* last;
@@ -1624,6 +1652,7 @@ static CI_TemplInitTree* ps2_CopyTemplInitTree_50DC90(CI_TemplInitTree* tree) {
     }
     return first;
 }
+#endif
 
 // 0x50D380: 3.0.1 node kinds (inline strings, object accesses, constructor
 // initializers, the template-dependent subtypes)
@@ -2454,6 +2483,288 @@ static void ps2_CheckUsageTree_50D240(CI_TemplInitTree* tree) {
 
 // 0x50CD70: 3.0.1 node kinds (object accesses, constructor initializers,
 // exception nodes and the template-dependent subtypes)
+#if MWCCPS2 // b210/b198: the tail steps clear isModified first; var and inner at function scope
+static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
+    ENodeList* list;
+    ENode* inner;
+    CI_Var* var;
+
+    while (1) {
+        switch (expr->type) {
+            case EOBJREF:
+                if (expr->flags & ENODE_FLAG_LOCALUID) {
+                    var = CInline_FindVar(expr->data.longval);
+                    var->used = TRUE;
+                    var->unmodified = FALSE;
+                }
+                return;
+
+            case ESCOPEBEGIN:
+            case ESCOPEEND:
+                if (expr->flags & ENODE_FLAG_LOCALUID) {
+                    var = CInline_FindVar(expr->data.longval);
+                    var->used = TRUE;
+                }
+                return;
+
+            case EINDIRECT:
+                inner = expr->data.monadic;
+                if (ENODE_IS(inner, EOBJREF) && (inner->flags & ENODE_FLAG_LOCALUID)) {
+                    var = CInline_FindVar(inner->data.longval);
+                    var->used = TRUE;
+                    if (isModified) {
+                        var->unmodified = FALSE;
+                    }
+                    return;
+                }
+                isModified = FALSE;
+                expr = inner;
+                continue;
+
+            case EMONMIN:
+            case EBINNOT:
+            case ELOGNOT:
+            case EFORCELOAD:
+            case ETYPCON:
+            case EBITFIELD:
+                isModified = FALSE;
+                expr = expr->data.monadic;
+                continue;
+
+            case EPOSTINC:
+            case EPOSTDEC:
+            case EPREINC:
+            case EPREDEC:
+                expr = expr->data.monadic;
+                isModified = TRUE;
+                continue;
+
+            case EASS:
+            case EMULASS:
+            case EDIVASS:
+            case EMODASS:
+            case EADDASS:
+            case ESUBASS:
+            case ESHLASS:
+            case ESHRASS:
+            case EANDASS:
+            case EXORASS:
+            case EORASS:
+                CInline_CheckUsage(expr->data.diadic.left, TRUE);
+                isModified = FALSE;
+                expr = expr->data.diadic.right;
+                continue;
+
+            case EMUL:
+            case EDIV:
+            case EMODULO:
+            case EADD:
+            case ESUB:
+            case ESHL:
+            case ESHR:
+            case ELESS:
+            case EGREATER:
+            case ELESSEQU:
+            case EGREATEREQU:
+            case EEQU:
+            case ENOTEQU:
+            case EAND:
+            case EXOR:
+            case EOR:
+            case ELAND:
+            case ELOR:
+            case ECOMMA:
+            case EMIN:
+            case EMAX:
+            case EROTL:
+            case EROTR:
+            case EPOINTERSTAR:
+            case EDOTSTAR:
+                CInline_CheckUsage(expr->data.diadic.left, FALSE);
+                isModified = FALSE;
+                expr = expr->data.diadic.right;
+                continue;
+
+            case EINTCONST:
+            case EFLOATCONST:
+            case ESTRINGCONST:
+            case EPRECOMP:
+            case ETEMP:
+            case ELABEL:
+                return;
+
+            case EOBJACCESS:
+                if (expr->data.objaccess.nonstatic && expr->data.objaccess.expr) {
+                    CInline_CheckUsage(expr->data.objaccess.expr, FALSE);
+                }
+                return;
+
+            case ECTORINIT: {
+                CI_CtorInit* init;
+                for (init = TDE_OPERAND(expr, CI_CtorInit*, 0); init; init = init->next) {
+                    if (init->isexpr) {
+                        if (init->init) {
+                            CInline_CheckUsage((ENode*)init->init, FALSE);
+                        }
+                    } else {
+                        for (list = (ENodeList*)init->init; list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                    }
+                }
+                return;
+            }
+
+            case EFUNCCALL:
+            case EFUNCCALLP:
+                CInline_CheckUsage(expr->data.funccall.funcref, FALSE);
+                for (list = expr->data.funccall.args; list; list = list->next) {
+                    CInline_CheckUsage(list->node, FALSE);
+                }
+                return;
+
+            case ENULLCHECK:
+                CInline_CheckUsage(expr->data.nullcheck.nullcheckexpr, FALSE);
+                isModified = FALSE;
+                expr = expr->data.nullcheck.condexpr;
+                continue;
+
+            case EMFPOINTER:
+                CInline_CheckUsage(expr->data.mfpointer.accessnode, FALSE);
+                isModified = FALSE;
+                expr = expr->data.mfpointer.mfpointer;
+                continue;
+
+            case ECOND:
+                CInline_CheckUsage(expr->data.cond.cond, FALSE);
+                CInline_CheckUsage(expr->data.cond.expr1, FALSE);
+                isModified = FALSE;
+                expr = expr->data.cond.expr2;
+                continue;
+
+            case EINSTRUCTION:
+                return;
+
+            case ENEWEXCEPTION:
+            case ENEWEXCEPTIONARRAY:
+                CInline_CheckUsage(expr->data.newexception.initexpr, FALSE);
+                CInline_CheckUsage(expr->data.newexception.tryexpr, FALSE);
+                return;
+
+            case EINITTRYCATCH:
+                CInline_CheckUsage(expr->data.itc.initexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.tryexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.catchexpr, FALSE);
+                CInline_CheckUsage(expr->data.itc.result, FALSE);
+                return;
+
+            case ETEMPLDEP:
+                switch (expr->data.templdep.subtype) {
+                    case TDE_OBJACCESS:
+                        if (expr->data.objaccess.expr) {
+                            CInline_CheckUsage(expr->data.objaccess.expr, FALSE);
+                        }
+                        break;
+                    case TDE_SIZEOF:
+                        // an expression operand (not a type) when the flag is set
+                        if (TDE_OPERAND(expr, UInt8, 5)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        }
+                        break;
+                    case TDE_CAST:
+                        for (list = expr->data.templdep.u.cast.args; list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case TDE_SOURCEREF:
+                        CInline_CheckUsage(expr->data.templdep.u.sourceref.expr, FALSE);
+                        break;
+                    case TDE_ADDRESS_OF:
+                    case TDE_UNARYPLUS:
+                    case TDE_DEREF:
+                    case 21:
+                        CInline_CheckUsage(expr->data.templdep.u.monadic, FALSE);
+                        break;
+                    case TDE_FUNCCALL:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        for (list = TDE_OPERAND(expr, ENodeList*, 1); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case 12:
+                        if (TDE_OPERAND(expr, ENode*, 2)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 2), FALSE);
+                        }
+                        for (list = TDE_OPERAND(expr, ENodeList*, 3); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        for (list = TDE_OPERAND(expr, ENodeList*, 4); list; list = list->next) {
+                            CInline_CheckUsage(list->node, FALSE);
+                        }
+                        break;
+                    case 13:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        break;
+                    case 14:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 1), FALSE);
+                        break;
+                    case 15:
+                    case 16:
+                    case 17:
+                    case 18:
+                    case 19:
+                        if (TDE_OPERAND(expr, ENode*, 0)) {
+                            CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        }
+                        break;
+                    case 20:
+                        CInline_CheckUsage(TDE_OPERAND(expr, ENode*, 0), FALSE);
+                        break;
+                    case 23:
+                    case 24:
+                        if (TDE_OPERAND(expr, CI_TemplInit*, 1)) {
+                            switch (TDE_OPERAND(expr, CI_TemplInit*, 1)->kind) {
+                                case 0:
+                                    CInline_CheckUsage(
+                                        (ENode*)TDE_OPERAND(expr, CI_TemplInit*, 1)->u, FALSE
+                                    );
+                                    break;
+                                case 1:
+                                    for (list = (ENodeList*)TDE_OPERAND(expr, CI_TemplInit*, 1)->u;
+                                         list;
+                                         list = list->next) {
+                                        CInline_CheckUsage(list->node, FALSE);
+                                    }
+                                    break;
+                                case 2:
+                                    ps2_CheckUsageTree_50D240(
+                                        (CI_TemplInitTree*)TDE_OPERAND(expr, CI_TemplInit*, 1)->u
+                                    );
+                                    break;
+                                default:
+                                    CError_FATAL(1561);
+                            }
+                        }
+                        break;
+                    case TDE_PARAM:
+                    case TDE_QUALNAME:
+                    case TDE_QUALTEMPL:
+                    case TDE_LOCAL:
+                    case 22:
+                    case 25:
+                        break;
+                    default:
+                        CError_FATAL(1567);
+                }
+                return;
+
+            default:
+                CError_FATAL(1589);
+        }
+    }
+}
+#else
 static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
     ENodeList* list;
 
@@ -2726,6 +3037,7 @@ static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
         }
     }
 }
+#endif
 #else
 static void CInline_CheckUsage(ENode* expr, Boolean isModified) {
     ENodeList* list;
@@ -3719,6 +4031,48 @@ static SInt32 CInline_EstimateSizeOfFunc(CI_FuncData* funcdata, SInt32 size, SIn
         return size;
     }
 
+#if MWCCPSP // 3.0.1 (b198 0x50BD30)
+    i = 0;
+    stmt = funcdata->statements;
+    if (funcdata->numstatements > 0) {
+        do {
+            switch (stmt->type) {
+                case ST_NOP:
+                case ST_LABEL:
+                case ST_GOTO:
+                case ST_ASM:
+                    break;
+                case ST_EXPRESSION:
+                case ST_IFGOTO:
+                case ST_IFNGOTO:
+                case ST_BEGINCATCH:
+                case ST_ENDCATCH:
+                case ST_ENDCATCHDTOR:
+                    size = CInline_EstimateSizeOfExpr(stmt->u.expr, size, level);
+                    break;
+                case ST_SWITCH:
+                    size = CInline_EstimateSizeOfExpr(stmt->u.switchdata->expr, size, level);
+                    break;
+                case ST_RETURN:
+                    if (stmt->u.expr) {
+                        size = CInline_EstimateSizeOfExpr(stmt->u.expr, size, level);
+                    }
+                    break;
+                default:
+                    CError_Internal(__FILE__, 2276);
+            }
+
+            if (size > inline_max_size) {
+                break;
+            }
+            i++;
+            stmt++;
+        } while (i < funcdata->numstatements);
+    }
+
+    return size;
+}
+#else
     for (i = 0, stmt = funcdata->statements; i < funcdata->numstatements; i++, stmt++) {
         switch (stmt->type) {
             case ST_NOP:
@@ -3756,6 +4110,7 @@ static SInt32 CInline_EstimateSizeOfFunc(CI_FuncData* funcdata, SInt32 size, SIn
 
     return size;
 }
+#endif
 #if MWCC_CORE == MWCC_CORE_B52
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)
@@ -3835,23 +4190,45 @@ static SInt32 EstimateExpandedSizeOfExpr(ENode* expr, SInt32 level) {
 
         case EFUNCCALL:
         case EFUNCCALLP:
+#if MWCCPS2 && !MWCC_CORE
+            // mwccps2 (b198 0x50BB60, b210 0x50BEE0): the callee in a local; it is estimated
+            // from 0, not from the size so far
+            {
+                ENode* funcref = expr->data.funccall.funcref;
+                if (funcref->type == EOBJREF &&
+                    funcref->data.objref->u.func.u.ifuncdata &&
+                    CInline_CanExpand(funcref)) {
+                    if (level) {
+                        SInt32 est = CInline_EstimateSizeOfFunc(
+                            funcref->data.objref->u.func.u.ifuncdata, 0, level - 1
+                        );
+                        if (est > inline_max_size) {
+                            size++;
+                        } else {
+                            size += est;
+                        }
+                    } else {
+                        size++;
+                    }
+                } else {
+                    size++;
+                }
+
+                for (list = expr->data.funccall.args; list; list = list->next) {
+                    size += EstimateExpandedSizeOfExpr(list->node, level);
+                }
+                break;
+            }
+#else
             if (ENODE_IS(expr->data.funccall.funcref, EOBJREF) &&
                 expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata &&
                 CInline_CanExpand(expr->data.funccall.funcref)) {
                 if (level) {
-#if MWCCPS2 && !MWCC_CORE
-                    // mwccps2 (b198 0x50BB60, b210 0x50BEE0): the callee is estimated from 0, not from
-                    // the size so far
-                    SInt32 est = CInline_EstimateSizeOfFunc(
-                        expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata, 0, level - 1
-                    );
-#else
                     SInt32 est = CInline_EstimateSizeOfFunc(
                         expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata,
                         size,
                         level - 1
                     );
-#endif
                     if (est > inline_max_size) {
                         size++;
                     } else {
@@ -3868,6 +4245,7 @@ static SInt32 EstimateExpandedSizeOfExpr(ENode* expr, SInt32 level) {
                 size += EstimateExpandedSizeOfExpr(list->node, level);
             }
             break;
+#endif
 
         case ECOND:
             size++;
@@ -6798,31 +7176,76 @@ void CInline_AddInlineFunctionAction(
     }
 }
 
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// 3.0.1 (b219, b210, b198 0x507D70): either list, the instance stack recorded
 void CInline_AddMemberFunctionAction(
-    Object* object, TemplClass* templ, TemplClassInst* inst, TemplateMember* tmemb
+    Object* object,
+    TemplClass* templ,
+    TemplClassInst* inst,
+    TemplateMember* tmemb,
+    Boolean isTemplate
 ) {
+    CI_Action* scan;
+    CI_Action* head;
     CI_Action* action;
 
-    for (action = cinline_tactionlist; action; action = action->next) {
-        if (action->obj == object) {
+    if (isTemplate) {
+        head = cinline_tactionlist;
+    } else {
+        head = cinline_actionlist;
+    }
+    scan = head;
+    while (scan) {
+        if (scan->obj == object) {
             return;
         }
+        scan = scan->next;
     }
 
     action = galloc(sizeof(CI_Action));
     memclrw(action, sizeof(CI_Action));
-
     action->actiontype = CI_ActionMemberFunc;
     action->obj = object;
+    action->unk8 = CTemplTool_GetInstanceStack();
     action->u.memberfunc.templ = templ;
     action->u.memberfunc.inst = inst;
     action->u.memberfunc.tmemb = tmemb;
-
-    action->next = cinline_tactionlist;
-    cinline_tactionlist = action;
-
-    TYPE_FUNC(object->type)->flags |= FUNC_TEMPLATE_ACTION;
+    if (isTemplate) {
+        action->next = cinline_tactionlist;
+        cinline_tactionlist = action;
+        TYPE_FUNC(object->type)->flags |= FUNC_TEMPLATE_ACTION;
+    } else {
+        action->next = cinline_actionlist;
+        cinline_actionlist = action;
+    }
 }
+#else
+    void CInline_AddMemberFunctionAction(
+        Object * object, TemplClass * templ, TemplClassInst * inst, TemplateMember * tmemb
+    ) {
+        CI_Action* action;
+
+        for (action = cinline_tactionlist; action; action = action->next) {
+            if (action->obj == object) {
+                return;
+            }
+        }
+
+        action = galloc(sizeof(CI_Action));
+        memclrw(action, sizeof(CI_Action));
+
+        action->actiontype = CI_ActionMemberFunc;
+        action->obj = object;
+        action->u.memberfunc.templ = templ;
+        action->u.memberfunc.inst = inst;
+        action->u.memberfunc.tmemb = tmemb;
+
+        action->next = cinline_tactionlist;
+        cinline_tactionlist = action;
+
+        TYPE_FUNC(object->type)->flags |= FUNC_TEMPLATE_ACTION;
+    }
+#endif
 
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 #undef CError_B69_SHIFT
@@ -7762,47 +8185,79 @@ Boolean CInline_GenerateDeferredFuncs(void) {
 #define CError_B69_SHIFT 0
 #endif
 
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// 3.0.1 (b219, b210, b198 0x506F10): the guard from CABI.c's helpers
+extern Object* CABI_CreateGuard(Object* obj);
+extern ENode* CABI_GuardTest(Object* guard, Boolean unused);
+extern ENode* CABI_GuardSet(Object* guard, Boolean unused);
 static InitExpr* CInline_InitTemplateData(InitExpr* init) {
-#if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
-    Statement* stmt;
-    CLabel* label;
-#endif
     Object* object;
-    Object* data;
-#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
     Statement* stmt;
     CLabel* label;
-#endif
+    Object* guard;
 
     object = init->object;
-
-    data = CParser_NewCompilerDefDataObject();
-    data->type = TYPE(&stsignedchar);
-    data->name = CParser_NameConcat("__init__", CMangler_GetLinkName(object)->name);
-    data->qual = Q_WEAK;
-    CInit_DeclareData(data, NULL, NULL, data->type->size);
-
+    CMangler_GetLinkName(object);
+    guard = CABI_CreateGuard(object);
     stmt = CFunc_AppendStatement(ST_IFGOTO);
-    stmt->expr = create_objectnode(data);
+    stmt->expr = CABI_GuardTest(guard, 0);
     label = newlabel();
     stmt->label = label;
-
     do {
         stmt = CFunc_AppendStatement(ST_EXPRESSION);
         stmt->expr = CInline_CopyExpression(init->expr, CopyModeLocal);
         init = init->next;
     } while (init && init->object == object);
-
     stmt = CFunc_AppendStatement(ST_EXPRESSION);
-    stmt->expr =
-        makediadicnode(create_objectnode(data), intconstnode(TYPE(&stsignedchar), 1), EASS);
-
+    stmt->expr = CABI_GuardSet(guard, 0);
     stmt = CFunc_AppendStatement(ST_LABEL);
     stmt->label = label;
     label->stmt = stmt;
-
     return init;
 }
+#else
+    static InitExpr* CInline_InitTemplateData(InitExpr * init) {
+#if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
+        Statement* stmt;
+        CLabel* label;
+#endif
+        Object* object;
+        Object* data;
+#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
+        Statement* stmt;
+        CLabel* label;
+#endif
+
+        object = init->object;
+
+        data = CParser_NewCompilerDefDataObject();
+        data->type = TYPE(&stsignedchar);
+        data->name = CParser_NameConcat("__init__", CMangler_GetLinkName(object)->name);
+        data->qual = Q_WEAK;
+        CInit_DeclareData(data, NULL, NULL, data->type->size);
+
+        stmt = CFunc_AppendStatement(ST_IFGOTO);
+        stmt->expr = create_objectnode(data);
+        label = newlabel();
+        stmt->label = label;
+
+        do {
+            stmt = CFunc_AppendStatement(ST_EXPRESSION);
+            stmt->expr = CInline_CopyExpression(init->expr, CopyModeLocal);
+            init = init->next;
+        } while (init && init->object == object);
+
+        stmt = CFunc_AppendStatement(ST_EXPRESSION);
+        stmt->expr =
+            makediadicnode(create_objectnode(data), intconstnode(TYPE(&stsignedchar), 1), EASS);
+
+        stmt = CFunc_AppendStatement(ST_LABEL);
+        stmt->label = label;
+        label->stmt = stmt;
+
+        return init;
+    }
+#endif
 
 void CInline_Finish(void) {
     NameSpace* nspace;

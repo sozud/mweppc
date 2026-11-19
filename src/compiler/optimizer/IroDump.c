@@ -485,31 +485,33 @@ static void DumpList(int num, UInt16* list) {
 }
 #endif
 
-#if MWCCPS2
-Boolean func_00557340(void);
-#endif
+#if !MWCCPS2 // PS2: in IrObitvect.c (IroBitVect.c), apart from func_00557340
 void IRO_DumpBits(char* name, BitVector* bv) {
     SInt32 i;
     SInt32 rangeStart;
     Boolean inRange = FALSE;
     Boolean isFirst = TRUE;
 
-#if MWCCPS2 // b210 (0x5B3340) writes through IRO_Dump after func_00557340's check
-    if (!func_00557340()) {
+    if (!IRO_Log) {
         return;
     }
-    IRO_Dump(name);
+
+#ifdef __MWERKS__
+    fprintf(DumpFile, name);
+#else
+    fprintf(DumpFile, "%s", name);
+#endif
     if (!bv) {
-        IRO_Dump("NULL");
+        fprintf(DumpFile, "NULL");
     } else {
         for (i = 0; (UInt32)i < (bv->size * 32); i++) {
             if (Bv_IsBitSet(i, bv)) {
                 if (!inRange) {
                     if (!isFirst) {
-                        IRO_Dump(",");
+                        fputc(',', DumpFile);
                     }
                     isFirst = FALSE;
-                    IRO_Dump("%d", (int)i);
+                    fprintf(DumpFile, "%d", (int)i);
                     inRange = TRUE;
                     rangeStart = i;
                 }
@@ -517,58 +519,20 @@ void IRO_DumpBits(char* name, BitVector* bv) {
                 if (inRange) {
                     inRange = FALSE;
                     if (i != (rangeStart + 1)) {
-                        IRO_Dump("-%d", (int)(i - 1));
+                        fprintf(DumpFile, "-%d", (int)(i - 1));
                     }
                 }
             }
         }
+
         if (inRange && i != (rangeStart + 1)) {
-            IRO_Dump("-%d", (int)(i - 1));
+            fprintf(DumpFile, "-%d", (int)(i - 1));
         }
     }
-    IRO_Dump("\n");
-#else
-            if (!IRO_Log) {
-                return;
-            }
 
-#ifdef __MWERKS__
-            fprintf(DumpFile, name);
-#else
-            fprintf(DumpFile, "%s", name);
-#endif
-            if (!bv) {
-                fprintf(DumpFile, "NULL");
-            } else {
-                for (i = 0; (UInt32)i < (bv->size * 32); i++) {
-                    if (Bv_IsBitSet(i, bv)) {
-                        if (!inRange) {
-                            if (!isFirst) {
-                                fputc(',', DumpFile);
-                            }
-                            isFirst = FALSE;
-                            fprintf(DumpFile, "%d", (int)i);
-                            inRange = TRUE;
-                            rangeStart = i;
-                        }
-                    } else {
-                        if (inRange) {
-                            inRange = FALSE;
-                            if (i != (rangeStart + 1)) {
-                                fprintf(DumpFile, "-%d", (int)(i - 1));
-                            }
-                        }
-                    }
-                }
-
-                if (inRange && i != (rangeStart + 1)) {
-                    fprintf(DumpFile, "-%d", (int)(i - 1));
-                }
-            }
-
-            fprintf(DumpFile, "\n");
-#endif
+    fprintf(DumpFile, "\n");
 }
+#endif
 
 #if MWCCPSP
 // 3.0.1 logs each phase with the ticks since the function started; the flow
@@ -1066,7 +1030,11 @@ void IRO_DumpAddr(IROAddrRecord* rec) {
 static void IRO_DumpType(Type* type) {
     char buf[256];
     IRO_SpellType(type, buf);
-    fprintf(DumpFile, " (%s)", buf);
+#if MWCCPS2 // b210/b198 (IroType.c) write through IRO_Dump
+    IRO_Dump(" (%s)", buf);
+#else
+            fprintf(DumpFile, " (%s)", buf);
+#endif
 }
 
 void IRO_SpellType(Type* type, char* buf) {

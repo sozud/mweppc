@@ -1102,6 +1102,171 @@ IROLinear* func_0055E500(
 // ((bound - (init + adjust)) + step [+-1 for < / >]) / step
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -1 // b145 asserts
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198 (0x571350): the count built in every case, then one assignment to a temporary
+IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
+    IROLinear* ass;
+    int shift;
+    Boolean initCancels;
+    Boolean ptrDiff;
+    IROLinear* init;
+    IROLinear* bound;
+    IROLinear* sum;
+    IROLinear* step;
+    IROLinear* stepValue;
+    IROLinear* value;
+    Type* btype;
+    Object* obj;
+    IROLinear* lessSum;
+    IROLinear* lessConstant;
+    IROLinear* greaterConstant;
+    IROLinear* greaterSum;
+    IROLinear* countSum;
+    IROLinear* count;
+    IROLinear* difference;
+
+    init = func_00588A10(loop, loop->induction);
+    bound = func_00588900(loop);
+    btype = IRO_UnqualifiedType(bound->rtype);
+    ptrDiff = bound->rtype->type == TYPEPOINTER && init->rtype->type == TYPEPOINTER;
+
+    if (loop->hasCount) {
+        if (CInt64_Equal(loop->count, cint64_negone)) {
+            IRO_DuplicateExpr(loop->countExpr.tail, list);
+            count = list->tail;
+        } else {
+            if (ptrDiff) {
+                count = IRO_NewIntConst(loop->count, func_0055A660());
+            } else {
+                count = IRO_NewIntConst(loop->count, btype);
+            }
+            IRO_AddToList(count, list);
+        }
+    } else {
+        initCancels =
+            IRO_IsIntConstant(init) && CInt64_Equal(init->u.node->data.intval, CInt64_Neg(adjust));
+        if (!initCancels) {
+            init = IRO_DuplicateExpr(init, list);
+            if (!CInt64_IsZero(&adjust)) {
+                value = IRO_NewIntConst(adjust, ConstType(init->rtype));
+                IRO_AddToList(value, list);
+                sum = IRO_NewLinear(IROLinearOp2Arg);
+                sum->index = ++IRO_NumLinear;
+                sum->nodetype = EADD;
+                sum->u.diadic.left = init;
+                sum->u.diadic.right = value;
+                sum->rtype = init->rtype;
+                IRO_AddToList(sum, list);
+                init = sum;
+            }
+        }
+
+        bound = IRO_DuplicateExpr(bound, list);
+        if (!(loop->induction != NULL)) {
+            CError_Internal(UNROLL_FILE, CError_B145_LINE(0x81D));
+        }
+        if (CInt64_IsZero(&((IROLoopInd301*)loop->induction)->step)) {
+            CError_Internal(UNROLL_FILE, CError_B145_LINE(0x822));
+        }
+
+        if (initCancels) {
+            difference = bound;
+            if (ptrDiff) {
+                bound->rtype = func_0055A660();
+            }
+        } else {
+            difference = IRO_NewLinear(IROLinearOp2Arg);
+            difference->index = ++IRO_NumLinear;
+            difference->nodetype = ESUB;
+            difference->u.diadic.left = bound;
+            difference->u.diadic.right = init;
+            if (ptrDiff) {
+                difference->rtype = func_0055A660();
+            } else {
+                difference->rtype = btype;
+            }
+            IRO_AddToList(difference, list);
+        }
+
+        stepValue = IRO_NewIntConst(IND_STEP(loop->induction), difference->rtype);
+        IRO_AddToList(stepValue, list);
+        countSum = IRO_NewLinear(IROLinearOp2Arg);
+        countSum->index = ++IRO_NumLinear;
+        countSum->nodetype = EADD;
+        countSum->u.diadic.left = difference;
+        countSum->u.diadic.right = stepValue;
+        countSum->rtype = IRO_UnqualifiedType(difference->rtype);
+        IRO_AddToList(countSum, list);
+
+        if (loop->cond->type == IROLinearOp2Arg && loop->cond->nodetype == ELESS) {
+            lessSum = countSum;
+            lessConstant = IRO_NewIntConst(cint64_negone, countSum->rtype);
+            IRO_AddToList(lessConstant, list);
+            countSum = IRO_NewLinear(IROLinearOp2Arg);
+            countSum->index = ++IRO_NumLinear;
+            countSum->nodetype = EADD;
+            countSum->u.diadic.left = lessSum;
+            countSum->u.diadic.right = lessConstant;
+            countSum->rtype = IRO_UnqualifiedType(lessSum->rtype);
+            IRO_AddToList(countSum, list);
+        } else if (loop->cond->type == IROLinearOp2Arg && loop->cond->nodetype == EGREATER) {
+            greaterSum = countSum;
+            greaterConstant = IRO_NewIntConst(cint64_one, countSum->rtype);
+            IRO_AddToList(greaterConstant, list);
+            countSum = IRO_NewLinear(IROLinearOp2Arg);
+            countSum->index = ++IRO_NumLinear;
+            countSum->nodetype = EADD;
+            countSum->u.diadic.left = greaterSum;
+            countSum->u.diadic.right = greaterConstant;
+            countSum->rtype = IRO_UnqualifiedType(greaterSum->rtype);
+            IRO_AddToList(countSum, list);
+        }
+
+        step = IRO_NewIntConst(IND_STEP(loop->induction), countSum->rtype);
+        if (CInt64_Equal(step->u.node->data.intval, cint64_one)) {
+            count = countSum;
+        } else if (step->rtype->type == TYPEINT &&
+                   TYPE_INTEGRAL(step->rtype)->integral < 17 &&
+                   func_00555B60(step, &shift) &&
+                   shift > 0) {
+            count = IRO_NewLinear(IROLinearOp2Arg);
+            count->index = ++IRO_NumLinear;
+            count->nodetype = ESHR;
+            count->u.diadic.left = countSum;
+            count->u.diadic.right = step;
+            CInt64_SetLong(&step->u.node->data.intval, shift);
+            count->rtype = countSum->rtype;
+            IRO_AddToList(step, list);
+            IRO_AddToList(count, list);
+        } else {
+            count = IRO_NewLinear(IROLinearOp2Arg);
+            count->index = ++IRO_NumLinear;
+            count->nodetype = EDIV;
+            count->u.diadic.left = countSum;
+            count->u.diadic.right = step;
+            count->rtype = countSum->rtype;
+            IRO_AddToList(step, list);
+            IRO_AddToList(count, list);
+        }
+    }
+
+    func_0058C530(count);
+    obj = create_temp_object(count->rtype);
+    IRO_FindVar(obj, TRUE, TRUE);
+    ass = IRO_NewLinear(IROLinearOp2Arg);
+    ass->index = ++IRO_NumLinear;
+    ass->nodetype = EASS;
+    ass->u.diadic.left = func_00552790(obj);
+    IRO_AddToList(ass->u.diadic.left->u.monadic, list);
+    ass->u.diadic.left->flags |= IROLF_Reffed | IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.left->u.monadic->flags |= IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.right = count;
+    ass->u.diadic.right->flags |= IROLF_Reffed;
+    ass->rtype = count->rtype;
+    IRO_AddToList(ass, list);
+    return ass->u.diadic.left;
+}
+#else
 IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
     IROLoopInd301* ind;
     IROLinear* init;
@@ -1246,6 +1411,7 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
     IRO_AddToList(op, list);
     return AssignToNewTemp(op, op->rtype, list, TRUE, TRUE);
 }
+#endif
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -1960,6 +2126,76 @@ IROLinear* func_00560100(IROLinear* count, CInt64 factor, IROList* list, IRONatu
 
 // 0x5602F0: a temporary holding (i / factor + 1) * factor (the next word
 // boundary)
+#if MWCCPS2 // b210/b198 (0x573640): the induction reference and the temporary written out
+IROLinear* func_005602F0(IROLoopInd301* ind, CInt64 factor, IROList* list) {
+    Type* type;
+    IROLinear* indnd;
+    IROLinear* operand;
+    IROLinear* fac;
+    IROLinear* one;
+    IROLinear* div;
+    IROLinear* add;
+    IROLinear* mul;
+    IROLinear* ass;
+    Object* obj;
+
+    indnd = ind->nd;
+    type = IRO_UnqualifiedType(indnd->rtype);
+    fac = IRO_NewIntConst(factor, type);
+    IRO_AddToList(fac, list);
+    operand = *(IROLinear* volatile*)&indnd->u.diadic.left;
+    IRO_DuplicateExpr(operand, list);
+    list->tail->flags &= ~IROLF_Assigned;
+    list->tail->u.monadic->flags &= ~IROLF_Assigned;
+
+    div = IRO_NewLinear(IROLinearOp2Arg);
+    div->index = ++IRO_NumLinear;
+    div->nodetype = EDIV;
+    div->u.diadic.left = list->tail;
+    div->u.diadic.right = fac;
+    div->rtype = type;
+    IRO_AddToList(div, list);
+    div->flags |= IROLF_Reffed;
+
+    one = IRO_NewIntConst(cint64_one, type);
+    IRO_AddToList(one, list);
+    one->flags |= IROLF_Reffed;
+
+    add = IRO_NewLinear(IROLinearOp2Arg);
+    add->index = ++IRO_NumLinear;
+    add->nodetype = EADD;
+    add->u.diadic.left = div;
+    add->u.diadic.right = one;
+    add->rtype = type;
+    IRO_AddToList(add, list);
+    add->flags |= IROLF_Reffed;
+
+    IRO_DuplicateExpr(fac, list);
+    mul = IRO_NewLinear(IROLinearOp2Arg);
+    mul->index = ++IRO_NumLinear;
+    mul->nodetype = EMUL;
+    mul->u.diadic.left = add;
+    mul->u.diadic.right = list->tail;
+    mul->rtype = type;
+    IRO_AddToList(mul, list);
+    mul->flags |= IROLF_Reffed;
+
+    obj = create_temp_object(type);
+    IRO_FindVar(obj, TRUE, TRUE);
+    ass = IRO_NewLinear(IROLinearOp2Arg);
+    ass->index = ++IRO_NumLinear;
+    ass->nodetype = EASS;
+    ass->u.diadic.left = func_00552790(obj);
+    IRO_AddToList(ass->u.diadic.left->u.monadic, list);
+    ass->u.diadic.left->flags |= IROLF_Reffed | IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.left->u.monadic->flags |= IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.right = mul;
+    ass->u.diadic.right->flags |= IROLF_Reffed;
+    ass->rtype = type;
+    IRO_AddToList(ass, list);
+    return ass->u.diadic.left;
+}
+#else
 IROLinear* func_005602F0(IROLoopInd301* ind, CInt64 factor, IROList* list) {
     Type* type;
     IROLinear* fac;
@@ -2002,9 +2238,49 @@ IROLinear* func_005602F0(IROLoopInd301* ind, CInt64 factor, IROList* list) {
     mul->flags |= IROLF_Reffed;
     return AssignToNewTemp(mul, type, list, FALSE, TRUE);
 }
+#endif
 
 // 0x5604B0: a temporary holding n + 1 (the count the while (n--) test
 // leaves)
+#if MWCCPS2 // b210/b198 (0x573810): the temporary's assignment written out
+IROLinear* func_005604B0(IROList* list, IRONaturalLoop* loop) {
+    IROLinear* one;
+    IROLinear* add;
+    IROLinear* ass;
+    Type* type;
+    Object* obj;
+
+    type = IRO_UnqualifiedType(loop->cond->u.monadic->rtype);
+    one = IRO_NewIntConst(cint64_one, type);
+    IRO_AddToList(one, list);
+    one->flags |= IROLF_Reffed;
+
+    add = IRO_NewLinear(IROLinearOp2Arg);
+    add->index = ++IRO_NumLinear;
+    add->nodetype = EADD;
+    add->rtype = type;
+    add->u.diadic.left = IRO_DuplicateExpr(loop->cond->u.monadic, list);
+    add->u.diadic.left->flags |= IROLF_Reffed;
+    add->u.diadic.left->flags &= ~IROLF_Assigned;
+    add->u.diadic.left->u.monadic->flags &= ~IROLF_Assigned;
+    add->u.diadic.right = one;
+    IRO_AddToList(add, list);
+
+    obj = create_temp_object(type);
+    IRO_FindVar(obj, TRUE, TRUE);
+    ass = IRO_NewLinear(IROLinearOp2Arg);
+    ass->index = ++IRO_NumLinear;
+    ass->nodetype = EASS;
+    ass->u.diadic.left = func_00552790(obj);
+    IRO_AddToList(ass->u.diadic.left->u.monadic, list);
+    ass->u.diadic.left->flags |= IROLF_Reffed | IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.left->u.monadic->flags |= IROLF_Assigned | IROLF_Ind;
+    ass->u.diadic.right = add;
+    ass->rtype = type;
+    IRO_AddToList(ass, list);
+    return ass->u.diadic.left;
+}
+#else
 IROLinear* func_005604B0(IROList* list, IRONaturalLoop* loop) {
     Type* type;
     IROLinear* one;
@@ -2026,6 +2302,7 @@ IROLinear* func_005604B0(IROList* list, IRONaturalLoop* loop) {
     IRO_AddToList(add, list);
     return AssignToNewTemp(add, type, list, FALSE, FALSE);
 }
+#endif
 
 // 0x560840: IsWhileLoopUnrollable
 Boolean func_00560840(IRONaturalLoop* loop, CInt64* factor, UnrollWhilePattern* pat) {

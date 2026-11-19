@@ -101,13 +101,23 @@ typedef struct Quad {
     UInt32 w[4];
 } Quad;
 
+#if MWCCPS2
+typedef struct MPCodeHead {
+    UInt32 w[offsetof(MPCode, args) / 4];
+} MPCodeHead; // a pcode without its operands
+#endif
+
 MPCode* copypcode(MPCode* pc) {
     MPCode* copy = lalloc(PCODE_SIZE(pc->argcount));
     int i;
 
+#if MWCCPS2 // b210/b198: one structure assignment (a copy loop)
+    *(MPCodeHead*)copy = *(MPCodeHead*)pc;
+#else
     for (i = 0; i < (int)offsetof(MPCode, args); i += sizeof(Quad)) {
         *(Quad*)((char*)copy + i) = *(Quad*)((char*)pc + i);
     }
+#endif
     for (i = 0; i < pc->argcount; i++) {
         copy->args[i] = pc->args[i];
     }
@@ -161,7 +171,12 @@ void pcbranch(MPCodeBlock* block, MPCodeLabel* label, UInt16 flags) {
     MPPendingBranch* p;
 
     if (label->resolved) {
+#if MWCCPS2 // b210/b198: the link in a local
+        MPBlockLink* link = linkblocks(block, label->block);
+        link->flags |= flags;
+#else
         linkblocks(block, label->block)->flags |= flags;
+#endif
     } else {
         p = lalloc(sizeof(MPPendingBranch));
         memclrw(p, sizeof(MPPendingBranch));

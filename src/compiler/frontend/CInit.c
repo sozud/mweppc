@@ -5244,9 +5244,7 @@ typedef struct CInitCursor {
 
 extern Object* CABI_CreateGuard(Object* obj);
 extern ENode* CABI_GuardTest(Object* guard, Boolean flag);
-extern ENode* CABI_GuardSet(
-    Object* guard, Boolean flag
-); // the flag is unused (CABI.c defines it with one parameter)
+extern ENode* CABI_GuardSet(Object* guard, Boolean flag); // the flag is unused
 
 #define CURSOR_ITEM(c) ((CInitItem*)(c)->cur)
 static ENode* CInit_GetExpr(CInitCursor* cursor);

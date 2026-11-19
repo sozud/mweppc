@@ -33,7 +33,7 @@ from units import DRIVER_MACSPEC_UNITS, DRIVER_PLUGIN_UNITS, units  # noqa: E402
 
 FLAGS = [
     "-std=gnu17",
-    "-O1",
+    os.environ.get("MWCC_NATIVE_OPT", "-O1"),
     "-g",
     "-fwrapv",
     "-fno-strict-aliasing",
@@ -46,6 +46,7 @@ FLAGS = [
     "-DVERSION=4",
     "-DMWCCPSP=1",
     "-DMWCCPSP_NATIVE=1",
+    *os.environ.get("MWCC_NATIVE_CFLAGS", "").split(),
 ]
 
 
@@ -112,7 +113,9 @@ def out_dir(arch, asan=False):
 
 def all_units(only=None):
     todo = list(units(only))
-    # host-only units of the native build
+    # host-only units of the native build (and the native sjiswrap, MWCC_SJIS=1)
+    if not only or only in "src/host/ShiftJIS.c":
+        todo.append(("src/host/ShiftJIS.c", {}))
     for f in sorted(os.listdir(os.path.join(TOP, "src", "native"))):
         rel = "src/native/" + f
         if f.endswith(".c") and (not only or only in rel) and not (PS2 and f in GENERATED):

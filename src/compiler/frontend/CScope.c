@@ -3348,6 +3348,13 @@ static void CScope_AddUsingObject(
                 CError_Error(ERR_ILLEGAL_USE_NON_STATIC_MEMBER);
                 OBJECT(copy)->u.alias.member = NULL;
             }
+#if MWCCPSP_NATIVE
+            // native build: the path can end in CScope_GetAccessPath's nodes on the
+            // local heap, which a class template's alias outlives (its instances copy
+            // the path later); the originals read them after they are freed, which
+            // their 32-bit heap happens to leave intact
+            OBJECT(copy)->u.alias.member = CClass_GetPathCopy(OBJECT(copy)->u.alias.member, TRUE);
+#endif
         }
 
         CScope_AddObject(nspace, OBJECT(copy)->name, copy);

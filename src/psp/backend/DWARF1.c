@@ -80,6 +80,15 @@ typedef struct DwNode {
 #define DW_PTR(n, off) (*(void**)DW_ADDR(n, off))
 
 // a type waiting to be emitted (func_00534450), hashed into dw_types
+#if !MWCCPSP_NATIVE
+// the start of a unit node: +0x18 holds its .rel.debug section
+typedef struct DwUnitHead {
+    void* f00[5];
+    void* f14;
+    void* reldebug; // +0x18
+} DwUnitHead;
+#endif
+
 typedef struct DwType {
     struct DwType* next;
     void* unk04;
@@ -625,8 +634,14 @@ void func_00535220(int kind) {
     memclrw(unit, DW_UNIT_SIZE);
     unit->offset = kind;
     unit->f14 = ELF_NewSection(".debug", 0x70000005, 0);
+#if MWCCPSP_NATIVE
     DW_PTR(unit, 0x18) = ELF_NewSection(".rel.debug", SHT_REL, 0);
     ELF_SetRelSection(unit->f14, DW_PTR(unit, 0x18));
+#else
+    // a unit keeps its .rel.debug section where other nodes have their tag
+    ((DwUnitHead*)unit)->reldebug = ELF_NewSection(".rel.debug", SHT_REL, 0);
+    ELF_SetRelSection(unit->f14, ((DwUnitHead*)unit)->reldebug);
+#endif
     ((ELFSection*)unit->f14)->shdr.sh_addralign = 0;
     if (kind == 2) {
         unit->f1C = ELF_NewSection(".line", 0x70000005, 0);
@@ -995,6 +1010,8 @@ extern void func_00531460(ELFSection* section, SInt32 offset, UInt32 value); // 
 
 // 0x5342D0: write a type attribute to .debug (a user type's reference is a
 // zero word to be filled in); its size
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT -6 // b210 and b198 asserts
 SInt32 func_005342D0(DwTypeDesc* desc) {
     SInt32 size;
     UInt32 i;
@@ -1136,7 +1153,19 @@ SInt32 func_00533F30(DwLoc* loc, UInt16 attr, int deref) {
                 func_005314F0(sec, 7);
                 size += 6;
             }
+#if MWCCPS2 // b210/b198: the opcode in a byte
+            {
+                UInt8 op;
+                if (deref == 4) {
+                    op = 6;
+                } else {
+                    op = 0x82;
+                }
+                func_005314F0(sec, op);
+            }
+#else
             func_005314F0(sec, deref == 4 ? 6 : 0x82);
+#endif
             return size + 1;
         case 1: // in a register: REG reg[, CONST offset, ADD]
             func_00531520(sec, loc->offset ? 11 : 5);
@@ -1168,6 +1197,74 @@ SInt32 func_00533F30(DwLoc* loc, UInt16 attr, int deref) {
 
 // 0x5340F0: write a variable's location attribute to .debug from what
 // DW_SET_LOCATION recorded; its size
+#if MWCCPS2 && !MWCCPSP_NATIVE // b210/b198: the variable's location read as fields
+typedef struct DwVarLoc {
+    UInt8 pad[0x2C];
+    UInt16 kind; // +0x2C
+    UInt16 reg; // +0x2E
+    UInt16 reg2; // +0x30
+    UInt8 pad32[2];
+    SInt32 offset; // +0x34
+    SInt32 gprel; // +0x38
+} DwVarLoc;
+SInt32 func_005340F0(DwNode* node) {
+    ELFSection* sec;
+    SInt32 size;
+    DwVarLoc* var;
+
+    sec = dw_current->f14;
+    var = (DwVarLoc*)node;
+    func_00531520(sec, 0x23);
+    size = 2;
+    switch (var->kind) {
+        case 3: // a static: ADDR, filled in by a relocation
+            func_00531520(sec, 5);
+            func_005314F0(sec, 3);
+            func_00531580(sec, 0);
+            return 9;
+        case 1: // a register
+            func_00531520(sec, 5);
+            func_005314F0(sec, 1);
+            func_00531580(sec, var->reg);
+            return 9;
+        case 5:
+            func_00531520(sec, 5);
+            func_005314F0(sec, 0x80);
+            func_00531580(sec, var->reg);
+            return 9;
+        case 2: // a register pair
+            func_00531520(sec, 10);
+            func_005314F0(sec, 1);
+            func_00531580(sec, var->reg2);
+            func_005314F0(sec, 1);
+            func_00531580(sec, var->reg);
+            return 14;
+        case 4: // in the frame: BASEREG reg[, CONST offset, ADD]
+            func_00531520(sec, (var->gprel || var->offset) ? 11 : 5);
+            func_005314F0(sec, 2);
+            func_00531580(sec, var->reg);
+            size += 7;
+            if (var->gprel || var->offset) {
+                func_005314F0(sec, 4);
+                func_00531580(sec, var->gprel ? 0 : var->offset);
+                func_005314F0(sec, 7);
+                size += 6;
+            }
+            return size;
+        case 6: // $gp relative
+            func_00531520(sec, 11);
+            func_005314F0(sec, 2);
+            func_00531580(sec, 0x1C);
+            func_005314F0(sec, 4);
+            func_00531580(sec, 0);
+            func_005314F0(sec, 7);
+            return 15;
+        default:
+            CError_FATAL(1071);
+            return 0;
+    }
+}
+#else
 SInt32 func_005340F0(DwNode* node) {
     ELFSection* sec;
     SInt32 size;
@@ -1223,6 +1320,9 @@ SInt32 func_005340F0(DwNode* node) {
             return 0;
     }
 }
+#endif
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
 
 // 0x5328B0: the function's .line table: its length, the base address (a
 // relocation), each (line, position, offset), and an end entry at the code

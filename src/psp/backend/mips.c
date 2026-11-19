@@ -2983,6 +2983,39 @@ void func_0047C290(VOperand* a, SInt32 imm, CLabel* label);
 void func_0047C4C0(VOperand* a, SInt32 imm, CLabel* label);
 
 // 0x47A0C0: branch when a <= imm; a long long constant compares both halves.
+#if MWCCPS2 // b210/b198 (0x4872F0): a 64-bit constant out of range is one compare-and-branch
+VOperand func_0047F9F0(CInt64 value, Type* type);
+void func_0047A0C0(VOperand* a, CInt64* imm, Type* type, CLabel* label) {
+    VOperand constant;
+    MPCode* pc;
+    MPCodeLabel* fall;
+    UInt16 op;
+
+    if (IS_TYPE_LL(type) && !CInt64_IsInRange(*imm, 4)) {
+        constant = func_0047F9F0(*imm, type);
+        op = is_unsigned(type) ? 0x423 : 0x41F;
+        fall = makepclabel();
+        if (data_006242A4 == label) {
+            data_00625E83 = 1;
+        }
+        pc = func_00480420(op, 3);
+        pc->args[0] = func_004C3C60(a);
+        pc->args[1] = func_004C3C60(&constant);
+        pc->args[2] = func_004C3C00(label);
+        appendpcode(data_006246B4, pc);
+        pcbranch(data_006246B4, (MPCodeLabel*)label->pclabel, 0);
+        pcbranch(data_006246B4, fall, 0);
+        makepcblock();
+        pclabel(data_006246B4, fall);
+        return;
+    }
+    if (is_unsigned(type)) {
+        func_0047C290(a, imm->lo, label);
+    } else {
+        func_0047C4C0(a, imm->lo, label);
+    }
+}
+#else
 void func_0047A0C0(VOperand* a, CInt64* imm, Type* type, CLabel* label) {
     SInt32 hi;
     SInt32 lo;
@@ -3004,6 +3037,7 @@ void func_0047A0C0(VOperand* a, CInt64* imm, Type* type, CLabel* label) {
         func_0047C4C0(a, imm->lo, label);
     }
 }
+#endif
 
 // A one-operand branch to label.
 void func_00479A50(UInt16 op, CLabel* label) {

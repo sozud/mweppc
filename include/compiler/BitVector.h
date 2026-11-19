@@ -84,6 +84,14 @@ HEADER_INLINE void Bv_SetBit(UInt32 bit, BitVector* bv) {
 #define Bv_IsBitSet(_bit, _bv) \
     (((UInt32)((_bit) >> 5) < (_bv)->size) && ((_bv)->data[(_bit) >> 5] & (1 << ((_bit) & 31))))
 
+#if MWCCPS2
+// the PS2 3.0.1 header's Bv_IsBitSet: a function (an unsigned bit number, the result as a
+// Boolean), which some of b210's and b198's passes use in place of the macro
+static inline Boolean Bv_IsBitSetFn(UInt32 bit, BitVector* bv) {
+    return ((UInt32)(bit >> 5) < bv->size) && (bv->data[bit >> 5] & (1 << (bit & 31)));
+}
+#endif
+
 #ifdef __cplusplus
 }
 #endif

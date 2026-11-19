@@ -245,6 +245,18 @@ struct TemplFuncInstance {
     Boolean is_poi;
 };
 
+// b210 and b198 reach a class template instance's template, an instance's
+// enclosing instance and a nested member template's original through 16-byte
+// "template headers" (the block at TemplClass.templ_parent / TemplClassInst.parent;
+// CTemplTool_TemplClassFromHeader). The CodeWarrior build keeps that representation
+// (it is the originals' code); a native build (MWCCPSP_NATIVE) keeps 3.0.1 b219's plain pointers,
+// which give the same results (an internal representation only).
+#if MWCCPS2 && !MWCCPSP_NATIVE
+#define MWCCPS2_TEMPL_HEADERS 1
+#else
+#define MWCCPS2_TEMPL_HEADERS 0
+#endif
+
 struct TemplClass {
     TypeClass theclass;
     TemplClass* next;

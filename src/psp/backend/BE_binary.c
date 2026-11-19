@@ -970,7 +970,7 @@ void BE_EncodeFinal(MPCode* pc) {
         BE_EncodeInstruction(pc, 2);
     } else if (pc->op == 3 && pc->args[2].kind == 6) {
         BE_EncodeInstruction(pc, 2);
-#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 has no second case
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 and b198 have no second case
     } else if (pc->op == 0x2EE && pc->args[0].kind == 6) {
         BE_EncodeInstruction(pc, 2);
 #endif

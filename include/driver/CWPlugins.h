@@ -299,6 +299,37 @@ typedef struct CWRelativePath {
     char pathString[512];
 } CWRelativePath;
 
+#if MWCCPSP && !MWCCPSP_MAC_FILESPEC
+// 3.0.1 (CWPLUGIN_API 2): the times are FILETIMEs and the plugin's name a full
+// name, on both sides of the plugin interface; the shell's spec is its OSSpec
+// (0x32E bytes), a plugin's a Windows path (0x22E bytes). CWGetFileInfo
+// converts (0x4159F0, 0x416500).
+typedef struct CWProjectFileInfo {
+    CWFileSpec filespec;
+    OSTime moddate;
+    short segment;
+    Boolean hasobjectcode;
+    Boolean hasresources;
+    Boolean isresourcefile;
+    Boolean weakimport;
+    Boolean initbefore;
+    Boolean gendebug;
+    OSTime objmoddate;
+#if CW_SHELL_OSSPEC
+    OSNameSpec dropinname;
+#else
+    char dropinname[256];
+#endif
+    short fileID;
+    Boolean recordbrowseinfo;
+    Boolean reserved;
+    OSType filetype;
+    OSType filecreator;
+    Boolean hasunitdata;
+    Boolean mergeintooutput;
+    UInt32 unitdatadependencytag;
+} CWProjectFileInfo;
+#else
 typedef struct CWProjectFileInfo {
     CWFileSpec filespec;
     CWFileTime moddate;
@@ -320,6 +351,7 @@ typedef struct CWProjectFileInfo {
     Boolean mergeintooutput;
     UInt32 unitdatadependencytag;
 } CWProjectFileInfo;
+#endif
 
 enum {
     cwAccessPathFlagUser = 1,

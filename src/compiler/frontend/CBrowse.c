@@ -6,6 +6,7 @@
 #include "compiler/CompilerTools.h"
 #include "compiler/CParser.h"
 #include "compiler/CPrep.h"
+#include "compiler/CTemplateTools.h"
 #include "compiler/objects.h"
 #include "compiler/templates.h"
 #include "compiler/tokens.h"
@@ -149,13 +150,7 @@ void CBrowse_Setup(CompilerLinkerParamBlk* params) {
 // shrinks the list and stores its handle as params->object.browsedata
 extern void func_004234E0(CompilerLinkerParamBlk* params, GList* gl);
 
-// 3.0.1 (0x4234E0): the browse data handed to the plugin context
-extern CWMemHandle COS_DetachHandle(Handle* handle);
-
-void func_004234E0(CompilerLinkerParamBlk* params, GList* gl) {
-    ShrinkGList(gl);
-    params->object.browsedata = COS_DetachHandle((Handle*)&gl->data); // +8 in 3.0.1
-}
+// (3.0.1 0x4234E0, CCompilerPSP.c)
 
 void CBrowse_Finish(CompilerLinkerParamBlk* params) {
     CError_ASSERT(155, params != NULL);
@@ -237,6 +232,100 @@ static void RecordName(GList* gl, const char* str, SInt32 id) {
 #define CError_B52_SHIFT (0)
 #endif
 
+#if MWCCPS2 // b210/b198: the names from CError_GetTypeName, the GList checked
+void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
+    ClassList* base;
+    SInt32 i;
+    TypeClass* tclass;
+    char* baseName;
+
+    CError_ASSERT(226, di && di->thetype && gl);
+
+    *gl = gClassData;
+
+    if (!di->file ||
+        !di->file->fileID ||
+        !di->file->recordbrowseinfo ||
+        !di->file2 ||
+        !di->file2->fileID ||
+        di->sourceoffset <= 0) {
+        memclrw(&gClassData, sizeof(gClassData));
+        return;
+    }
+
+    if (IsTempName(TYPE_CLASS(di->thetype)->classname)) {
+        memclrw(&gClassData, sizeof(gClassData));
+        return;
+    }
+
+    if (InitGList(&gClassData, 0x4000)) {
+        CError_NoMem();
+    }
+
+    AppendGListByte(&gClassData, browseClass);
+    AppendGListWord(&gClassData, di->file->fileID);
+    AppendGListWord(&gClassData, di->file2->fileID);
+    AppendGListLong(&gClassData, di->sourceoffset - 1);
+    CError_ASSERT(269, gClassData.size == 9);
+    AppendGListLong(&gClassData, di->sourceoffset - 1);
+    AppendGListLong(&gClassData, 0);
+    RecordName(
+        &gClassData,
+        TYPE_CLASS(di->thetype)->classname->name,
+        TYPE_CLASS(di->thetype)->classname->id
+    );
+
+    baseName = CError_GetTypeName(di->thetype, 0, 0);
+
+    if (strcmp(TYPE_CLASS(di->thetype)->classname->name, baseName)) {
+        RecordName(&gClassData, baseName, -1);
+    } else {
+        AppendGListWord(&gClassData, 0);
+    }
+
+    AppendGListLong(&gClassData, 0);
+
+    i = 0;
+    {
+        ClassList* countBase;
+        for (countBase = TYPE_CLASS(di->thetype)->bases; countBase; countBase = countBase->next) {
+            i++;
+        }
+    }
+
+    AppendGListByte(&gClassData, i);
+
+    for (base = TYPE_CLASS(di->thetype)->bases; base; base = base->next) {
+        AppendGListByte(&gClassData, gFromAccessType[base->access]);
+        AppendGListByte(&gClassData, base->is_virtual);
+
+        tclass = base->base;
+        if (tclass->flags & CLASS_IS_TEMPL_INST) {
+            TemplClassInst* inst = CTemplTool_GetTemplClassInst(tclass);
+            if (!inst->is_specialized) {
+#if MWCCPS2_TEMPL_HEADERS
+                tclass = TYPE_CLASS(CTemplTool_TemplClassFromHeader(inst->parent)); // the header
+#else
+                tclass = TYPE_CLASS(inst->templ);
+#endif
+            }
+        }
+
+        baseName = CError_GetTypeName(TYPE(tclass), 0, 0);
+        while (*baseName && *baseName >= '0' && *baseName <= '9') {
+            baseName++;
+        }
+
+        i = base->base->classname->id;
+        while (*baseName && *baseName >= '0' && *baseName <= '9') {
+            baseName++;
+            i = -1;
+        }
+
+        RecordName(&gClassData, baseName, i);
+    }
+}
+#else
 void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
     ClassList* base;
     SInt32 i;
@@ -338,6 +427,7 @@ void CBrowse_BeginClass(DeclInfo* di, GList* gl) {
         RecordName(&gClassData, baseName, i);
     }
 }
+#endif
 
 void CBrowse_AddClassMemberVar(ObjMemberVar* ivar, SInt32 startOffset, SInt32 endOffset) {
     short len;
@@ -1178,7 +1268,11 @@ static void RecordUndefinedMemberFunctions(void) {
     array = (Object**)*gMemberFuncList.data;
     for (i = 0; i < count; i++, array++) {
         if (IS_TYPE_FUNC((*array)->type) && !(TYPE_FUNC((*array)->type)->flags & FUNC_DEFINED)) {
+#if MWCCPSP // 3.0.1 reads the entry again for the call
+            RecordFunction(*(Object* volatile*)array, 0, 0, -1, -1);
+#else
             RecordFunction(*array, 0, 0, -1, -1);
+#endif
         }
     }
 

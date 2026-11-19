@@ -89,6 +89,11 @@
 #define IRO_malloc IRO_gmalloc
 #define IRO_free IRO_free2
 #endif
+#if MWCCPS2 && !MWCC_CORE
+#define PS2_ADT_OUTLINE // b210/b198: these are called, not inlined
+#else
+#define PS2_ADT_OUTLINE HEADER_INLINE
+#endif
 
 HEADER_INLINE UInt32 gcd(UInt32 a, UInt32 b) {
     UInt32 chk;
@@ -792,7 +797,7 @@ HEADER_INLINE ExtendedParamSet* ExtendedParamSet_New(void) {
     return epList;
 }
 
-HEADER_INLINE void ExtendedParamSet_Delete(ExtendedParamSet* epList) {
+PS2_ADT_OUTLINE void ExtendedParamSet_Delete(ExtendedParamSet* epList) {
     IRO_ASSERT(936, epList != NULL);
     IRO_ASSERT(937, epList->ep == NULL);
     IRO_ASSERT(938, epList->otherEps == NULL);
@@ -2389,7 +2394,7 @@ PointsToFunction_SimpleAdd(PointsToFunction* pointsToFunc, PointsToEntry* pte) {
 
     newPTE = PointsToEntry_New();
     PointsToEntry_Copy(newPTE, pte);
-    if (pointsToFunc->pte) {
+    if (pointsToFunc->pte != NULL) {
         PointsToFunction* newPointsToFunc = PointsToFunction_New();
         PointsToFunction_Init(newPointsToFunc);
         newPointsToFunc->pte = pointsToFunc->pte;
@@ -2406,11 +2411,20 @@ HEADER_INLINE Boolean PointsToFunction_Add(PointsToFunction* pointsToFunc, Point
 
     if (!PointsToFunction_FindByLookupCompatibleLocationSet(pointsToFunc, pte->loc)) {
         LocationSet* ls;
+#if MWCCPS2 && !MWCC_CORE
+        ls = LocationSetSet_FindFirst(pte->locs);
+        if (!(ls &&
+              LocationSet_IsUnknown(ls) &&
+              !LocationSet_bitfieldOf(ls) &&
+              !LocationSet_restriction(ls) &&
+              !ShouldAddNewPointsToEntryToFunction(pointsToFunc, pte))) {
+#else
         if (!(ls = LocationSetSet_FindFirst(pte->locs)) ||
             !LocationSet_IsUnknown(ls) ||
             LocationSet_bitfieldOf(ls) ||
             LocationSet_restriction(ls) ||
             ShouldAddNewPointsToEntryToFunction(pointsToFunc, pte)) {
+#endif
             PointsToFunction_RemoveOverlappingLocations(pointsToFunc, pte);
             if (!LocationSet_IsUnknown(pte->loc) || pte->loc->rtype) {
                 PointsToFunction_SimpleAdd(pointsToFunc, pte);
@@ -2770,7 +2784,7 @@ HEADER_INLINE PTFList* PTFList_New(void) {
     return ptfList;
 }
 
-HEADER_INLINE void PTFList_Delete(PTFList* ptfList) {
+PS2_ADT_OUTLINE void PTFList_Delete(PTFList* ptfList) {
     IRO_ASSERT(4405, ptfList != NULL);
     IRO_ASSERT(4406, ptfList->ptf == NULL);
     IRO_ASSERT(4407, ptfList->otherPTFs == NULL);

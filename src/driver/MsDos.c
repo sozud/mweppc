@@ -319,6 +319,26 @@ int __stdcall OS_Delete(const OSSpec* spec) {
     return 0;
 }
 
+#if MWCCPSP
+// (declared here: a declaration in a shared header renumbers every unit's local statics)
+__declspec(dllimport) BOOL __stdcall MoveFileA(LPCSTR lpExistingFileName, LPCSTR lpNewFileName);
+
+int __stdcall OS_Rename(const OSSpec* from, const OSSpec* to) {
+    char newpath[260];
+
+    if (OS_SpecToString(from, intbuf, sizeof(intbuf)) == NULL) {
+        return ERROR_BUFFER_OVERFLOW;
+    }
+    if (OS_SpecToString(to, newpath, sizeof(newpath)) == NULL) {
+        return ERROR_BUFFER_OVERFLOW;
+    }
+    if (!MoveFileA(intbuf, newpath)) {
+        return GetLastError();
+    }
+    return 0;
+}
+
+#endif
 int __stdcall OS_Mkdir(const OSSpec* spec) {
     if (OS_SpecToString(spec, intbuf, sizeof(intbuf)) == NULL) {
         return ERROR_BUFFER_OVERFLOW;

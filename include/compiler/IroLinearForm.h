@@ -383,7 +383,7 @@ struct IROLinear {
     ENodeType nodetype; // +1
     SInt32 flags; // +4
     UInt16 nodeflags; // +8
-    UInt32 index; // +0xC
+    SInt32 index; // +0xC (signed: 3.0.1 compares it with jl/jge, FindFirst)
     Statement* stmt; // +0x10
     Type* rtype; // +0x14
     void* unk18; // +0x18 unidentified (IRO_NewLinear clears it)

@@ -48,6 +48,93 @@ extern void Bv_AllocVectorLocal(BitVector** bv, UInt32 size);
 BitVector* data_00608CD0; // the variables live at the current linear
 
 // 0x595D60: an exception action of the list names obj
+#if MWCCPS2 // b210/b198 (0x5ADC70): each operand tested on its own, in this case order
+Boolean func_00595D60(ExceptionAction* action, Object* obj) {
+    for (; action; action = action->prev) {
+        switch (action->type) {
+            case EAT_DESTROYLOCAL:
+                if (action->data.destroy_local.local == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYLOCALCOND:
+                if (action->data.destroy_local_cond.local == obj) {
+                    return TRUE;
+                }
+                if (action->data.destroy_local_cond.cond == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYLOCALOFFSET:
+                if (action->data.destroy_local_offset.local == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYLOCALPOINTER:
+                if (action->data.destroy_local_pointer.pointer == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYLOCALARRAY:
+                if (action->data.destroy_local_array.localarray == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYPARTIALARRAY:
+                if (action->data.destroy_partial_array.arraypointer == obj) {
+                    return TRUE;
+                }
+                if (action->data.destroy_partial_array.arraycounter == obj) {
+                    return TRUE;
+                }
+                if (action->data.destroy_partial_array.dtor == obj) {
+                    return TRUE;
+                }
+                if (action->data.destroy_partial_array.element_size == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYBASE:
+                if (action->data.destroy_base.objectptr == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYMEMBER:
+                if (action->data.destroy_member.objectptr == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYMEMBERCOND:
+                if (action->data.destroy_member_cond.objectptr == obj) {
+                    return TRUE;
+                }
+                if (action->data.destroy_member_cond.cond == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DESTROYMEMBERARRAY:
+                if (action->data.destroy_member_array.objectptr == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DELETEPOINTER:
+                if (action->data.delete_pointer.pointerobject == obj) {
+                    return TRUE;
+                }
+                break;
+            case EAT_DELETEPOINTERCOND:
+                if (action->data.delete_pointer_cond.pointerobject == obj) {
+                    return TRUE;
+                }
+                if (action->data.delete_pointer_cond.cond == obj) {
+                    return TRUE;
+                }
+                break;
+        }
+    }
+    return FALSE;
+}
+#else
 Boolean func_00595D60(ExceptionAction* action, Object* obj) {
     for (; action; action = action->prev) {
         switch (action->type) {
@@ -123,6 +210,7 @@ Boolean func_00595D60(ExceptionAction* action, Object* obj) {
     }
     return FALSE;
 }
+#endif
 
 // a call (or an asm that may throw) can read var: a global, an addressed
 // variable, or one an exception action of a throwing call names

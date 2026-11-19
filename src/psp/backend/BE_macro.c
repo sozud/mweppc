@@ -137,9 +137,130 @@ extern SInt32 data_005F0BDC;
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 extern struct Alias* make_alias(Object* obj, SInt32 offset, SInt32 size);
 #endif
+#if MWCCPS2 && !MWCC_CORE
+extern void func_0048F7C0(UInt8 save, MPCode* at, SInt32* x); // save/restore (interrupt)
+#else
 extern void func_0048F7C0(int start, MPCode* at, SInt32* x); // save/restore (interrupt)
+#endif
 extern void func_0048EF70(Boolean save, MPCode* at); // save/restore registers
 extern void func_0048B5D0(MPCode** ppc, Boolean flag); // expand a macro
+
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198: an interrupt function saves every register it writes (b198 0x49AE70, 0x49B080)
+extern UInt16 data_00625E52; // load-word opcode
+extern UInt16 data_00625E5C; // store-word opcode
+extern SInt32 data_00624788; // the size of a saved register
+SInt32 data_005F0BD8; // b198 0x608DE0: the register freed to save hi/lo
+SInt32 data_005F0BD0; // b198 0x608DD8: where hi/lo are saved
+void insertpcodebefore(MPCode* at, MPCode* pc);
+
+// save (or restore) the registers in mask at pc, hi/lo through a reserved register
+void func_0048F7C0(UInt8 save, MPCode* at, SInt32* x) {
+#define mask ((UInt32*)x)
+    SInt32 offset;
+    SInt32 reg;
+    SInt16 op;
+    MPCode* pc;
+
+    offset = 0;
+    if ((mask[2] & 1) && !save) {
+        pc = makepcode((SInt16)data_00625E52, data_005F0BD8, 0, data_005F0BD0, 29);
+        insertpcodebefore(at, pc);
+        pc = makepcode(0xB2, data_005F0BD8);
+        insertpcodebefore(at, pc);
+        pc = makepcode((SInt16)data_00625E52, data_005F0BD8, 0, data_005F0BD0 + data_00624788, 29);
+        insertpcodebefore(at, pc);
+        pc = makepcode(0xB3, data_005F0BD8);
+        insertpcodebefore(at, pc);
+    }
+    for (reg = 0; reg < 32; reg++) {
+        if (mask[0] & (1U << reg)) {
+            op = save ? data_00625E5C : data_00625E52;
+            pc = makepcode((SInt16)op, reg, 0, offset, 29);
+            insertpcodebefore(at, pc);
+            offset += data_00624788;
+        }
+    }
+    if (copts.fp_library & 1) {
+        for (reg = 0; reg < 32; reg++) {
+            if (mask[1] & (1U << reg)) {
+                op = save ? 0xC5 : 0x96;
+                pc = makepcode((SInt16)op, reg, 0, offset, 29);
+                insertpcodebefore(at, pc);
+                offset += data_00624788;
+            }
+        }
+    }
+    if (save && (mask[2] & 1)) {
+        data_005F0BD0 = offset;
+        pc = makepcode(0xA8, data_005F0BD8);
+        insertpcodebefore(at, pc);
+        pc = makepcode((SInt16)data_00625E5C, data_005F0BD8, 0, offset, 29);
+        insertpcodebefore(at, pc);
+        offset += data_00624788;
+        pc = makepcode(0xA9, data_005F0BD8);
+        insertpcodebefore(at, pc);
+        pc = makepcode((SInt16)data_00625E5C, data_005F0BD8, 0, offset, 29);
+        insertpcodebefore(at, pc);
+    }
+}
+#undef mask
+
+// a free low register to carry hi/lo, taken if none is written
+static inline void ps2_reserve_macro_register(UInt32* mask, SInt32* count) {
+    SInt32 i;
+
+    for (i = 0; i < 7; i++) {
+        if (mask[0] & (1U << i)) {
+            data_005F0BD8 = i;
+            return;
+        }
+    }
+    mask[0] |= 2;
+    data_005F0BD8 = 1;
+    (*count)++;
+}
+
+// the registers the function writes (by class) and the bytes their save area takes
+SInt32 func_0048F9D0(Object* func, SInt32* x) {
+#define mask ((UInt32*)x)
+    MPCode* pc;
+    MOperand* op;
+    SInt32 i;
+    MPCodeBlock* block;
+    SInt32 count;
+
+    count = 0;
+    mask[0] = 0;
+    mask[1] = 0;
+    mask[2] = 0;
+    mask[3] = 0;
+    mask[4] = 0;
+    mask[5] = 0;
+    mask[6] = 0;
+    for (block = data_00624FD0; block; block = block->next) {
+        for (pc = block->first; pc; pc = pc->next) {
+            i = 0;
+            op = pc->args;
+            if (pc->argcount > 0) {
+                do {
+                    if (op->kind == 0 && (op->flags & 2)) {
+                        mask[(SInt8)op->rclass] |= 1U << op->reg;
+                        count++;
+                    }
+                    i++;
+                    op++;
+                } while (i < pc->argcount);
+            }
+        }
+    }
+    if (mask[2] & 1) {
+        ps2_reserve_macro_register(mask, &count);
+    }
+    return count * data_00624788;
+}
+#undef mask
+#endif
 
 typedef struct FrameInfo {
     UInt8 valid; // +0

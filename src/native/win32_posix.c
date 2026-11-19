@@ -126,6 +126,20 @@ static void windows_path(char* p) {
     }
 }
 
+// MWCC_DRIVE=Z: absolute paths carry that drive letter, as the original sees
+// them under wibo (Z:\...); objects name their source files by such paths
+static void windows_absolute_path(char* p, size_t size) {
+    const char* drive = getenv("MWCC_DRIVE");
+    size_t n;
+
+    windows_path(p);
+    if (drive && drive[0] && p[0] == '\\' && (n = strlen(p)) + 3 <= size) {
+        memmove(p + 2, p, n + 1);
+        p[0] = drive[0];
+        p[1] = ':';
+    }
+}
+
 // the MSL assertion handler (3.0.1's four-argument form)
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 void __assertion_failed(
@@ -437,6 +451,20 @@ BOOL __stdcall DeleteFileA(LPCSTR lpFileName) {
     return unlink(posix_path(lpFileName, buf)) < 0 ? fail() : TRUE;
 }
 
+BOOL __stdcall MoveFileA(LPCSTR lpExistingFileName, LPCSTR lpNewFileName) {
+    char from[PATH_MAX];
+    char to[PATH_MAX];
+    struct stat st;
+
+    posix_path(lpExistingFileName, from);
+    posix_path(lpNewFileName, to);
+    if (stat(to, &st) == 0) { // MoveFile fails when the target exists
+        errno = EEXIST;
+        return fail();
+    }
+    return rename(from, to) < 0 ? fail() : TRUE;
+}
+
 BOOL __stdcall CreateDirectoryA(LPCSTR lpPathName, LPSECURITY_ATTRIBUTES lpSecurityAttributes) {
     char buf[PATH_MAX];
     return mkdir(posix_path(lpPathName, buf), 0777) < 0 ? fail() : TRUE;
@@ -451,11 +479,11 @@ DWORD __stdcall GetCurrentDirectoryA(DWORD nBufferLength, LPSTR lpBuffer) {
     char buf[PATH_MAX];
     size_t n;
 
-    if (!getcwd(buf, sizeof(buf))) {
+    if (!getcwd(buf, sizeof(buf) - 2)) {
         fail();
         return 0;
     }
-    windows_path(buf);
+    windows_absolute_path(buf, sizeof(buf));
     n = strlen(buf);
     if (n + 1 > nBufferLength) {
         return (DWORD)(n + 1);
@@ -528,7 +556,7 @@ DWORD __stdcall GetFullPathNameA(
         snprintf(out + n, sizeof(out) - n, "/%s", in);
     }
     collapse_dots(out);
-    windows_path(out);
+    windows_absolute_path(out, sizeof(out));
     n = strlen(out);
     if (n + 1 > nBufferLength) {
         return (DWORD)(n + 1);
@@ -921,80 +949,23 @@ UINT __stdcall GetWindowsDirectoryA(LPSTR lpBuffer, UINT uSize) {
     return (UINT)snprintf(lpBuffer, uSize, "/");
 }
 
-// Shift-JIS file name wrappers (src/host/ShiftJIS.c): paths are passed through as is
-HANDLE __stdcall ShiftJIS_CreateFileA(
-#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
-    LPCSTR lpFileName,
-    DWORD dwDesiredAccess,
-    DWORD dwShareMode,
-    LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-    DWORD dwCreationDisposition,
-    DWORD dwFlagsAndAttributes,
-    HANDLE hTemplateFile
-#else
-    LPCSTR lpFileName,
-    DWORD dwDesiredAccess,
-    DWORD dwShareMode,
-    LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-    DWORD dwCreationDisposition,
-    DWORD dwFlagsAndAttributes,
-    HANDLE hTemplateFile
-#endif
+// the Win32 calls src/host/ShiftJIS.c (the native sjiswrap: MWCC_SJIS=1) makes
+LPVOID __stdcall VirtualAlloc(
+    LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect
 ) {
-    return CreateFileA(
-#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
-        lpFileName,
-        dwDesiredAccess,
-        dwShareMode,
-        lpSecurityAttributes,
-        dwCreationDisposition,
-        dwFlagsAndAttributes,
-#else
-        lpFileName,
-        dwDesiredAccess,
-        dwShareMode,
-        lpSecurityAttributes,
-        dwCreationDisposition,
-        dwFlagsAndAttributes,
-#endif
-        hTemplateFile
-    );
+    return calloc(1, dwSize);
 }
 
-BOOL __stdcall ShiftJIS_CloseHandle(HANDLE hObject) {
-    return CloseHandle(hObject);
+void __stdcall SetLastError(DWORD dwErrCode) {
+    last_error = dwErrCode;
 }
 
-DWORD __stdcall ShiftJIS_GetFileSize(HANDLE hFile, LPDWORD lpFileSizeHigh) {
-    return GetFileSize(hFile, lpFileSizeHigh);
+void __stdcall ExitProcess(UINT uExitCode) {
+    exit((int)uExitCode);
 }
 
-BOOL __stdcall ShiftJIS_ReadFile(
-#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
-    HANDLE hFile,
-    LPVOID lpBuffer,
-    DWORD nNumberOfBytesToRead,
-    LPDWORD lpNumberOfBytesRead,
-    LPOVERLAPPED lpOverlapped
-#else
-    HANDLE hFile,
-    LPVOID lpBuffer,
-    DWORD nNumberOfBytesToRead,
-    LPDWORD lpNumberOfBytesRead,
-    LPOVERLAPPED lpOverlapped
-#endif
-) {
-    return ReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-}
-
-DWORD __stdcall ShiftJIS_SetFilePointer(
-    HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod
-) {
-    return SetFilePointer(hFile, lDistanceToMove, lpDistanceToMoveHigh, dwMoveMethod);
-}
-
-BOOL __stdcall ShiftJIS_IsDBCSLeadByte(BYTE TestChar) {
-    return FALSE;
+BOOL __stdcall IsDBCSLeadByte(BYTE TestChar) {
+    return FALSE; // the driver's code page has no lead bytes unless MWCC_SJIS is set
 }
 
 #if MWCCPS2

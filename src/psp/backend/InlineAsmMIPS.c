@@ -3441,38 +3441,69 @@ void func_00489410(MAsmOperand* op, Boolean kind, SInt16 mode) {
 #endif
 
 // 0x4896F0: a single-precision immediate, as its bits
+#if MWCCPS2 // b210/b198 (0x495930): one float, its bits taken at the end
 void func_004896F0(MAsmOperand* op) {
-    SInt32 bits;
-    union {
-        float f;
-        SInt32 i;
-    } u;
-    Boolean neg;
+    float value;
+    UInt8 neg = 0;
 
-    neg = FALSE;
     if (tk == '-') {
-        neg = TRUE;
+        neg = 1;
         tk = lex();
     } else if (tk == '+') {
         tk = lex();
     }
-
     if (tk == TK_FLOATCONST) {
-        u.f = tkfloatconst.data.value;
-        bits = u.i;
+        value = tkfloatconst.data.value;
     } else if (tk == TK_INTCONST) {
-        *(float*)&bits = tkintconst.lo;
+        value = (UInt32)tkintconst.lo;
     } else if (tk != TK_FLOATCONST) {
         CError_Error(0x2D);
-        bits = 0;
+        value = 0.0f;
     }
     if (neg) {
-        bits ^= 0x80000000;
+        *(UInt32*)&value ^= 0x80000000;
     }
-    op->type = MOpnd_Imm;
-    CInt64_SetLong(&op->u.imm, bits);
+    {
+        SInt32 bits = *(SInt32*)&value;
+        op->type = MOpnd_Imm;
+        CInt64_SetLong(&op->u.imm, bits);
+    }
     tk = lex();
 }
+#else
+    void func_004896F0(MAsmOperand * op) {
+        SInt32 bits;
+        union {
+            float f;
+            SInt32 i;
+        } u;
+        Boolean neg;
+
+        neg = FALSE;
+        if (tk == '-') {
+            neg = TRUE;
+            tk = lex();
+        } else if (tk == '+') {
+            tk = lex();
+        }
+
+        if (tk == TK_FLOATCONST) {
+            u.f = tkfloatconst.data.value;
+            bits = u.i;
+        } else if (tk == TK_INTCONST) {
+            *(float*)&bits = tkintconst.lo;
+        } else if (tk != TK_FLOATCONST) {
+            CError_Error(0x2D);
+            bits = 0;
+        }
+        if (neg) {
+            bits ^= 0x80000000;
+        }
+        op->type = MOpnd_Imm;
+        CInt64_SetLong(&op->u.imm, bits);
+        tk = lex();
+    }
+#endif
 
 // 0x4897C0: vfim's half-precision immediate (or an integer)
 void func_004897C0(MAsmOperand* op) {
@@ -4259,7 +4290,7 @@ void func_00481EE0(Statement* stmt, Object* gpr, Object* fpr, Boolean tofloat, B
 }
 
 // 0x481FE0: an instruction's mnemonic
-#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
+#if MWCCPS2 // b52/b69, and b210/b198 (b198 0x490DA0) with their opcodes
 // variable and a VU0 register (class 5): b69 opcodes 0x23D (in) and 0x23B
 void ps2_gcc_quadmove(Statement* stmt, Object* var, Object* temp, Boolean in, Boolean after) {
     Statement* s = NULL;
@@ -4278,6 +4309,7 @@ void ps2_gcc_quadmove(Statement* stmt, Object* var, Object* temp, Boolean in, Bo
     }
     s->expr = NULL;
 
+#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
     mi = lalloc(
         (in ? &data_006115F8[0x23D] : &data_006115F8[0x23B])->nargs * sizeof(MAsmOperand) + 8
     );
@@ -4287,6 +4319,17 @@ void ps2_gcc_quadmove(Statement* stmt, Object* var, Object* temp, Boolean in, Bo
         mi->opcode = 0x23B;
     }
     mi->flags = 0;
+#else
+        mi = lalloc(
+            (in ? &data_006115F8[0x266] : &data_006115F8[0x264])->nargs * sizeof(MAsmOperand) + 8
+        );
+        if (in) {
+            mi->opcode = 0x266;
+        } else {
+            mi->opcode = 0x264;
+        }
+        mi->flags = 32;
+#endif
     mi->nops = 2;
     mi->ops[0].type = MOpnd_Reg;
     mi->ops[0].u.reg.num = 0;

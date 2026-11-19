@@ -104,3 +104,21 @@ extern SInt32 data_006241E0[7]; // registers per class
 SInt32 func_004B8990(void) {
     return data_006241E0[5]; // 0x6241F4: class 5's register count
 }
+
+#if MWCCPS2 && !MWCC_CORE
+// b210 0x473710 / b198 0x4736C0: a register class's letter in register names
+char GetRegisterClassName(char rclass) {
+    switch (rclass) {
+        case 5:
+        case 6:
+            return 'v';
+        case 0:
+            return 'r';
+        case 1:
+            return 'f';
+        default:
+            CError_Internal("RegisterInfo.c", 45);
+            return '?';
+    }
+}
+#endif

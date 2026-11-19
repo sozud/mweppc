@@ -230,6 +230,35 @@ done:
 }
 
 // 0x58D870: everything the loop does is its test and its induction updates
+#if MWCCPS2 // b210/b198 (0x5A45E0): a block's nodes walked to its last, null tested once
+Boolean func_0058D870(IRONaturalLoop* loop) {
+    IRONode* node;
+    IROLinear* nd;
+
+    for (node = IRO_FirstNode; node; node = node->nextnode) {
+        if (Bv_IsBitSetFn(node->index, loop->nodes)) {
+            nd = node->first;
+            if (nd) {
+                for (;;) {
+                    if (!func_00588740(loop, nd) &&
+                        !func_00588690(loop, nd) &&
+                        nd->type != IROLinearNop &&
+                        nd->type != IROLinearLabel &&
+                        !(nd->flags & IROLF_Reffed)) {
+                        IRO_Dump("Found top level node in the loop\n");
+                        return FALSE;
+                    }
+                    if (nd == node->last) {
+                        break;
+                    }
+                    nd = nd->next;
+                }
+            }
+        }
+    }
+    return TRUE;
+}
+#else
 Boolean func_0058D870(IRONaturalLoop* loop) {
     IRONode* node;
     IROLinear* nd;
@@ -253,6 +282,7 @@ Boolean func_0058D870(IRONaturalLoop* loop) {
     }
     return TRUE;
 }
+#endif
 
 // 0x58D920: the loop computes nothing but its inductions' final values,
 // which can be found and stored

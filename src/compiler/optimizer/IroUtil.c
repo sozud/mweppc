@@ -769,11 +769,19 @@ static IROLinear* FindFirst(IROLinear* linear) {
                     return FindFirst(linear->u.args3.c);
                 }
             }
+#if MWCCPSP // 3.0.1: a scope marker is its own first operand
+        case IROLinearScope:
+            return linear;
+#endif
         case IROLinearFunccall:
             i = linear->u.funccall.argCount - 1;
             return FindFirst(linear->u.funccall.args[i]);
         default:
-            CError_FATAL(641);
+#if MWCCPSP
+            CError_FATAL(2170);
+#else
+                    CError_FATAL(641);
+#endif
             return NULL;
     }
 }
@@ -847,7 +855,13 @@ static Boolean NotNoppable(IROLinear* linear) {
         IRO_IsAssignment(linear) ||
         ((linear->type == IROLinearOperand) && ENODE_IS(linear->u.node, EINSTRUCTION)) ||
         (linear->rtype &&
-         CParser_IsVolatile(linear->rtype, linear->nodeflags & ENODE_FLAG_QUALS)) ||
+#if MWCCPS2 // b210/b198 read rtype again
+         CParser_IsVolatile(
+             ((volatile IROLinear*)linear)->rtype, linear->nodeflags & ENODE_FLAG_QUALS
+         )) ||
+#else
+                 CParser_IsVolatile(linear->rtype, linear->nodeflags & ENODE_FLAG_QUALS)) ||
+#endif
         ((linear->type == IROLinearOperand) &&
          ENODE_IS(linear->u.node, EOBJREF) &&
          is_volatile_object(linear->u.node->data.objref));
@@ -2567,6 +2581,7 @@ void IRO_WalkExcActions(ExceptionAction* action, WalkObjFunc func) {
 // 0x54FC80: 3.0.1's walk over the objects of exception actions, with an
 // argument; it also visits a partial array's destructor and skips
 // specifications
+#if MWCCPSP // 3.0.1 (b198 0x561D80): its case order, each delete case its own
 void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* arg) {
     for (; action; action = action->prev) {
         switch (action->type) {
@@ -2592,6 +2607,9 @@ void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* 
                 func(action->data.destroy_partial_array.dtor, arg);
                 func(action->data.destroy_partial_array.element_size, arg);
                 break;
+            case EAT_DESTROYBASE:
+                func(action->data.destroy_base.objectptr, arg);
+                break;
             case EAT_DESTROYMEMBER:
                 func(action->data.destroy_member.objectptr, arg);
                 break;
@@ -2603,12 +2621,14 @@ void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* 
                 func(action->data.destroy_member_array.objectptr, arg);
                 break;
             case EAT_DELETEPOINTER:
-            case EAT_DELETELOCALPOINTER:
                 func(action->data.delete_pointer.pointerobject, arg);
                 break;
             case EAT_DELETEPOINTERCOND:
                 func(action->data.delete_pointer_cond.pointerobject, arg);
                 func(action->data.delete_pointer_cond.cond, arg);
+                break;
+            case EAT_DELETELOCALPOINTER:
+                func(action->data.delete_pointer.pointerobject, arg);
                 break;
             case EAT_CATCHBLOCK:
                 if (action->data.catch_block.catch_object) {
@@ -2619,9 +2639,6 @@ void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* 
             case EAT_ACTIVECATCHBLOCK:
                 func(action->data.active_catch_block.catch_info_object, arg);
                 break;
-            case EAT_DESTROYBASE:
-                func(action->data.destroy_base.objectptr, arg);
-                break;
             case EAT_UNK18:
                 func(action->data.destroy_local.local, arg);
                 break;
@@ -2630,6 +2647,71 @@ void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* 
         }
     }
 }
+#else
+    void func_0054FC80(ExceptionAction* action, void (*func)(Object*, void*), void* arg) {
+        for (; action; action = action->prev) {
+            switch (action->type) {
+                case EAT_DESTROYLOCAL:
+                    func(action->data.destroy_local.local, arg);
+                    break;
+                case EAT_DESTROYLOCALCOND:
+                    func(action->data.destroy_local_cond.local, arg);
+                    func(action->data.destroy_local_cond.cond, arg);
+                    break;
+                case EAT_DESTROYLOCALOFFSET:
+                    func(action->data.destroy_local_offset.local, arg);
+                    break;
+                case EAT_DESTROYLOCALPOINTER:
+                    func(action->data.destroy_local_pointer.pointer, arg);
+                    break;
+                case EAT_DESTROYLOCALARRAY:
+                    func(action->data.destroy_local_array.localarray, arg);
+                    break;
+                case EAT_DESTROYPARTIALARRAY:
+                    func(action->data.destroy_partial_array.arraypointer, arg);
+                    func(action->data.destroy_partial_array.arraycounter, arg);
+                    func(action->data.destroy_partial_array.dtor, arg);
+                    func(action->data.destroy_partial_array.element_size, arg);
+                    break;
+                case EAT_DESTROYMEMBER:
+                    func(action->data.destroy_member.objectptr, arg);
+                    break;
+                case EAT_DESTROYMEMBERCOND:
+                    func(action->data.destroy_member_cond.objectptr, arg);
+                    func(action->data.destroy_member_cond.cond, arg);
+                    break;
+                case EAT_DESTROYMEMBERARRAY:
+                    func(action->data.destroy_member_array.objectptr, arg);
+                    break;
+                case EAT_DELETEPOINTER:
+                case EAT_DELETELOCALPOINTER:
+                    func(action->data.delete_pointer.pointerobject, arg);
+                    break;
+                case EAT_DELETEPOINTERCOND:
+                    func(action->data.delete_pointer_cond.pointerobject, arg);
+                    func(action->data.delete_pointer_cond.cond, arg);
+                    break;
+                case EAT_CATCHBLOCK:
+                    if (action->data.catch_block.catch_object) {
+                        func(action->data.catch_block.catch_object, arg);
+                    }
+                    func(action->data.catch_block.catch_info_object, arg);
+                    break;
+                case EAT_ACTIVECATCHBLOCK:
+                    func(action->data.active_catch_block.catch_info_object, arg);
+                    break;
+                case EAT_DESTROYBASE:
+                    func(action->data.destroy_base.objectptr, arg);
+                    break;
+                case EAT_UNK18:
+                    func(action->data.destroy_local.local, arg);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+#endif
 #endif
 #if MWCCPSP
 
@@ -2822,15 +2904,6 @@ Type* IRO_UnqualifiedType(Type* type) {
         case TYPECLASS:
         case TYPETEMPLATE:
             return type;
-        case TYPEFUNC:
-            return type;
-        case TYPEMEMBERPOINTER: {
-            TypeMemberPointer* tm = galloc(sizeof(TypeMemberPointer));
-            *tm = *TYPE_MEMBER_POINTER(type);
-            tm->ty1 = IRO_UnqualifiedType(TYPE_MEMBER_POINTER(type)->ty1);
-            tm->qual &= 0x200003;
-            return (Type*)tm;
-        }
         case TYPEPOINTER:
         case TYPEARRAY: {
             TypePointer* tp = galloc(sizeof(TypePointer));
@@ -2839,13 +2912,26 @@ Type* IRO_UnqualifiedType(Type* type) {
             tp->qual &= 0x200003;
             return (Type*)tp;
         }
+        case TYPEMEMBERPOINTER: {
+            TypeMemberPointer* tm = galloc(sizeof(TypeMemberPointer));
+            *tm = *TYPE_MEMBER_POINTER(type);
+            tm->ty1 = IRO_UnqualifiedType(TYPE_MEMBER_POINTER(type)->ty1);
+            tm->qual &= 0x200003;
+            return (Type*)tm;
+        }
+        case TYPEFUNC:
+            return type;
         case TYPEILLEGAL:
         case TYPELABEL:
         case TYPEOBJCID:
         case TYPETEMPLDEPEXPR:
             return type;
         default:
-            CError_FATAL(143);
+#if MWCCPSP // 3.0.1 keeps this in IroType.c
+            CError_Internal("IroType.c", 143);
+#else
+                CError_FATAL(143);
+#endif
             return NULL;
     }
 }

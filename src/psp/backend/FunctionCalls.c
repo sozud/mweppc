@@ -618,6 +618,88 @@ extern void func_0052DE30(VOperand* dst, VOperand* src, SInt32 size, SInt32 alig
 extern SInt16 CMach_GetTypeAlign(Type* type); // alignment
 
 // Store an argument that is passed on the stack to its slot at $sp+offset.
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// b210/b198 (0x4B4200): store an argument into its stack slot
+void func_004A8840(ArgInfo* info) {
+    Type* type;
+    SInt16 op;
+    SInt16 align;
+    VOperand dst;
+
+    type = info->expr->rtype;
+    if (type->type == TYPEINT ||
+        type->type == TYPEENUM ||
+        type->type == TYPEPOINTER ||
+        (type->type == TYPEMEMBERPOINTER && type->size == 4)) {
+        if (!info->unk34) {
+            data_005D0140[info->expr->type](info->expr, NULL, &info->opnd);
+        }
+        if (info->opnd.kind) {
+            func_004A64C0(&info->opnd, type, 0);
+        }
+        func_004808E0(data_00625E4C, info->opnd.reg, 29, NULL, info->offset);
+    } else if (type->type == TYPEFLOAT) {
+        if (!info->unk34) {
+            data_005D0140[info->expr->type](info->expr, NULL, &info->opnd);
+        }
+        if (info->opnd.kind) {
+            func_004A64C0(&info->opnd, type, 0);
+        }
+        if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
+            if (IS_SINGLE(type) && !(info->flags & ArgInfoFlag_FloatStack)) {
+                if (!copts.littleendian) {
+                    func_004808E0(MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset + 4);
+                } else {
+                    func_004808E0(MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset);
+                }
+            } else if (IS_DOUBLE(type)) {
+                func_004808E0(MACRO_OP(0x6F), info->opnd.reg, 29, NULL, info->offset);
+            } else if (copts.littleendian) {
+                func_004808E0(MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset);
+                func_004808E0(
+                    MACRO_OP(0x77), info->opnd.regHi, 29, NULL, info->offset + data_00624788
+                );
+            } else {
+                func_004808E0(MACRO_OP(0x77), info->opnd.regHi, 29, NULL, info->offset);
+                func_004808E0(
+                    MACRO_OP(0x77), info->opnd.reg, 29, NULL, info->offset + data_00624788
+                );
+            }
+        } else {
+            if (IS_SINGLE(type) && !(info->flags & ArgInfoFlag_FloatStack)) {
+                if (!copts.littleendian) {
+                    func_004807C0(MACRO_OP(0x79), info->opnd.reg, 29, NULL, info->offset + 4);
+                } else {
+                    func_004807C0(MACRO_OP(0x79), info->opnd.reg, 29, NULL, info->offset);
+                }
+            } else {
+                op = (copts.mips_isa >= 2 && (copts.fp_library & 2)) ? MACRO_OP(0x70)
+                                                                     : MACRO_OP(0x6C);
+                func_004807C0(op, info->opnd.reg, 29, NULL, info->offset);
+            }
+        }
+    } else {
+        dst.kind = 2;
+        dst.reg = 29;
+        dst.object = 0;
+        dst.unk18 = 0;
+        dst.offset = info->offset;
+        if (!info->unk34) {
+            if (info->expr->type == EINDIRECT) {
+                data_005D0140[info->expr->data.monadic->type](
+                    info->expr->data.monadic, NULL, &info->opnd
+                );
+            } else {
+                data_005D0140[info->expr->type](info->expr, NULL, &info->opnd);
+            }
+        } else if (info->expr->type == EINDIRECT && info->opnd.kind == 4) {
+            info->opnd.kind = 2;
+        }
+        align = CMach_GetTypeAlign(type);
+        func_0052DE30(&dst, &info->opnd, type->size, align);
+    }
+}
+#else
 void func_004A8840(ArgInfo* info) {
     Type* type = info->expr->rtype;
     ENode* expr = info->expr;
@@ -795,6 +877,7 @@ void func_004A8840(ArgInfo* info) {
         func_0052DE30(&dst, &info->opnd, type->size, CMach_GetTypeAlign(type));
     }
 }
+#endif
 
 extern SInt16 data_00625E74; // 16-byte register move
 extern SInt32 data_00625010; // word size - 1

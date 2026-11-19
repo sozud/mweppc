@@ -528,7 +528,11 @@ static inline UInt32 CodeOffset(CLabel* label) {
 // to a chain written before
 void func_0049E330(EANode* node) {
     ExceptionAction* ea;
+#if MWCCPS2 // b210/b198: the flag byte kept as an int
+    int flags;
+#else
     char flags;
+#endif
     int reg;
     int reg2;
     int i;

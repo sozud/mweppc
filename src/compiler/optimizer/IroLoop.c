@@ -1790,17 +1790,24 @@ static Boolean ps2_bitcounts_ready; // 0x620530
 static SInt8 ps2_bitcounts[256]; // 0x620531
 
 // the table is built by its first user
+static void ps2_InitBitCounts(void) {
+    int i;
+    int mask;
+    int count;
+
+    for (i = 0; i < 256; i++) {
+        for (mask = 1, count = 0; mask < 256; mask += mask) {
+            count += (i & mask) != 0;
+        }
+        ps2_bitcounts[i] = count;
+    }
+    ps2_bitcounts_ready = TRUE;
+}
+
 #define PS2_INIT_BITCOUNTS() \
     do { \
         if (!ps2_bitcounts_ready) { \
-            for (i = 0; i < 256; i++) { \
-                n = 0; \
-                for (bit = 1; bit < 0x100; bit += bit) { \
-                    n += (bit & i) != 0; \
-                } \
-                ps2_bitcounts[i] = n; \
-            } \
-            ps2_bitcounts_ready = 1; \
+            ps2_InitBitCounts(); \
         } \
     } while (0)
 
@@ -1830,46 +1837,51 @@ UInt32 func_0059B360(BitVector* bv, UInt32 from, UInt32 to) {
     return count;
 }
 
-// 0x59B190: the set bits of bv in [from, to)
-UInt32 func_0059B190(BitVector* bv, UInt32 from, UInt32 to) {
-    UInt32 count = 0;
-    UInt32 sum;
-    UInt32 bfrom;
-    UInt32 bto;
-    int i;
-    int bit;
-    int n;
+// IrObitvect.c's own bit test: a function, so its result is a Boolean first
+static Boolean ps2_Bv_IsBitSet(UInt32 bit, BitVector* bv) {
+    return ((UInt32)(bit >> 5) < bv->size) && (bv->data[bit >> 5] & (1 << (bit & 31)));
+}
 
+// 0x59B190: the set bits of bv in [first, last)
+UInt32 func_0059B190(BitVector* bv, UInt32 first, UInt32 last) {
+    UInt32 i;
+    UInt32 count;
+    UInt32 t;
+    UInt32 n;
+    UInt32 j;
+
+    count = 0;
     PS2_INIT_BITCOUNTS();
-    if (from > to || to > bv->size * 32) {
+    if (first > last || last > bv->size * 32) {
         CError_Internal("IrObitvect.c", CError_B145_LINE(0x15B));
     }
-    for (; from < to && (from & 7); from++) {
-        if (Bv_IsBitSet(from, bv)) {
+    for (i = first; i < last && (i & 7) != 0; i++) {
+        if (ps2_Bv_IsBitSet(i, bv)) {
             count++;
         }
     }
-    if (from + 8 < to) {
-        sum = 0;
-        bfrom = from >> 3;
-        bto = to >> 3;
-        if (bfrom > bto || bto > bv->size * 4) {
+    if (i + 8 < last) {
+        t = 0;
+        n = last >> 3;
+        i >>= 3;
+        if (i > n || n > bv->size * 4) {
             CError_Internal("IrObitvect.c", CError_B145_LINE(0x138));
         }
-        while (bfrom < bto) {
-            if (!(bfrom & 3) && (bfrom >> 2) != (bto >> 2)) {
-                sum += func_0059B360(bv, bfrom >> 2, bto >> 2);
-                bfrom = bto & ~3;
+        j = i;
+        while (j < n) {
+            if ((j & 3) == 0 && (j >> 2) != (n >> 2)) {
+                t += func_0059B360(bv, j >> 2, n >> 2);
+                j = n & ~3;
             } else {
-                sum += ps2_bitcounts[((UInt8*)bv->data)[bfrom]];
-                bfrom++;
+                t += ps2_bitcounts[((UInt8*)bv->data)[j]];
+                j++;
             }
         }
-        count += sum;
-        from = to & ~7;
+        count += t;
+        i = last & ~7;
     }
-    for (; from < to; from++) {
-        if (Bv_IsBitSet(from, bv)) {
+    for (; i < last; i++) {
+        if (ps2_Bv_IsBitSet(i, bv)) {
             count++;
         }
     }
@@ -1898,10 +1910,6 @@ __declspec(noinline) // b210 calls it
 #endif
 UInt32 func_0059B130(BitVector* bv) {
 #if MWCCPS2 // b210 builds the table here too
-    int i;
-    int bit;
-    int n;
-
     PS2_INIT_BITCOUNTS();
 #endif
     return func_0059B190(bv, 0, bv->size * 32);
@@ -4591,7 +4599,7 @@ void func_00583D30(UInt32 flags) {
             IRO_Dump("LP_FORM_UNRECOGNIZABLE ");
         }
         if (flags & 0xFFC00000) {
-            IRO_Dump("%x", flags & 0xFFC00000);
+            IRO_Dump("%ul", flags & 0xFFC00000);
         }
     }
 }
@@ -5337,6 +5345,15 @@ extern IROLinear* func_00554440(CLabel* label, IROLinear* start);
 // inverted, into the preheader (jumping past the loop) and the loop is
 // entered at the test's successor
 Boolean func_0059C350(IRONaturalLoop* loop) {
+#if MWCCPS2 && !MWCC_CORE
+    Boolean rotated;
+    IROLinear* target;
+    IRONode* pre;
+    IRONode* node;
+    CLabel* newlabel;
+    IROList list;
+    IROLinear* label;
+#else
     Boolean rotated = FALSE;
     IRONode* pre;
     IRONode* node;
@@ -5344,8 +5361,12 @@ Boolean func_0059C350(IRONaturalLoop* loop) {
     IROLinear* label;
     CLabel* newlabel;
     IROList list;
+#endif
 
     func_00587540(loop);
+#if MWCCPS2 && !MWCC_CORE // b210/b198: set after the call
+    rotated = FALSE;
+#endif
 #if MWCC_CORE == MWCC_CORE_B52
     if (loop->x10 == loop->header &&
         !(loop->flags & LP301_FORM_UNRECOGNIZABLE) &&

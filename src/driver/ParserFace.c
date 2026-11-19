@@ -322,6 +322,10 @@ CWPLUGIN_ENTRY(Parser_SupportsPanels)(
     return 0;
 }
 
+#if MWCCPSP
+extern CW_CALLBACK CWSetPluginAPI(CWPluginContext context, SInt32 api);
+#endif
+
 CWPLUGIN_ENTRY(parser_main)(CWPluginContext context) {
     CWResult result = cwNoErr;
     SInt32 request;
@@ -331,6 +335,9 @@ CWPLUGIN_ENTRY(parser_main)(CWPluginContext context) {
     if (result == 0) {
         switch (request) {
             case reqInitialize:
+#if MWCCPSP // 3.0.1: the parser takes path-based file specs (CWPLUGIN_API 2)
+                CWSetPluginAPI(context, 2);
+#endif
                 result = 0;
                 break;
             case reqTerminate:

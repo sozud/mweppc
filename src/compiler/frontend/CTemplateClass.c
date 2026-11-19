@@ -63,7 +63,7 @@ static void CTemplClass_AppendTemplateAction(TemplClass* tmclass, TemplateAction
 }
 #if MWCCPSP
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 // b210: the deduce state holds the template header (+0x30) of the instance
 // being built; the instance and its class template are reached through it
 #define DEDUCE_TEMPL(d) CTemplTool_TemplClassFromHeader(*(void**)(d)->tmclass)
@@ -100,6 +100,17 @@ void CTemplClass_RegisterUsingDecl(TemplClass* tmclass, TypeTemplDep* type, Acce
 
     CTemplClass_AppendTemplateAction(tmclass, action);
 }
+
+#if MWCCPS2_TEMPL_HEADERS
+// b210/b198 (b198 0x553A00): a member template of a class template instance
+// stands for the class template's own member template (through its header)
+TemplClass* CRTTI_Class2TemplClass(TemplClass* tmclass) {
+    if (tmclass->inst_parent && !tmclass->theclass.nspace) {
+        return CTemplTool_TemplClassFromHeader(tmclass->templ_parent);
+    }
+    return tmclass;
+}
+#endif
 
 void CTemplClass_RegisterFriend(TemplClass* tmclass, DeclInfo* di) {
     TemplateFriend* tfriend;
@@ -226,7 +237,7 @@ void CTemplClass_CompleteClass(TemplClass* templ, ClassLayout* de) {
     templ->theclass.flags |= CLASS_COMPLETED;
 }
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 // b210: the instance goes on the list of the member template a nested copy
 // refers to; the instance's header points at that template's header and at
 // its parent instance's header
@@ -364,7 +375,7 @@ static TemplClassInst* CTemplClass_NewInstance(
 #undef CError_B69_SHIFT
 #define CError_B69_SHIFT (-3)
 #endif
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 // b210: a member template of a class template instance looks its instances
 // up in the member template it was copied from
 TemplClassInst* CTemplClass_GetInstance(TemplClass* tmclass, TemplArg* inst_args, TemplArg* oargs) {
@@ -1090,7 +1101,7 @@ static void CTemplClass_CopyNestedClass(TypeDeduce* deduce, TemplClass* templ) {
     tag->otype = OT_TYPETAG;
     tag->access = ACCESSPUBLIC;
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
     // b210: a nested class template becomes a header-only class template
     // that refers to the original through its template header
     if (templ->templ__params != NULL) {
@@ -1477,7 +1488,7 @@ static void CTemplClass_CopyIVars(TypeDeduce* deduce, TemplClassInst* inst, Temp
         dest = galloc(sizeof(ObjMemberVar));
         *dest = *src;
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
         // b210's deduce state starts with a pointer to the class being instantiated
         for (scanaction = DEDUCE_TEMPL(deduce)->actions; scanaction;
              scanaction = scanaction->next) {
@@ -1647,7 +1658,7 @@ static void CTemplClass_CopyMemberTemplate(TypeDeduce* deduce, Object* src) {
     ctempl_templatefuncs = desttempl;
 
     desttempl->original = srctempl;
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
     desttempl->unk04 = deduce->tmclass;
 #endif
 
@@ -1860,7 +1871,7 @@ static void CTemplClass_CopyObject(TypeDeduce* deduce, Object* src) {
             break;
 
         case DALIAS:
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
             // b210: the alias refers to the instance itself
             if (dest->object.u.alias.member != NULL) {
                 dest->object.u.alias.member = (BClassList*)DEDUCE_INST(deduce);

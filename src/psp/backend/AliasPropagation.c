@@ -305,6 +305,76 @@ extern void* oalloc(SInt32 size);
 extern void freeoheap(void);
 
 // 0x481370: the aliases of memory instructions
+#if MWCCPS2 // b210/b198 (0x490230): the alias locals first, unsigned bit ops, the tail inline
+void gather_alias_info(void) {
+    Alias* alias;
+    AliasMember* member;
+    AliasMember* member2;
+    MPCodeBlock* block;
+    MPCode* pcode;
+    RegUseOrDef301* list;
+    UseOrDef301* def;
+    SInt32 defID;
+    UInt32* myvec;
+
+    if (coloring) {
+        func_0053B790(data_00625078);
+        add_alias_member(worst_case_func, worst_case_ptr);
+        myvec = oalloc(4 * ((data_00625374 + 31) >> 5));
+        for (block = data_00624FD0; block; block = block->next) {
+            bitvectorcopy(myvec, data_00625988[block->number].defin, data_00625374);
+            for (pcode = block->first; pcode; pcode = pcode->next) {
+                if (pcode->flags & 6) {
+                    func_0053B390(pcode, myvec);
+                } else if ((pcode->flags & 8) && !pcode->alias) {
+                    pcode->alias = worst_case_func;
+                }
+                for (defID = pcode->defID, def = data_00624B58 + defID;
+                     defID < data_00625374 && def->pcode == pcode;
+                     ++def, ++defID) {
+                    if (def->kind == 0 && def->rclass == 0) {
+                        for (list = data_00624BFC[def->rclass][def->reg]; list; list = list->next) {
+                            myvec[list->id >> 5] &= ~(1U << (list->id & 31));
+                        }
+                    }
+                    myvec[defID >> 5] |= 1U << (defID & 31);
+                }
+            }
+        }
+        freeoheap();
+    } else {
+        for (block = data_00624FD0; block; block = block->next) {
+            for (pcode = block->first; pcode; pcode = pcode->next) {
+                if (!pcode->alias) {
+                    if (pcode->flags & 6) {
+                        pcode->alias = worst_case_ptr;
+                    } else if (pcode->flags & 8) {
+                        pcode->alias = worst_case_func;
+                    }
+                }
+            }
+        }
+    }
+
+    if (ps2_alias_n_gathered != ps2_alias_n_aliases) {
+        for (alias = ps2_alias_aliases; alias; alias = alias->next) {
+            if (alias->type == AliasType_Set) {
+                alias->membervec = lalloc(4 * ((ps2_alias_n_aliases + 31) >> 5));
+                bitvectorinitialize(alias->membervec, ps2_alias_n_aliases, 0);
+                for (member = alias->parents; member; member = member->nextParent) {
+                    alias->membervec[member->child->index >> 5] |= 1U
+                        << (member->child->index & 31);
+                    for (member2 = member->child->parents; member2; member2 = member2->nextParent) {
+                        alias->membervec[member2->child->index >> 5] |= 1U
+                            << (member2->child->index & 31);
+                    }
+                }
+            }
+        }
+        ps2_alias_n_gathered = ps2_alias_n_aliases;
+    }
+}
+#else
 void gather_alias_info(void) {
     MPCodeBlock* block;
     MPCode* pcode;
@@ -357,6 +427,7 @@ void gather_alias_info(void) {
     Alias_GatherMembervecs301();
 #endif
 }
+#endif
 
 // --- alias propagation (propagatealiasinfo) --------------------------------
 
@@ -533,6 +604,44 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
 }
 
 // 0x53B7D0: addresspropagatestouse
+#if MWCCPS2 // b210/b198: the use's flags in a local, the register test first
+int func_0053B7D0(register int candidateID, int useID) {
+    MPCode* cand = data_00625348[candidateID].pcode;
+    MPCode* use = data_00624768[useID].pcode;
+    Alias* alias;
+    int reg;
+    UInt32 flags;
+
+    if (cand->op == 0x3AA &&
+        (UInt16)cand->args[2].reg == 0x1D &&
+        cand->args[1].kind == 2 &&
+        cand->args[1].value == 0) {
+        return FALSE;
+    }
+    reg = cand->args[0].reg;
+    if (!func_0053BDF0(cand, cand->defID, reg, use, data_00625988[use->block->number].defin, 0)) {
+        return TRUE;
+    }
+    alias = func_0053BC90(cand);
+    if (alias) {
+        if (alias != worst_case_ptr) {
+            flags = use->flags;
+            if (!(flags & 4) ||
+                use->args[0].kind ||
+                use->args[0].rclass ||
+                use->args[0].reg != reg) {
+                if (!(flags & 6) && use->args[0].reg < data_00624744[0]) {
+                    add_aliased_locals_to_worst_case(alias);
+                }
+            } else {
+                add_aliased_locals_to_worst_case(alias);
+            }
+        }
+        func_0053B8B0(use, reg, alias);
+    }
+    return TRUE;
+}
+#else
 int func_0053B7D0(int candidateID, int useID) {
     MPCode* cand = data_00625348[candidateID].pcode;
     MPCode* use = data_00624768[useID].pcode;
@@ -565,6 +674,7 @@ int func_0053B7D0(int candidateID, int useID) {
     }
     return TRUE;
 }
+#endif
 
 // 0x53B7C0
 void func_0053B7C0(int candidateID) {

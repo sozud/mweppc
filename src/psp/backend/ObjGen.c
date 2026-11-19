@@ -139,6 +139,9 @@ extern Boolean is_const_object(Object* obj);
 void ObjGen_Setup(void) {
     UInt32 flags;
     SInt32 i;
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+    ELFSection* comment;
+#endif
 
     data_00625388 = 0;
     if (copts.mips_option0A == 1) {
@@ -158,17 +161,36 @@ void ObjGen_Setup(void) {
 #endif
     data_006241D4 = 0;
     data_006245BC = 0;
+#if MWCCPS2 // b210/b198: one chained assignment (stored, then read back)
+    data_00625970 = (PooledFloat*)(data_00624724 = NULL);
+#else
     data_00624724 = 0;
     data_00625970 = (PooledFloat*)data_00624724;
+#endif
     data_00625094 = 0;
     data_006247A8 = 0;
     data_00625E9B = 0;
     func_00461EE0();
     data_005EAF88.data = NULL;
     func_00463B40();
+#if MWCCPS2 // b210/b198: cleared eight at a time
+    for (i = 0; i < 0x800;) {
+        SInt32 base = i;
+        i += 8;
+        data_005EAF98[base] = 0;
+        data_005EAF98[base + 1] = 0;
+        data_005EAF98[base + 2] = 0;
+        data_005EAF98[base + 3] = 0;
+        data_005EAF98[base + 4] = 0;
+        data_005EAF98[base + 5] = 0;
+        data_005EAF98[base + 6] = 0;
+        data_005EAF98[base + 7] = 0;
+    }
+#else
     for (i = 0; i < 0x800; i++) {
         data_005EAF98[i] = 0;
     }
+#endif
 
     flags = 1; // EF_MIPS_NOREORDER
     if (copts.mips_isa >= 4) {
@@ -192,6 +214,10 @@ void ObjGen_Setup(void) {
     ); // b69's string
 #endif
     if (COPTS_X.mips_option132 == 1) {
+#elif MWCCPS2 // b210/b198: the section made first
+    comment = ELF_NewSection(".comment", SHT_PROGBITS, 0);
+    ELF_AddString(comment, "MW MIPS C Compiler (3.0.0)");
+    if (copts.mips_option132 == 1) {
 #else
     ELF_AddString(ELF_NewSection(".comment", SHT_PROGBITS, 0), "MW MIPS C Compiler (3.0.0)");
     if (copts.mips_option132 == 1) {
@@ -248,6 +274,14 @@ void ObjGen_Cleanup(void) {
 }
 
 void ObjGen_Finish(void) {
+#if MWCCPS2
+    Float* value;
+    PooledFloat* pf;
+    Object* obj;
+    Type* type;
+    float single;
+    double wide;
+#else
     PooledFloat* pf;
     Object* obj;
     Type* type;
@@ -258,6 +292,7 @@ void ObjGen_Finish(void) {
         SInt32 w[2];
     } buf;
     float f;
+#endif
 
     CInit_DeclarePooledStrings();
     for (pf = data_00625970; pf; pf = pf->next) {
@@ -271,6 +306,14 @@ void ObjGen_Finish(void) {
         if (TYPE_INTEGRAL(type)->integral == IT_FLOAT ||
             (type->type == TYPEFLOAT && type->size == 4)) {
 #endif
+#if MWCCPS2 // b210/b198: a float and a double local
+            single = value->data.value;
+            func_00462860(obj, &single, 0, 4);
+        } else {
+            wide = value->data.value;
+            func_00462860(obj, &wide, 0, 8);
+        }
+#else
             f = value->data.value;
             buf.w[1] = *(SInt32*)&f;
             func_00462860(obj, &buf.w[1], 0, 4);
@@ -278,6 +321,7 @@ void ObjGen_Finish(void) {
             buf.d = value->data.value;
             func_00462860(obj, &buf, 0, 8);
         }
+#endif
     }
 
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
@@ -1231,6 +1275,9 @@ int func_004642D0(HashNameNode* attr, Type* type, DeclInfo* declinfo) {
 #endif
         if ((tk = lex()) != ')') {
             CError_Error(ERR_DECLARATION_SYNTAX_ERROR);
+#if MWCCPS2 // b210/b198: returns from here
+            return 1;
+#endif
         }
         return 1;
     }
@@ -1266,8 +1313,13 @@ int func_004642D0(HashNameNode* attr, Type* type, DeclInfo* declinfo) {
                    !strcmp(name, "V2SI") ||
                    !strcmp(name, "__V2SI__")) {
 #endif
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // b210/b198: DI is long
+            stype = TYPE(&stsignedlong);
+            utype = TYPE(&stunsignedlong);
+#else
             stype = TYPE(&stsignedlonglong);
             utype = TYPE(&stunsignedlonglong);
+#endif
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
         } else if (!strcmp(name, "TI") ||
                    !strcmp(name, "__TI__") ||
@@ -1505,3 +1557,83 @@ void ObjGen_DeclareReadOnlyData(
     data_00625E9B = 1;
     ObjGen_DeclareData(object, data, list, size);
 }
+
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// 3.0.1 (b219 0x464BE0, b210/b198 0x470030): the type of a struct's (or class's) only
+// member, if a float; the class case is CMachine.c's, a call from here
+extern Type* CMach_ClassSingleFloat(TypeClass* tclass);
+
+// the struct walk, a copy func_00464B40 inlines
+static inline Type* ObjGen_SingleFloatMember(Type* type) {
+    if (type->type == TYPESTRUCT) {
+        Type* result;
+        StructMember* member = TYPE_STRUCT(type)->members;
+
+        if (!member) {
+            result = NULL;
+        } else if (member->next) {
+            result = NULL;
+        } else {
+            Type* membertype = member->type;
+            if (membertype->type == TYPEFLOAT) {
+                result = membertype;
+            } else {
+                result = NULL;
+            }
+        }
+        return result;
+    }
+    if (type->type == TYPECLASS) {
+        return CMach_ClassSingleFloat(TYPE_CLASS(type));
+    }
+    return NULL;
+}
+
+Type* func_00464BE0(Type* type) {
+    if (type->type == TYPESTRUCT) {
+        Type* result;
+        StructMember* member = TYPE_STRUCT(type)->members;
+
+        if (!member) {
+            result = NULL;
+        } else if (member->next) {
+            result = NULL;
+        } else {
+            Type* membertype = member->type;
+            if (membertype->type == TYPEFLOAT) {
+                result = membertype;
+            } else {
+                result = NULL;
+            }
+        }
+        return result;
+    }
+    if (type->type == TYPECLASS) {
+        return CMach_ClassSingleFloat(TYPE_CLASS(type));
+    }
+    return NULL;
+}
+
+// 3.0.1 (b219 0x464B40, b210/b198 0x46FF70): as above, but only for the float sizes the
+// floating-point library passes in registers (copts.fp_library bit 0: single, bit 1: double)
+Type* func_00464B40(Type* type) {
+    Type* t = NULL;
+
+#if MWCCPS2 // only with 64-bit longs (copts+0x15)
+    if (copts.mips_long64) {
+#endif
+        t = ObjGen_SingleFloatMember(type);
+        if (t &&
+            t->type == TYPEFLOAT &&
+            (((TYPE_INTEGRAL(t)->integral == IT_FLOAT || (t->type == TYPEFLOAT && t->size == 4)) &&
+              (copts.fp_library & 1)) ||
+             ((TYPE_INTEGRAL(t)->integral == IT_DOUBLE || (t->type == TYPEFLOAT && t->size == 8)) &&
+              (copts.fp_library & 2)))) {
+            return t;
+        }
+#if MWCCPS2
+    }
+#endif
+    return NULL;
+}
+#endif

@@ -1008,14 +1008,26 @@ Boolean CTemplTool_IsTemplDepExpr(ENode* expr) {
 }
 #endif
 
+#if MWCCPS2_TEMPL_HEADERS
+extern TemplClass* CRTTI_Class2TemplClass(TemplClass* tmclass); // CTemplateClass.c
+#endif
 Type* CTemplTool_IsDependentTemplate(TemplClass* tmclass, TemplArg* args) {
     TemplParam* param;
     TemplArg* arg;
     Type* type;
+#if MWCCPS2_TEMPL_HEADERS
+    TemplClass* conv;
+
+    conv = CRTTI_Class2TemplClass(tmclass);
+#endif
 
     if (!tmclass->templ_parent || tmclass->inst_parent) {
         arg = args;
+#if MWCCPS2_TEMPL_HEADERS
+        param = conv->templ__params;
+#else
         param = tmclass->templ__params;
+#endif
         while (1) {
             if (!arg) {
                 CError_ASSERT(988, !param);
@@ -2639,7 +2651,7 @@ TemplClassInst* CTemplTool_TemplClassInstFromHeader(void* header) {
 
 // 3.0.1: the template of a class template instance, checked (0x4AF4D0; the
 // exe reaches it through a template header embedded in TemplClass)
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 inline static TemplClassInst* CTemplTool_GetTemplClassInst_inl(TypeClass* tclass) {
     if (!tclass) {
         return NULL;

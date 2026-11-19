@@ -1434,7 +1434,12 @@ void CMach_SetBackEndOptions(struct CInlineBackendOptions* options) {
 
     // 0x464C30: a class's only member variable, if it is a float and no base
     // class has member variables
-    static Type* CMach_ClassSingleFloat(TypeClass * tclass) {
+#if MWCCPSP && \
+    !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // 3.0.1: called from ObjGen.c's func_00464BE0
+    Type* CMach_ClassSingleFloat(TypeClass * tclass) {
+#else
+static Type* CMach_ClassSingleFloat(TypeClass* tclass) {
+#endif
         ObjMemberVar* ivar;
         ClassList* base;
 
@@ -1455,6 +1460,7 @@ void CMach_SetBackEndOptions(struct CInlineBackendOptions* options) {
         return NULL;
     }
 
+#if !(MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)) // 3.0.1: in ObjGen.c
     // 0x464BE0: the type of a struct's (or class's) only member, if a float
     Type* func_00464BE0(Type * type) {
         StructMember* member;
@@ -1524,6 +1530,8 @@ void CMach_SetBackEndOptions(struct CInlineBackendOptions* options) {
         }
         return NULL;
     }
+
+#endif
 
     // 0x464C90: aggregates larger than a word are passed by address
     Boolean CMach_PassResultInHiddenArg(Type * type) {

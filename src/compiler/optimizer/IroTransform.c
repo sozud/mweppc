@@ -592,6 +592,19 @@ void IRO_InitializeComplementaryOpLogicalArray(void) {
 
 #if MWCCPSP
 extern Boolean func_00555B60(IROLinear* linear, int* powvalue); // IroSelfAssign301.c: 2^n constant
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198: list's tail followed by other's nodes
+static inline void AppendList(IROList* list, IROList other) {
+    if (other.head && other.tail) {
+        if (list->head || list->tail) {
+            list->tail->next = other.head;
+        } else {
+            list->head = other.head;
+        }
+        list->tail = other.tail;
+    }
+}
+#endif
 extern Type* func_0055CA90(Type* type); // IroType.c: the unsigned type of the same size
 extern Type* func_0055C960(void); // IroType.c: the type of a comparison
 extern IROLinear* IRO_MakeTypeConversion(IROLinear* linear, Type* type, IROList* list);
@@ -624,6 +637,204 @@ static inline void AppendList301(IROList* dst, IROList* src) {
 // bool and retypes through IRO_MakeTypeConversion and func_0055CA90; any
 // other signed x / 2^n becomes (x < 0 ? x + (2^n - 1) : x) >> n when
 // opt_branchlessexpensivethandiv and opt_rebuildconditionals are on.
+#if MWCCPS2 && !MWCC_CORE // b210/b198 (x)
+static void DoTransformations(IROLinear* nd) {
+    IROLinear* left;
+    IROLinear* right;
+    IROLinear* conv;
+    IROLinear* firstConversion;
+    IROLinear* logicalNot;
+    IROLinear* secondConversion;
+    IROLinear* branch;
+    IROLinear* cond;
+    IROLinear* less;
+    IROLinear* zero;
+    IROLinear* sum;
+    IROLinear* addend;
+    IROLinear* p;
+    IROList list;
+    IROList sumList;
+    IROList lessList;
+    IROList elseList;
+    CInt64 divisor;
+    SInt32 shift;
+
+    if (nd->type == IROLinearOp2Arg) {
+        switch (nd->nodetype) {
+            case EASS:
+                right = nd->u.diadic.right;
+                if (right->type == IROLinearOp2Arg &&
+                    AssignmentOp[right->nodetype] < IRO_MAXEXPR &&
+                    IRO_TypesEqual(nd->rtype, right->rtype)) {
+                    left = nd->u.diadic.left;
+                    if (!(IRO_IsVariable(left) && (left->flags & 0x80000)) &&
+                        !IRO_HasSideEffect(left) &&
+                        IRO_ExprsSame(left, right->u.diadic.left)) {
+                        nd->nodetype = AssignmentOp[right->nodetype];
+                        nd->u.diadic.right = right->u.diadic.right;
+                        IRO_NopOut(right->u.diadic.left);
+                        right->type = IROLinearNop;
+                        left->flags |= IROLF_Used;
+                        left->u.monadic->flags |= IROLF_Used;
+                    } else if (!(IRO_IsVariable(left) && (left->flags & 0x80000)) &&
+                               !IRO_HasSideEffect(left) &&
+                               IRO_ExprsSame(left, right->u.diadic.right) &&
+                               IsSubableOp[right->nodetype]) {
+                        nd->nodetype = AssignmentOp[right->nodetype];
+                        nd->u.diadic.right = right->u.diadic.left;
+                        IRO_NopOut(right->u.diadic.right);
+                        right->type = IROLinearNop;
+                        left->flags |= IROLF_Used;
+                        left->u.monadic->flags |= IROLF_Used;
+                    }
+                }
+                break;
+            case EMUL:
+            case EMULASS:
+                if (IS_TYPE_INT(nd->rtype) &&
+                    TYPE_INTEGRAL(nd->rtype)->integral < 0x11 &&
+                    func_00555B60(nd->u.diadic.right, (int*)&shift) &&
+                    shift > 0) {
+                    if (nd->nodetype == EMUL) {
+                        nd->nodetype = ESHL;
+                    } else {
+                        nd->nodetype = ESHLASS;
+                    }
+                    CInt64_SetLong(&nd->u.diadic.right->u.node->data.intval, shift);
+                }
+                break;
+            case EDIV:
+            case EDIVASS:
+                if (IS_TYPE_INT(nd->rtype) &&
+                    TYPE_INTEGRAL(nd->rtype)->integral < 0x11 &&
+                    func_00555B60(nd->u.diadic.right, (int*)&shift) &&
+                    shift > 0) {
+                    if (is_unsigned(nd->rtype)) {
+                        if (nd->nodetype == EDIV) {
+                            nd->nodetype = ESHR;
+                        } else {
+                            nd->nodetype = ESHRASS;
+                        }
+                        CInt64_SetLong(&nd->u.diadic.right->u.node->data.intval, shift);
+                    } else if (!is_unsigned(nd->rtype) &&
+                               (conv = nd->u.diadic.left)->nodetype == ETYPCON &&
+                               IS_TYPE_INT(conv->u.monadic->rtype) &&
+                               TYPE_INTEGRAL(conv->u.monadic->rtype)->integral < 0x11 &&
+                               is_unsigned(conv->u.monadic->rtype) &&
+                               nd->u.diadic.left->u.monadic->rtype->size <
+                                   nd->u.diadic.left->rtype->size) {
+                        if (nd->nodetype == EDIV) {
+                            nd->nodetype = ESHR;
+                        } else {
+                            nd->nodetype = ESHRASS;
+                        }
+                        CInt64_SetLong(&nd->u.diadic.right->u.node->data.intval, shift);
+                        if (nd->flags & 2) {
+                            conv = IRO_MakeTypeConversion(nd, nd->rtype, NULL);
+                            conv->u.monadic = NULL;
+                            IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, conv);
+                            conv->u.monadic = nd;
+                            nd->flags |= 2;
+                        }
+                        nd->rtype = IRO_UnsignedType(nd->rtype);
+                        nd->u.diadic.right->rtype = nd->u.diadic.right->u.node->rtype =
+                            IRO_UnsignedType(nd->u.diadic.right->rtype);
+                        nd->u.diadic.left->rtype = IRO_UnsignedType(nd->u.diadic.left->rtype);
+                    } else if (copts.opt_branchlessexpensivethandiv &&
+                               copts.opt_rebuildconditionals) {
+                        if (nd->nodetype == EDIV) {
+                            nd->nodetype = ESHR;
+                        } else {
+                            nd->nodetype = ESHRASS;
+                        }
+                        divisor = nd->u.diadic.right->u.node->data.intval;
+                        CInt64_SetLong(&nd->u.diadic.right->u.node->data.intval, shift);
+                        IRO_InitList(&list);
+                        IRO_InitList(&lessList);
+                        IRO_InitList(&sumList);
+                        IRO_InitList(&elseList);
+
+                        left = nd->u.diadic.left;
+                        cond = IRO_NewLinear(IROLinearOp3Arg);
+                        nd->u.diadic.left = cond;
+                        cond->rtype = left->rtype;
+                        cond->nodetype = ECOND;
+
+                        less = IRO_NewLinear(IROLinearOp2Arg);
+                        cond->u.args3.a = less;
+                        less->rtype = func_0055C960();
+                        less->nodetype = ELESS;
+                        less->u.diadic.left = IRO_DuplicateExpr(left, &lessList);
+                        less->u.diadic.right = zero = IRO_NewIntConst(cint64_zero, left->rtype);
+
+                        sum = IRO_NewLinear(IROLinearOp2Arg);
+                        cond->u.args3.b = sum;
+                        sum->nodetype = EADD;
+                        sum->rtype = left->rtype;
+                        sum->u.diadic.left = IRO_DuplicateExpr(left, &sumList);
+                        sum->u.diadic.right = addend =
+                            IRO_NewIntConst(CInt64_Sub(divisor, cint64_one), left->rtype);
+
+                        cond->u.args3.c = IRO_DuplicateExpr(left, &elseList);
+
+                        AppendList(&list, lessList);
+                        IRO_AddToList(zero, &list);
+                        IRO_AddToList(less, &list);
+                        AppendList(&list, sumList);
+                        IRO_AddToList(addend, &list);
+                        IRO_AddToList(sum, &list);
+                        AppendList(&list, elseList);
+                        IRO_AddToList(cond, &list);
+                        for (p = list.head; p; p = p->next) {
+                            p->index = ++IRO_NumLinear;
+                            if (p == list.tail) {
+                                break;
+                            }
+                        }
+                        IRO_Paste(list.head, list.tail, nd);
+                    }
+                }
+                break;
+            case EMODULO:
+            case EMODASS:
+                if (IS_TYPE_INT(nd->rtype) &&
+                    TYPE_INTEGRAL(nd->rtype)->integral < 0x11 &&
+                    is_unsigned(nd->rtype) &&
+                    func_00555B60(nd->u.diadic.right, (int*)&shift) &&
+                    shift > 0) {
+                    if (nd->nodetype == EMODULO) {
+                        nd->nodetype = EAND;
+                    } else {
+                        nd->nodetype = EANDASS;
+                    }
+                    nd->u.diadic.right->u.node->data.intval =
+                        CInt64_Sub(nd->u.diadic.right->u.node->data.intval, cint64_one);
+                }
+                break;
+            case EEQU:
+                if ((firstConversion = IRO_LocateFather(nd)) &&
+                    firstConversion->nodetype == ETYPCON &&
+                    IS_TYPE_INT(firstConversion->rtype) &&
+                    TYPE_INTEGRAL(firstConversion->rtype)->integral < 0x11 &&
+                    (logicalNot = IRO_LocateFather(firstConversion)) &&
+                    logicalNot->nodetype == ELOGNOT &&
+                    (secondConversion = IRO_LocateFather(logicalNot)) &&
+                    secondConversion->nodetype == ETYPCON &&
+                    IS_TYPE_INT(secondConversion->rtype) &&
+                    TYPE_INTEGRAL(secondConversion->rtype)->integral < 0x11 &&
+                    (branch = IRO_LocateFather(secondConversion)) &&
+                    (branch->type == IROLinearIf || branch->type == IROLinearIfNot)) {
+                    IRO_LocateFather_Cut_And_Paste_Without_Nopping(secondConversion, nd);
+                    nd->nodetype = ENOTEQU;
+                    firstConversion->type = IROLinearNop;
+                    logicalNot->type = IROLinearNop;
+                    secondConversion->type = IROLinearNop;
+                }
+                break;
+        }
+    }
+}
+#else
 static void DoTransformations(IROLinear* nd) {
     IROLinear* left;
     IROLinear* right;
@@ -852,6 +1063,7 @@ static void DoTransformations(IROLinear* nd) {
             break;
     }
 }
+#endif
 #else
 static void DoTransformations(IROLinear* nd) {
     IROLinear* copy;
@@ -1037,6 +1249,45 @@ static inline void ReplaceExprWithChild301(IROLinear* nd, IROLinear* kept, IROLi
     IRO_NopOut(dropped);
 }
 
+#if MWCCPS2 && !MWCC_CORE // b210/b198: each written out, not through a shared helper
+static void ReplaceExprWithLeftChild301(IROLinear* nd) {
+    IROLinear* left = nd->u.diadic.left;
+    IROLinear* right = nd->u.diadic.right;
+
+    if (IRO_TypesEqual(left->rtype, nd->rtype)) {
+        IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, left);
+        left->flags = nd->flags;
+        left->nodeflags = nd->nodeflags;
+        nd->type = IROLinearNop;
+        IRO_NopOut(right);
+    } else {
+        IROLinear* conv = IRO_MakeTypeConversion(left, nd->rtype, NULL);
+
+        IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, conv);
+        nd->type = IROLinearNop;
+        IRO_NopOut(right);
+    }
+}
+
+static void ReplaceExprWithRightChild301(IROLinear* nd) {
+    IROLinear* left = nd->u.diadic.left;
+    IROLinear* right = nd->u.diadic.right;
+
+    if (IRO_TypesEqual(right->rtype, nd->rtype)) {
+        IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, right);
+        right->flags = nd->flags;
+        right->nodeflags = nd->nodeflags;
+        nd->type = IROLinearNop;
+        IRO_NopOut(left);
+    } else {
+        IROLinear* conv = IRO_MakeTypeConversion(right, nd->rtype, NULL);
+
+        IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, conv);
+        nd->type = IROLinearNop;
+        IRO_NopOut(left);
+    }
+}
+#else
 static void ReplaceExprWithLeftChild301(IROLinear* nd) {
     IROLinear* left = nd->u.diadic.left;
     IROLinear* right = nd->u.diadic.right;
@@ -1048,6 +1299,7 @@ static void ReplaceExprWithRightChild301(IROLinear* nd) {
     IROLinear* right = nd->u.diadic.right;
     ReplaceExprWithChild301(nd, right, left);
 }
+#endif
 
 // nd becomes -kept (kept converted to nd's type); the other operand is nopped
 static inline void ReplaceExprWithMonamin301(IROLinear* nd, IROLinear* kept, IROLinear* dropped) {
@@ -1065,6 +1317,45 @@ static inline void ReplaceExprWithMonamin301(IROLinear* nd, IROLinear* kept, IRO
     }
 }
 
+#if MWCCPS2 && !MWCC_CORE // b210/b198: each written out
+static void ReplaceExprWithMonaminLeft301(IROLinear* nd) {
+    IROLinear* left = nd->u.diadic.left;
+    IROLinear* right = nd->u.diadic.right;
+    IROLinear* conv;
+
+    if (IRO_TypesEqual(left->rtype, nd->rtype)) {
+        nd->type = IROLinearOp1Arg;
+        nd->nodetype = EMONMIN;
+        nd->u.monadic = left;
+        IRO_NopOut(right);
+    } else {
+        IRO_NopOut(right);
+        conv = IRO_MakeTypeConversion(left, nd->rtype, NULL);
+        nd->type = IROLinearOp1Arg;
+        nd->nodetype = EMONMIN;
+        nd->u.monadic = conv;
+    }
+}
+
+static void ReplaceExprWithMonaminRight301(IROLinear* nd) {
+    IROLinear* left = nd->u.diadic.left;
+    IROLinear* right = nd->u.diadic.right;
+    IROLinear* conv;
+
+    if (IRO_TypesEqual(right->rtype, nd->rtype)) {
+        nd->type = IROLinearOp1Arg;
+        nd->nodetype = EMONMIN;
+        nd->u.monadic = right;
+        IRO_NopOut(left);
+    } else {
+        IRO_NopOut(left);
+        conv = IRO_MakeTypeConversion(right, nd->rtype, NULL);
+        nd->type = IROLinearOp1Arg;
+        nd->nodetype = EMONMIN;
+        nd->u.monadic = conv;
+    }
+}
+#else
 static void ReplaceExprWithMonaminLeft301(IROLinear* nd) {
     IROLinear* left = nd->u.diadic.left;
     IROLinear* right = nd->u.diadic.right;
@@ -1076,6 +1367,7 @@ static void ReplaceExprWithMonaminRight301(IROLinear* nd) {
     IROLinear* right = nd->u.diadic.right;
     ReplaceExprWithMonamin301(nd, right, left);
 }
+#endif
 
 // 0x574D20: the left operand takes nd's place, nd its operand (a op b) op c
 // -> a op (b op c) shape; the moved node gets nd's unqualified type
@@ -1235,6 +1527,364 @@ static inline void switchFatherLeftMonadic(IROLinear* nd) {
 // with too large a c retypes the 0 like x%=1; x&1 / x|1 (and 1&x / 1|x)
 // fold when x is 0 or 1; and a comparison, min or max against the type's
 // smallest or largest constant folds.
+#if MWCCPS2 && !MWCC_CORE // b210/b198 (x)
+static void DoTransformations11(IROLinear* nd) {
+    IROLinear* left;
+    IROLinear* right;
+    int changed;
+    int compare;
+    Type* type;
+    SInt32 resultBits;
+    SInt32 operandBits;
+    CInt64 val;
+
+    if (nd->type == IROLinearOp2Arg) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (IS_TYPE_FLOAT(nd->rtype) || IS_TYPE_FLOAT(left->rtype) || IS_TYPE_FLOAT(right->rtype)) {
+            return;
+        }
+
+        changed = FALSE;
+        if (!IRO_HasSideEffect(left) && !IRO_HasSideEffect(right)) {
+            if (IRO_IsIntConstant(right) || IRO_IsFloatConstant(right)) {
+                if (IRO_IsConstantZero(right)) {
+                    switch (nd->nodetype) {
+                        case EADDV:
+                        case ESUBV:
+                        case EADD:
+                        case ESUB:
+                        case ESHL:
+                        case ESHR:
+                        case EXOR:
+                        case EOR:
+                        case ELOR:
+                        case EADDASS:
+                        case ESUBASS:
+                        case ESHLASS:
+                        case ESHRASS:
+                        case EXORASS:
+                        case EORASS:
+                            ReplaceExprWithLeftChild301(nd);
+                            changed = TRUE;
+                            break;
+                        case EMUL:
+                        case EAND:
+                        case ELAND:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            changed = TRUE;
+                            break;
+                        case EMULASS:
+                        case EANDASS:
+                            nd->nodetype = EASS;
+                            nd->u.diadic.right->rtype = nd->rtype;
+                            nd->u.diadic.right->u.node->rtype = nd->rtype;
+                            changed = TRUE;
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (nd->nodetype == ELAND) {
+                    ReplaceExprWithLeftChild301(nd);
+                    changed = TRUE;
+                } else if (nd->nodetype == ELOR) {
+                    ReplaceExprWithConst301(nd, cint64_one);
+                    changed = TRUE;
+                } else if (nd->nodetype == ESHL ||
+                           nd->nodetype == ESHR ||
+                           nd->nodetype == ESHLASS ||
+                           nd->nodetype == ESHRASS) {
+                    type = nd->rtype;
+                    resultBits = type->size * 8;
+                    if (left->type == IROLinearOp1Arg && left->nodetype == ETYPCON) {
+                        type = left->u.monadic->rtype;
+                        if (left->u.monadic->type == IROLinearOp1Arg &&
+                            left->u.monadic->nodetype == EINDIRECT &&
+                            left->u.monadic->u.monadic->type == IROLinearOp1Arg &&
+                            left->u.monadic->u.monadic->nodetype == EBITFIELD &&
+                            IS_TYPE_BITFIELD(left->u.monadic->u.monadic->rtype)) {
+                            operandBits =
+                                TYPE_BITFIELD(left->u.monadic->u.monadic->rtype)->bitlength;
+                        } else {
+                            operandBits = type->size * 8;
+                        }
+                    } else if (left->type == IROLinearOp1Arg &&
+                               left->nodetype == EINDIRECT &&
+                               left->u.monadic->type == IROLinearOp1Arg &&
+                               left->u.monadic->nodetype == EBITFIELD &&
+                               IS_TYPE_BITFIELD(left->u.monadic->rtype)) {
+                        operandBits = TYPE_BITFIELD(left->u.monadic->rtype)->bitlength;
+                    } else {
+                        operandBits = resultBits;
+                    }
+
+                    switch (nd->nodetype) {
+                        case ESHL:
+                        case ESHLASS:
+                            CInt64_SetLong(&val, resultBits);
+                            if (is_unsigned(type)) {
+                                compare = CInt64_GreaterEqualU(right->u.node->data.intval, val);
+                            } else {
+                                compare = CInt64_GreaterEqual(right->u.node->data.intval, val);
+                            }
+                            break;
+                        case ESHR:
+                        case ESHRASS:
+                            CInt64_SetLong(&val, operandBits);
+                            compare = is_unsigned(type) &&
+                                CInt64_GreaterEqualU(right->u.node->data.intval, val);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (compare) {
+                        switch (nd->nodetype) {
+                            case ESHL:
+                            case ESHR:
+                                ReplaceExprWithConst301(nd, cint64_zero);
+                                break;
+                            case ESHLASS:
+                            case ESHRASS:
+                                nd->nodetype = EASS;
+                                ReplaceExprWithConst301(right, cint64_zero);
+                                break;
+                            default:
+                                break;
+                        }
+                        changed = TRUE;
+                    }
+                } else if (IRO_IsConstantOne(right)) {
+                    switch (nd->nodetype) {
+                        case EMUL:
+                        case EMULV:
+                        case EDIV:
+                        case EMULASS:
+                        case EDIVASS:
+                            ReplaceExprWithLeftChild301(nd);
+                            changed = TRUE;
+                            break;
+                        case EMODULO:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            changed = TRUE;
+                            break;
+                        case EAND:
+                            if (func_005547E0(left)) {
+                                ReplaceExprWithLeftChild301(nd);
+                                changed = TRUE;
+                            }
+                            break;
+                        case EOR:
+                            if (func_005547E0(left)) {
+                                ReplaceExprWithConst301(nd, cint64_one);
+                                changed = TRUE;
+                            }
+                            break;
+                        case EMODASS:
+                            nd->nodetype = EASS;
+                            ReplaceExprWithConst301(right, cint64_zero);
+                            nd->u.diadic.right->rtype = nd->rtype;
+                            nd->u.diadic.right->u.node->rtype = nd->rtype;
+                            changed = TRUE;
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (IRO_IsConstantNegativeOne(right)) {
+                    switch (nd->nodetype) {
+                        case EMUL:
+                        case EMULV:
+                        case EDIV:
+                            ReplaceExprWithMonaminLeft301(nd);
+                            changed = TRUE;
+                            break;
+                        case EMODULO:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            changed = TRUE;
+                            break;
+                        case EMODASS:
+                            nd->nodetype = EASS;
+                            ReplaceExprWithConst301(right, cint64_zero);
+                            nd->u.diadic.right->rtype = nd->rtype;
+                            nd->u.diadic.right->u.node->rtype = nd->rtype;
+                            changed = TRUE;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            if (!changed && IRO_IsIntConstant(right)) {
+                CInt64 min;
+
+                min = func_0055A710(right->rtype);
+                if (CInt64_Equal(min, right->u.node->data.intval)) {
+                    switch (nd->nodetype) {
+                        case ELESS:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            changed = TRUE;
+                            break;
+                        case EGREATEREQU:
+                            ReplaceExprWithConst301(nd, cint64_one);
+                            changed = TRUE;
+                            break;
+                        case EMIN:
+                            ReplaceExprWithRightChild301(nd);
+                            changed = TRUE;
+                            break;
+                        case EMAX:
+                            ReplaceExprWithLeftChild301(nd);
+                            changed = TRUE;
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    CInt64 max;
+
+                    max = func_0055A670(right->rtype);
+                    if (CInt64_Equal(max, right->u.node->data.intval)) {
+                        switch (nd->nodetype) {
+                            case EGREATER:
+                                ReplaceExprWithConst301(nd, cint64_zero);
+                                changed = TRUE;
+                                break;
+                            case ELESSEQU:
+                                ReplaceExprWithConst301(nd, cint64_one);
+                                changed = TRUE;
+                                break;
+                            case EMIN:
+                                ReplaceExprWithLeftChild301(nd);
+                                changed = TRUE;
+                                break;
+                            case EMAX:
+                                ReplaceExprWithRightChild301(nd);
+                                changed = TRUE;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+
+            if (!changed && (IRO_IsIntConstant(left) || IRO_IsFloatConstant(left))) {
+                if (IRO_IsConstantZero(left)) {
+                    switch (nd->nodetype) {
+                        case EADDV:
+                        case EADD:
+                        case EXOR:
+                        case EOR:
+                        case ELOR:
+                            ReplaceExprWithRightChild301(nd);
+                            break;
+                        case EMUL:
+                        case ESHL:
+                        case ESHR:
+                        case EAND:
+                        case ELAND:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            break;
+                        case ESUBV:
+                        case ESUB:
+                            ReplaceExprWithMonaminRight301(nd);
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (nd->nodetype == ELAND) {
+                    ReplaceExprWithRightChild301(nd);
+                } else if (nd->nodetype == ELOR) {
+                    ReplaceExprWithConst301(nd, cint64_one);
+                } else if (IRO_IsConstantOne(left)) {
+                    switch (nd->nodetype) {
+                        case EMUL:
+                        case EMULV:
+                            ReplaceExprWithRightChild301(nd);
+                            break;
+                        case EAND:
+                            if (func_005547E0(right)) {
+                                ReplaceExprWithRightChild301(nd);
+                            }
+                            break;
+                        case EOR:
+                            if (func_005547E0(right)) {
+                                ReplaceExprWithConst301(nd, cint64_one);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (IRO_IsConstantNegativeOne(left)) {
+                    switch (nd->nodetype) {
+                        case EMUL:
+                        case EMULV:
+                            ReplaceExprWithMonaminRight301(nd);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            if (!changed && IRO_IsIntConstant(left)) {
+                CInt64 min;
+
+                min = func_0055A710(left->rtype);
+                if (CInt64_Equal(min, left->u.node->data.intval)) {
+                    switch (nd->nodetype) {
+                        case EGREATER:
+                            ReplaceExprWithConst301(nd, cint64_zero);
+                            changed = TRUE;
+                            break;
+                        case ELESSEQU:
+                            ReplaceExprWithConst301(nd, cint64_one);
+                            changed = TRUE;
+                            break;
+                        case EMIN:
+                            ReplaceExprWithLeftChild301(nd);
+                            changed = TRUE;
+                            break;
+                        case EMAX:
+                            ReplaceExprWithRightChild301(nd);
+                            changed = TRUE;
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    CInt64 max;
+
+                    max = func_0055A670(left->rtype);
+                    if (CInt64_Equal(max, left->u.node->data.intval)) {
+                        switch (nd->nodetype) {
+                            case ELESS:
+                                ReplaceExprWithConst301(nd, cint64_zero);
+                                changed = TRUE;
+                                break;
+                            case EGREATEREQU:
+                                ReplaceExprWithConst301(nd, cint64_one);
+                                changed = TRUE;
+                                break;
+                            case EMIN:
+                                ReplaceExprWithRightChild301(nd);
+                                changed = TRUE;
+                                break;
+                            case EMAX:
+                                ReplaceExprWithLeftChild301(nd);
+                                changed = TRUE;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+#else
 static void DoTransformations11(IROLinear* nd) {
     IROLinear* left;
     IROLinear* right;
@@ -1591,6 +2241,7 @@ static void DoTransformations11(IROLinear* nd) {
         }
     }
 }
+#endif
 
 // 3.0.1 (0x573390): both operands the same value. Unlike 2.4.7: the test is
 // func_00555190; x && x / x || x become !!x (unless x is already 0 or 1);
@@ -1932,6 +2583,60 @@ static void DoTransformations11(IROLinear* nd) {
     }
 }
 
+#if MWCCPS2 && !MWCC_CORE // b210/b198 (0x588650)
+static void DoTransformations12(IROLinear* nd) {
+    IROLinear* left;
+    IROLinear* right;
+
+    if (nd->type == IROLinearOp2Arg) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (IS_TYPE_FLOAT(nd->rtype) || IS_TYPE_FLOAT(left->rtype) || IS_TYPE_FLOAT(right->rtype)) {
+            return;
+        }
+
+        if (!IRO_HasSideEffect(left) && func_00555190(left, right)) {
+            switch (nd->nodetype) {
+                case ESUBV:
+                case ESUB:
+                case ELESS:
+                case EGREATER:
+                case ENOTEQU:
+                case EXOR:
+                    ReplaceExprWithConst301(nd, cint64_zero);
+                    break;
+                case ELESSEQU:
+                case EGREATEREQU:
+                case EEQU:
+                    ReplaceExprWithConst301(nd, cint64_one);
+                    break;
+                case EAND:
+                case EOR:
+                case EASS:
+                case ESHRASS:
+                case EXORASS:
+                case ECOMMA:
+                case EMIN:
+                case EMAX:
+                    ReplaceExprWithLeftChild301(nd);
+                    break;
+                case ELAND:
+                case ELOR:
+                    nd->u.diadic.left = func_005544D0(left, TRUE);
+                    ReplaceExprWithLeftChild301(nd);
+                    break;
+                case EADDASS:
+                case EANDASS:
+                    nd->nodetype = EASS;
+                    ReplaceExprWithConst301(right, cint64_zero);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+#else
 static void DoTransformations12(IROLinear* nd) {
     IROLinear* left;
     IROLinear* right;
@@ -1978,6 +2683,7 @@ static void DoTransformations12(IROLinear* nd) {
         }
     }
 }
+#endif
 
 #endif
 #if MWCCPSP
@@ -2467,6 +3173,276 @@ static void DoTransformations22(IROLinear* nd) {
 // skipped; the two shift counts must be equal constants with the same node
 // flags (bar 0x200); the unsigned mask always adds 64 - bits; the mask is
 // converted with IRO_MakeTypeConversion when the types differ.
+#if MWCCPS2 && !MWCC_CORE // b210/b198 (0x5868F0)
+static void DoTransformations23(IROLinear* nd) {
+    Boolean changed;
+    Boolean isCompare;
+    UInt8 which;
+    IROLinear* left;
+    IROLinear* right;
+    CInt64 size;
+    CInt64 val;
+
+    if (nd->type == IROLinearOp2Arg && !IRO_HasSideEffect(nd)) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (IS_TYPE_FLOAT(nd->rtype) || IS_TYPE_FLOAT(left->rtype) || IS_TYPE_FLOAT(right->rtype)) {
+            return;
+        }
+
+        changed = isCompare = FALSE;
+        which = 0;
+
+        do {
+            switch (nd->nodetype) {
+                case ELESS:
+                case EGREATER:
+                case ELESSEQU:
+                case EGREATEREQU:
+                    isCompare = TRUE;
+                case EADDV:
+                case EADD:
+                case EEQU:
+                case ENOTEQU:
+                case EAND:
+                case EOR:
+                    if (left->type == IROLinearOp2Arg) {
+                        if (func_00555190(right, left->u.diadic.left)) {
+                            which = 1;
+                        } else if (func_00555190(right, left->u.diadic.right)) {
+                            which = 2;
+                        }
+
+                        if (which) {
+                            if (isCompare) {
+                                nd->nodetype = ComplementaryOp[nd->nodetype];
+                            }
+                            IRO_SwitchChildren(nd);
+                            left = nd->u.diadic.left;
+                            right = nd->u.diadic.right;
+                            break;
+                        }
+                    }
+                case ESUBV:
+                case ESUB:
+                case EADDASS:
+                case ESUBASS:
+                case EANDASS:
+                case EORASS:
+                    if (right->type == IROLinearOp2Arg) {
+                        if (func_00555190(left, right->u.diadic.left)) {
+                            which = 1;
+                        } else if (func_00555190(left, right->u.diadic.right)) {
+                            which = 2;
+                        }
+                    }
+                    break;
+
+                default:
+                    continue;
+            }
+
+            if (which) {
+                switch (right->nodetype) {
+                    case EAND:
+                    case EOR:
+                        if (which == 2) {
+                            IRO_SwitchChildren(right);
+                        }
+
+                        if (nd->nodetype == right->nodetype ||
+                            (nd->nodetype == EANDASS && right->nodetype == EAND) ||
+                            (nd->nodetype == EORASS && right->nodetype == EOR)) {
+                            ReplaceExprWithRightChild301(right);
+                            changed = TRUE;
+                        } else if (nd->nodetype == ComplementaryOp[right->nodetype] ||
+                                   (nd->nodetype == EANDASS && right->nodetype == EOR) ||
+                                   (nd->nodetype == EORASS && right->nodetype == EAND)) {
+                            ReplaceExprWithLeftChild301(nd);
+                        }
+                        break;
+
+                    case EADD:
+                        if (which == 2) {
+                            IRO_SwitchChildren(right);
+                        }
+
+                        switch (nd->nodetype) {
+                            case EEQU:
+                            case ENOTEQU:
+                                ReplaceExprWithConst301(left, cint64_zero);
+                                ReplaceExprWithRightChild301(right);
+                                IRO_SwitchChildren(nd);
+                                if (isCompare) {
+                                    nd->nodetype = ComplementaryOp[nd->nodetype];
+                                }
+                                changed = TRUE;
+                                break;
+
+                            case ESUB:
+                            case ESUBV:
+                                ReplaceExprWithRightChild301(right);
+                                ReplaceExprWithMonaminRight301(nd);
+                                changed = TRUE;
+                                break;
+
+                            case ESUBASS:
+                                ReplaceExprWithRightChild301(right);
+                                changed = TRUE;
+                                break;
+                            default:
+                                break;
+                        }
+                        break;
+
+                    case ESUB:
+                        switch (nd->nodetype) {
+                            case EEQU:
+                            case ENOTEQU:
+                                if (which == 1) {
+                                    ReplaceExprWithConst301(left, cint64_zero);
+                                    ReplaceExprWithRightChild301(right);
+                                    IRO_SwitchChildren(nd);
+                                }
+                                break;
+                            case EADD:
+                            case EADDV:
+                                if (which == 2) {
+                                    ReplaceExprWithLeftChild301(right);
+                                    ReplaceExprWithRightChild301(nd);
+                                }
+                                break;
+                            case ESUB:
+                            case ESUBV:
+                                if (which == 1) {
+                                    ReplaceExprWithRightChild301(right);
+                                    ReplaceExprWithRightChild301(nd);
+                                }
+                                break;
+                            case EADDASS:
+                                if (which == 2) {
+                                    nd->nodetype = EASS;
+                                    ReplaceExprWithLeftChild301(right);
+                                    changed = TRUE;
+                                }
+                                break;
+                            case ESUBASS:
+                                if (which == 1) {
+                                    nd->nodetype = EASS;
+                                    ReplaceExprWithRightChild301(right);
+                                    changed = TRUE;
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } while (0);
+
+        if (!changed) {
+            switch (nd->nodetype) {
+                case ESUBV:
+                case ESUB:
+                    which = 0;
+                    if (left->type == IROLinearOp2Arg) {
+                        if (func_00555190(right, left->u.diadic.left)) {
+                            which = 1;
+                        } else if (func_00555190(right, left->u.diadic.right)) {
+                            which = 2;
+                        }
+                    }
+
+                    if (which == 1) {
+                        if (left->nodetype == ESUB) {
+                            ReplaceExprWithMonaminRight301(left);
+                            ReplaceExprWithLeftChild301(nd);
+                        } else if (left->nodetype == EADD) {
+                            ReplaceExprWithRightChild301(left);
+                            ReplaceExprWithLeftChild301(nd);
+                        }
+                    } else if (which == 2) {
+                        if (left->nodetype == EADD) {
+                            ReplaceExprWithLeftChild301(left);
+                            ReplaceExprWithLeftChild301(nd);
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            while (
+                left->type == IROLinearOp1Arg && left->nodetype == ETYPCON && func_0055A3F0(left)) {
+                left = left->u.monadic;
+            }
+
+            switch (nd->nodetype) {
+                case ESHL:
+                case ESHR:
+                case ESHLASS:
+                case ESHRASS:
+                    which = 0;
+                    if (left->type == IROLinearOp2Arg) {
+                        if (left->nodetype == ComplementaryOp[nd->nodetype] ||
+                            left->nodetype == AssignmentOp[ComplementaryOp[nd->nodetype]]) {
+                            if (IRO_IsIntConstant(right) &&
+                                IRO_IsIntConstant(left->u.diadic.right) &&
+                                (right->nodeflags & ~0x200) ==
+                                    (left->u.diadic.right->nodeflags & ~0x200) &&
+                                CInt64_Equal(
+                                    right->u.node->data.intval,
+                                    left->u.diadic.right->u.node->data.intval
+                                )) {
+                                which = 2;
+                            }
+                        }
+                    }
+
+                    if (which == 2) {
+                        val = right->u.node->data.intval;
+                        if (left->nodetype == ESHR || left->nodetype == ESHRASS) {
+                            ReplaceExprWithLeftChild301(left);
+                            nd->nodetype = (nd->nodetype == ESHL) ? EAND : EANDASS;
+                            right->u.node->data.intval = CInt64_Shl(cint64_negone, val);
+                            if (!IRO_TypesEqual(nd->rtype, right->rtype)) {
+                                nd->u.diadic.right = IRO_MakeTypeConversion(right, nd->rtype, NULL);
+                            }
+                            changed = TRUE;
+                        } else if (is_unsigned(nd->rtype)) {
+                            ReplaceExprWithLeftChild301(left);
+                            nd->nodetype = (nd->nodetype == ESHR) ? EAND : EANDASS;
+                            CError_ASSERT(2341, 8 * nd->rtype->size <= 128);
+                            CInt64_SetLong(&size, 128 - 8 * nd->rtype->size);
+                            val = CInt64_Add(val, size);
+                            right->u.node->data.intval = CInt64_ShrU(cint64_negone, val);
+                            if (!IRO_TypesEqual(nd->rtype, right->rtype)) {
+                                nd->u.diadic.right = IRO_MakeTypeConversion(right, nd->rtype, NULL);
+                            }
+                            changed = TRUE;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (changed) {
+            DoTransformations(nd);
+            DoTransformations11(nd);
+            DoTransformations12(nd);
+            DoTransformations13(nd);
+            DoTransformations21(nd);
+            DoTransformations22(nd);
+            DoTransformations23(nd);
+        }
+    }
+}
+#else
 static void DoTransformations23(IROLinear* nd) {
     Boolean changed;
     Boolean isCompare;
@@ -2753,6 +3729,7 @@ done:
         DoTransformations23(nd);
     }
 }
+#endif
 #else
 static IROLinear* InsertTypeConversion(IROLinear* node, Type* type) {
     IROLinear* first;
@@ -3099,6 +4076,321 @@ static void Redo24(IROLinear* nd) {
 // common factor of (a*b) +- (a*c) is no longer pulled out (only a << in the
 // right-right case); a redone node is first dropped when unreferenced (3.0.1's
 // RemoveUnreffed); no IRO_Dump.
+#if MWCCPS2 && !MWCC_CORE // b210/b198 (0x584FE0)
+static void DoTransformations24(IROLinear* expr) {
+    IROLinear* nd = expr;
+    IROLinear* left;
+    IROLinear* right;
+    UInt8 changed;
+
+    if (nd->type == IROLinearOp2Arg) {
+        left = nd->u.diadic.left;
+        right = nd->u.diadic.right;
+        if (IS_TYPE_FLOAT(nd->rtype) || IS_TYPE_FLOAT(left->rtype) || IS_TYPE_FLOAT(right->rtype)) {
+            return;
+        }
+
+        if (left->type == IROLinearOp2Arg &&
+            right->type == IROLinearOp2Arg &&
+            !IRO_HasSideEffect(nd)) {
+            changed = 0;
+
+            if (func_00555190(left->u.diadic.left, right->u.diadic.left)) {
+                if (left->nodetype == right->nodetype) {
+                    switch (left->nodetype) {
+                        case EADD:
+                            if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                ReplaceExprWithRightChild301(left);
+                                ReplaceExprWithRightChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case ESUB:
+                            if (nd->nodetype == ESUB || nd->nodetype == ESUBV) {
+                                ReplaceExprWithRightChild301(left);
+                                ReplaceExprWithRightChild301(right);
+                                IRO_SwitchChildren(nd);
+                                changed = 1;
+                            }
+                            break;
+                        case EMUL:
+                            break;
+                        case EAND:
+                            if (nd->nodetype == EXOR) {
+                                PickCommonsubAtLeftLeft301(nd);
+                                changed = 3;
+                                break;
+                            }
+                        case EOR:
+                            if (nd->nodetype == left->nodetype) {
+                                ReplaceExprWithRightChild301(left);
+                                changed = 1;
+                            } else if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                PickCommonsubAtLeftLeft301(nd);
+                                changed = 3;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (left->nodetype == ComplementaryOp[right->nodetype]) {
+                    switch (nd->nodetype) {
+                        case ESUBV:
+                        case ESUB:
+                            switch (left->nodetype) {
+                                case EADD:
+                                    nd->nodetype = ComplementaryOp[nd->nodetype];
+                                    ReplaceExprWithRightChild301(left);
+                                    ReplaceExprWithRightChild301(right);
+                                    changed = 1;
+                                    break;
+                                case ESUB:
+                                    ReplaceExprWithMonaminRight301(left);
+                                    ReplaceExprWithRightChild301(right);
+                                    changed = 1;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            break;
+                        case EAND:
+                        case EOR:
+                            if (left->nodetype == nd->nodetype) {
+                                ReplaceExprWithLeftChild301(nd);
+                            } else if (right->nodetype == nd->nodetype) {
+                                ReplaceExprWithRightChild301(nd);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            } else if (func_00555190(left->u.diadic.right, right->u.diadic.left)) {
+                if (left->nodetype == right->nodetype) {
+                    switch (left->nodetype) {
+                        case EADD:
+                            if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                ReplaceExprWithLeftChild301(left);
+                                ReplaceExprWithRightChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case EMUL:
+                            break;
+                        case EAND:
+                            if (nd->nodetype == EXOR) {
+                                PickCommonsubAtRightLeft301(nd);
+                                changed = 3;
+                                break;
+                            }
+                        case EOR:
+                            if (nd->nodetype == left->nodetype) {
+                                ReplaceExprWithLeftChild301(left);
+                                changed = 1;
+                            } else if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                PickCommonsubAtRightLeft301(nd);
+                                changed = 3;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (left->nodetype == ComplementaryOp[right->nodetype]) {
+                    switch (nd->nodetype) {
+                        case ESUBV:
+                        case ESUB:
+                            if (left->nodetype == EADD) {
+                                nd->nodetype = ComplementaryOp[nd->nodetype];
+                                ReplaceExprWithLeftChild301(left);
+                                ReplaceExprWithRightChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case EADDV:
+                        case EADD:
+                            if (left->nodetype == ESUB) {
+                                ReplaceExprWithLeftChild301(left);
+                                ReplaceExprWithRightChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case EAND:
+                        case EOR:
+                            if (left->nodetype == nd->nodetype) {
+                                ReplaceExprWithLeftChild301(nd);
+                            } else if (right->nodetype == nd->nodetype) {
+                                ReplaceExprWithRightChild301(nd);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            } else if (func_00555190(left->u.diadic.left, right->u.diadic.right)) {
+                if (left->nodetype == right->nodetype) {
+                    switch (left->nodetype) {
+                        case EADD:
+                            if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                ReplaceExprWithRightChild301(left);
+                                ReplaceExprWithLeftChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case ESUB:
+                            switch (nd->nodetype) {
+                                case EADDV:
+                                case EADD:
+                                    nd->nodetype = ComplementaryOp[nd->nodetype];
+                                    ReplaceExprWithRightChild301(left);
+                                    ReplaceExprWithLeftChild301(right);
+                                    IRO_SwitchChildren(nd);
+                                    changed = 1;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            break;
+                        case EMUL:
+                            break;
+                        case EAND:
+                            if (nd->nodetype == EXOR) {
+                                PickCommonsubAtLeftRight301(nd);
+                                changed = 2;
+                                break;
+                            }
+                        case EOR:
+                            if (nd->nodetype == left->nodetype) {
+                                ReplaceExprWithRightChild301(left);
+                                changed = 1;
+                            } else if (nd->nodetype == ComplementaryOp[left->nodetype]) {
+                                PickCommonsubAtLeftRight301(nd);
+                                changed = 2;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (left->nodetype == ComplementaryOp[right->nodetype]) {
+                    switch (nd->nodetype) {
+                        case EADDV:
+                        case EADD:
+                            if (left->nodetype == EADD) {
+                                ReplaceExprWithRightChild301(left);
+                                ReplaceExprWithLeftChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case ESUBV:
+                        case ESUB:
+                            if (left->nodetype == ESUB) {
+                                ReplaceExprWithMonaminRight301(left);
+                                ReplaceExprWithRightChild301(right);
+                                changed = 1;
+                            }
+                            break;
+                        case EAND:
+                        case EOR:
+                            if (left->nodetype == nd->nodetype) {
+                                ReplaceExprWithLeftChild301(nd);
+                            } else if (right->nodetype == nd->nodetype) {
+                                ReplaceExprWithRightChild301(nd);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            } else if (func_00555190(left->u.diadic.right, right->u.diadic.right)) {
+                if (left->nodetype == right->nodetype) {
+                    switch (nd->nodetype) {
+                        case ESUB:
+                            switch (left->nodetype) {
+                                case EADD:
+                                case ESUB:
+                                    ReplaceExprWithLeftChild301(left);
+                                    ReplaceExprWithLeftChild301(right);
+                                    changed = 1;
+                                default:
+                                    break;
+                            }
+                        case EADD:
+                            switch (left->nodetype) {
+                                case ESHL:
+                                    PickCommonsubAtRightRight301(nd);
+                                    changed = 2;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            break;
+                        case EXOR:
+                            switch (left->nodetype) {
+                                case ESHL:
+                                case ESHR:
+                                case EAND:
+                                    PickCommonsubAtRightRight301(nd);
+                                    changed = 2;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            break;
+                        case EAND:
+                        case EOR:
+                            if (left->nodetype == nd->nodetype) {
+                                ReplaceExprWithLeftChild301(right);
+                                changed = 1;
+                            } else if (left->nodetype == ComplementaryOp[nd->nodetype] ||
+                                       left->nodetype == ESHR ||
+                                       left->nodetype == ESHL) {
+                                PickCommonsubAtRightRight301(nd);
+                                changed = 2;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                } else if (left->nodetype == ComplementaryOp[right->nodetype]) {
+                    switch (nd->nodetype) {
+                        case EADDV:
+                        case EADD:
+                            switch (left->nodetype) {
+                                case EADD:
+                                case ESUB:
+                                    ReplaceExprWithLeftChild301(left);
+                                    ReplaceExprWithLeftChild301(right);
+                                    changed = 1;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            break;
+                        case EAND:
+                        case EOR:
+                            if (left->nodetype == nd->nodetype) {
+                                ReplaceExprWithLeftChild301(nd);
+                            } else if (right->nodetype == nd->nodetype) {
+                                ReplaceExprWithRightChild301(nd);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            if (changed) {
+                DoDiadic(nd);
+                if (changed == 2) {
+                    DoDiadic(nd->u.diadic.left);
+                } else if (changed == 3) {
+                    DoDiadic(nd->u.diadic.right);
+                }
+            }
+        }
+    }
+}
+#else
 static void DoTransformations24(IROLinear* expr) {
     IROLinear* nd = expr;
     IROLinear* left;
@@ -3436,6 +4728,7 @@ static void DoTransformations24(IROLinear* expr) {
         }
     }
 }
+#endif
 #else
 static void DoTransformations24(IROLinear* expr) {
     IROLinear* nd = expr;

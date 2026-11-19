@@ -398,12 +398,32 @@ void BE_ApplyColoring(void) {
     MPCodeBlock* block;
     MPCode* pc;
     MOperand* op;
+#if !MWCCPS2
     SInt32 n;
+#endif
     UInt32 i;
     IGNode* node;
 
     for (block = data_00624FD0; block; block = block->next) {
         for (pc = block->first; pc; pc = pc->next) {
+#if MWCCPS2 // b210/b198: i counts the operands; the class read again each time
+            op = pc->args;
+            i = pc->argcount;
+            while (i--) {
+                if (op->kind == 0 && (UInt8)op->rclass == *(volatile UInt8*)&data_00625ECC) {
+                    op->reg = data_0062520C[op->reg].color;
+                }
+                op++;
+            }
+            // b210: VU0 instructions (0x21F..0x2E7) have the dest field first
+            if ((pc->flags & 0x10) &&
+                *(volatile UInt8*)&data_00625ECC ==
+                    (UInt8)(COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->rclass &&
+                (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->reg ==
+                    (COLOR_VU0OP(pc->op) ? &pc->args[1] : &pc->args[0])->reg) {
+                deletepcode(pc);
+            }
+#else
             n = pc->argcount;
             op = pc->args;
             while (n--) {
@@ -412,15 +432,6 @@ void BE_ApplyColoring(void) {
                 }
                 op++;
             }
-#if MWCCPS2
-            // b210: VU0 instructions (0x21F..0x2E7) have the dest field first
-            if ((pc->flags & 0x10) &&
-                data_00625ECC == (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->rclass &&
-                (COLOR_VU0OP(pc->op) ? &pc->args[2] : &pc->args[1])->reg ==
-                    (COLOR_VU0OP(pc->op) ? &pc->args[1] : &pc->args[0])->reg) {
-                deletepcode(pc);
-            }
-#else
             if ((pc->flags & 0x10) &&
                 pc->args[1].rclass == data_00625ECC &&
                 pc->args[1].reg == pc->args[0].reg) {
@@ -849,10 +860,17 @@ void func_004B3EE0(void) {
 
 // Add an interference edge between nodes a and b (once).
 void func_004B46E0(UInt32 a, UInt32 b) {
+#if MWCCPS2
+    IGEdge* e;
+    IGNode* na;
+    IGNode* nb;
+    UInt32 h;
+#else
     UInt32 h;
     IGEdge* e;
     IGNode* na;
     IGNode* nb;
+#endif
 
     if (a < b) {
         h = ((((b - 1) * b) >> 1) + a) & 0x3FFF;
@@ -1131,6 +1149,20 @@ static void frame_operands(MPCode* pc, Object* obj, SInt32 off) {
 
 // A store of reg to the node's stack slot.
 MPCode* func_004B8A00(SInt16 reg, IGNode* node) {
+#if MWCCPS2 // b210/b198: the node's flags in a local
+    Object* obj = node->object;
+    Type* type = obj->type;
+    UInt16 flags = node->flags;
+    MPCode* pc;
+    SInt32 off = 0;
+    UInt16 op;
+
+    if (flags & 0x10) {
+        off = copts.littleendian ? 4 : 0;
+    } else if (flags & 0x20) {
+        off = copts.littleendian ? 0 : 4;
+    }
+#else
     MPCode* pc;
     Object* obj = node->object;
     Type* type = obj->type;
@@ -1138,6 +1170,7 @@ MPCode* func_004B8A00(SInt16 reg, IGNode* node) {
     UInt16 op;
 
     PAIR_OFFSET(node, off);
+#endif
     op = func_0047FFD0(type);
     if (data_00625ECC == 5 && op == MACRO_OP(0x7F)) {
         op = MACRO_OP(0x80);
@@ -1158,6 +1191,20 @@ MPCode* func_004B8A00(SInt16 reg, IGNode* node) {
 
 // A load of reg from the node's stack slot.
 MPCode* func_004B8B00(SInt16 reg, IGNode* node) {
+#if MWCCPS2 // b210/b198: the node's flags in a local
+    Type* type = node->object->type;
+    UInt16 flags = node->flags;
+    MPCode* pc;
+    SInt32 off = 0;
+    SInt32 extra;
+    UInt16 op;
+
+    if (flags & 0x10) {
+        off = copts.littleendian ? 4 : 0;
+    } else if (flags & 0x20) {
+        off = copts.littleendian ? 0 : 4;
+    }
+#else
     Type* type = node->object->type;
     SInt32 off;
     SInt32 extra;
@@ -1165,6 +1212,7 @@ MPCode* func_004B8B00(SInt16 reg, IGNode* node) {
     MPCode* pc;
 
     PAIR_OFFSET(node, off);
+#endif
     op = func_0047FD20(type, &extra);
     if (op == MACRO_OP(0x5D) && data_00625ECC == 5) {
         op = MACRO_OP(0x5E);
@@ -1198,7 +1246,19 @@ MPCode* func_004B8B00(SInt16 reg, IGNode* node) {
                 pc->args[0].flags |= 0x20;
             }
         }
-        frame_operands(pc, node->object, off);
+#if MWCCPS2 && !MWCC_CORE // b210/b198: node->object read at each use
+        pc->args[1].kind = 4;
+        MOP_SETOBJ(pc->args[1], node->object);
+        pc->args[1].value = OBJECT_FRAMEOFFSET(node->object) + off;
+        pc->alias =
+            func_004817A0((Object*)MOP_OBJ(pc->args[1]), pc->args[1].value, func_0048FBE0(pc->op));
+        pc->args[2].kind = 0;
+        pc->args[2].rclass = 0;
+        pc->args[2].reg = data_00625E3E;
+        pc->args[2].flags = 1;
+#else
+    frame_operands(pc, node->object, off);
+#endif
         return pc;
     }
 

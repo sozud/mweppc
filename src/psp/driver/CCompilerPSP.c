@@ -205,6 +205,15 @@ CWPLUGIN_ENTRY(MWC_main)(CWPluginContext context) {
 #pragma auto_inline on
 
 // 0x423B10; also inlined into initialize_compiler_options
+// 3.0.1 (0x4234E0): the browse data handed to the plugin context (CBrowse_Finish
+// calls it): the list shrunk, its handle stored as params->object.browsedata
+extern CWMemHandle COS_DetachHandle(Handle* handle);
+
+void func_004234E0(CompilerLinkerParamBlk* params, GList* gl) {
+    ShrinkGList(gl);
+    params->object.browsedata = COS_DetachHandle((Handle*)&gl->data); // +8 in 3.0.1
+}
+
 static void ConvertFrontEndPrefs(const PFrontEndC* src, PFrontEndC* dst) {
     int err = 0;
 

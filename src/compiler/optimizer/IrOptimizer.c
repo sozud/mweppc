@@ -1066,6 +1066,79 @@ void IRO_Setup(void) {
 
 #if MWCCPSP
 // 3.0.1 (0x4C4800): each optimizer switch from the optimization level
+#if MWCCPSP && \
+    MWCC_CORE != \
+        MWCC_CORE_B52 // 3.0.1 (b219 0x4C4800, b210 0x4D0FF0, b198 0x4D0C80): the fixed settings, then
+// each optimization level's passes set from one test, chained
+void IRO_UpdateOptimizerOptions(void) {
+    copts.unknownEE[0] = 0;
+    copts.opt_prelinearize = 1;
+    copts.opt_generateconditionalassignments = 0;
+    copts.opt_alwaysdumpopts = 0;
+    copts.opt_movepostops = 0;
+    copts.opt_findoptimalunrollfactor = 1;
+    copts.opt_findoptimalvectorunrollfactor = 1;
+    copts.opt_unrollpostloop = 1;
+    copts.opt_unrollvectorpostloop = 1;
+    copts.opt_createvectortemps = 1;
+    copts.opt_unpromotetypes = 0;
+    copts.opt_dumptypes = 0;
+    copts.opt_scalarizebitfields = 1;
+    copts.opt_propagatemultiplydivideassignments = 1;
+    copts.opt_moveinvariantsinaddressexpr = 1;
+    copts.opt_convertfpconsts = 1;
+    copts.opt_markcounterloops = 0;
+    copts.opt_markvariablecounterloops = 0;
+    copts.opt_pulloutconstants = 0;
+    copts.opt_defineargorder = 0;
+    copts.opt_useexpressioncostswhenlinearizingassignments = 0;
+    copts.opt_intelcompareoplinearizationhack = 0;
+    copts.opt_rearrangemultiplesubscripts = 0;
+    copts.opt_returnloopdepthinstatementvalue = 0;
+    copts.opt_marknonregtemps = 0;
+    copts.opt_addgotounrolledlooptest = 0;
+    copts.opt_addtogetherconstantpartsoftreeexpressions = 1;
+    copts.opt_propagateequivalentscalartypes = 0;
+    copts.opt_unpromoteenumtointconversions = 0;
+    copts.opt_unpromotemultipliestochartype = 1;
+    copts.opt_dospecialmultiplyunpromotion = 0;
+    copts.opt_docrossconversionofinductionreference = 0;
+    copts.opt_intrinsicfunctioncallscanhavesideeffects = 1;
+    copts.opt_collapselogicalselectionintobittest_uselonglong = 0;
+    copts.opt_serializeassignments = 0;
+    copts.opt_branchlessexpensivethandiv = 0;
+    copts.strengthreductionstrict = 1;
+
+    copts.opt_optimizecontrolflow = ((SInt8)copts.optimizationlevel >= 1);
+    copts.opt_repositioncode = copts.opt_optimizecontrolflow;
+    copts.opt_foldconstants = copts.opt_repositioncode;
+    copts.opt_rebuildlogicals = copts.opt_foldconstants;
+    copts.opt_rebuildconditionals = copts.opt_rebuildlogicals;
+    copts.opt_arithtransformation = copts.opt_rebuildconditionals;
+    copts.opt_treetransformation = copts.opt_arithtransformation;
+    copts.opt_scalarize = copts.opt_treetransformation;
+    copts.deadcode = copts.opt_scalarize;
+
+    copts.propagation = ((SInt8)copts.optimizationlevel >= 2);
+    copts.opt_collapselogicalselectionintobittest = copts.propagation;
+    copts.commonsubs = copts.opt_collapselogicalselectionintobittest;
+    copts.deadstore = copts.commonsubs;
+
+    copts.vectorizeloops = ((SInt8)copts.optimizationlevel >= 3);
+    copts.opt_scalarizeliveranges = copts.vectorizeloops;
+    copts.opt_recomposeaggregates = copts.opt_scalarizeliveranges;
+    copts.opt_decomposeaggregates = copts.opt_recomposeaggregates;
+    copts.unrolling = copts.opt_decomposeaggregates;
+    copts.lifetimes = copts.unrolling;
+    copts.strengthreduction = copts.lifetimes;
+    copts.loopinvariants = copts.strengthreduction;
+    copts.opt_removeemptyloops = copts.loopinvariants;
+    copts.opt_optimizenonregaccess = copts.opt_removeemptyloops;
+    copts.opt_rotateloops = copts.opt_optimizenonregaccess;
+
+    copts.multiplepasses = ((SInt8)copts.optimizationlevel >= 4);
+}
+#else
 void IRO_UpdateOptimizerOptions(void) {
     copts.deadcode = '\0' < copts.optimizationlevel;
     copts.commonsubs = '\x01' < copts.optimizationlevel;
@@ -1135,6 +1208,7 @@ void IRO_UpdateOptimizerOptions(void) {
     copts.opt_recomposeaggregates = copts.loopinvariants;
     copts.opt_scalarizeliveranges = copts.loopinvariants;
 }
+#endif
 #endif
 #if MWCCPSP
 

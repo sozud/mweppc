@@ -674,28 +674,37 @@ BE_NOINLINE int ps2_regmove_fpr_4B2B60(int dst, int src, char sclass, int size) 
 __declspec(noinline) int ps2_regmove_fpr_4B2B60(int dst, int src, char sclass, int size) {
 #endif
     int result;
+    int reg;
+    short opcode;
 
     if (sclass == 1 && (dst == src || dst < 0)) {
         result = src;
     } else {
         if (dst < 0) {
-            dst = data_00625A98[1]++;
+            reg = data_00625A98[1]++;
+        } else {
+            reg = dst;
         }
-        result = dst;
+        result = reg;
         switch (sclass) {
             case 0:
-                emitpcode(size == 8 ? 0xB1 : 0xAD, src, dst);
+                opcode = size == 8 ? 0xB1 : 0xAD;
+                emitpcode(opcode, src, reg);
                 break;
             case 1:
-                emitpcode(size == 8 ? 0xF8 : 0xF9, dst, src);
+                opcode = size == 8 ? 0xF8 : 0xF9;
+                emitpcode(opcode, reg, src);
                 break;
             case 5:
-            case 6:
-                src = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
-                emitpcode(size == 8 ? 0xB1 : 0xAD, src, dst);
+            case 6: {
+                int gpr = ps2_regmove_gpr_4B2C50(-1, src, sclass, size);
+                opcode = size == 8 ? 0xB1 : 0xAD;
+                emitpcode(opcode, gpr, reg);
                 break;
+            }
             default:
                 CError_FATAL(226);
+                break;
         }
     }
     return result;

@@ -1498,7 +1498,7 @@ void CABI_MakeDefaultConstructor(TypeClass* tclass, Object* func) {
 
     CFunc_SetupNewFuncArgs(func, TYPE_FUNC(func->type)->args);
 
-#if !MWCCPS2
+#if !MWCCPS2 || MWCCPSP_NATIVE // the native build runs 2.4.7's CABI, which takes ctor_chain
     ctor_chain = NULL;
 #endif
     if (tclass->flags & CLASS_HAS_VBASES) {
@@ -1937,7 +1937,7 @@ void CABI_MakeDefaultCopyConstructor(TypeClass* tclass, Object* func) {
 
     CFunc_SetupNewFuncArgs(func, TYPE_FUNC(func->type)->args);
 
-#if !MWCCPS2
+#if !MWCCPS2 || MWCCPSP_NATIVE // the native build runs 2.4.7's CABI, which takes ctor_chain
     ctor_chain = NULL;
 #endif
     if (tclass->flags & CLASS_HAS_VBASES) {
@@ -2484,7 +2484,7 @@ ENode* CABI_DestroyObject(
 extern void func_0049F480(Object* guard, Object* obj);
 
 // 0x51F0B0: guard = 1
-ENode* CABI_GuardSet(Object* guard) {
+ENode* CABI_GuardSet(Object* guard, Boolean unused) {
     return makediadicnode(create_objectnode(guard), intconstnode(TYPE(&stsignedchar), 1), EASS);
 }
 

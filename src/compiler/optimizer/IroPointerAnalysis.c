@@ -2647,6 +2647,16 @@ static void FindAliasingAction(LocationSet* loc, void* refcon) {
     }
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198 (b198 0x4E5590): every location is killed (b198's kill-all for an asm
+// statement, whose caller is not placed yet)
+void KillAllLocationsAction(PointsToEntry* pte, void* refcon) {
+    KillLocationParams* params = refcon;
+
+    PointsToFunction_Add(params->toBeKilled, pte);
+}
+#endif
+
 static void KillAllAddressableLocationsAction(PointsToEntry* pte, void* refcon) {
     KillLocationParams* params;
     LocationSet* loc;
@@ -4779,7 +4789,7 @@ static void PointerAnalysis_HeapErrorProc(void) {
 
 #if MWCCPSP
 // 3.0.1 (0x4CF9A0): no allocator here; the unknown object is set up each time
-#if MWCC_CORE == MWCC_CORE_B52
+#if MWCC_CORE == MWCC_CORE_B52 || MWCCPS2
 // that nothing else touches; &stUnknown (0x584E94, 17 references) stays in
 // this unit's block, its fields never set
 Object stUnknownSetup;
@@ -4794,7 +4804,7 @@ void PointerAnalysis_Setup(void) {
     stUnknown.type = TYPE(&stunsignedlong);
     stUnknown.datatype = DDATA;
 }
-#if MWCC_CORE == MWCC_CORE_B52
+#if MWCC_CORE == MWCC_CORE_B52 || MWCCPS2
 #undef stUnknown
 #endif
 #else
@@ -5653,6 +5663,12 @@ static inline int NoPTF(Object* proc, PartialTransferFunction** ptf) {
     return fail;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198 keep these two with the ADTs (their lists come from the global heap's pools)
+#define IRO_malloc IRO_gmalloc
+#endif
+extern Boolean IRO_IsFunctionObject(Object* obj);
+
 void PointerAnalysis_GetFunctionKills(Object* proc, IROLinear* funccall, ObjectList** list) {
     Boolean fail;
     PartialTransferFunction* ptf;
@@ -5663,7 +5679,11 @@ void PointerAnalysis_GetFunctionKills(Object* proc, IROLinear* funccall, ObjectL
     IRO_ASSERT(7390, funccall != NULL);
     IRO_ASSERT_MSG(7391, funccall->type == IROLinearFunccall, "funccall->lt == Lt_Funccall");
 
+#if MWCCPS2 // b210/b198: IroUtil.c's function test, called
+    if (!IRO_IsFunctionObject(proc)) {
+#else
     if (!ObjectIsAFunction(proc)) {
+#endif
         return;
     }
 
@@ -5708,13 +5728,23 @@ void PointerAnalysis_GetFunctionDependencies(Object* proc, IROLinear* funccall, 
     IRO_ASSERT(7438, funccall != NULL);
     IRO_ASSERT_MSG(7439, funccall->type == IROLinearFunccall, "funccall->lt == Lt_Funccall");
 
+#if MWCCPS2 // b210/b198: IroUtil.c's function test, called
+    if (!IRO_IsFunctionObject(proc)) {
+#else
     if (!ObjectIsAFunction(proc)) {
+#endif
         return;
     }
 
     fail = NoPTFList(proc);
     if (!fail) {
         CreateFalseContext(proc, funccall, &ptf, &map);
+#if MWCCPS2 && !MWCC_CORE
+        fail = TRUE;
+        if (ptf && map && (finalPointsTo = PartialTransferFunction_finalPointsToFn(ptf))) {
+            fail = FALSE;
+        }
+#else
         {
             int noFinal = 1;
             if ((ptf == NULL || map == NULL) == 0 &&
@@ -5723,6 +5753,7 @@ void PointerAnalysis_GetFunctionDependencies(Object* proc, IROLinear* funccall, 
             }
             fail = noFinal;
         }
+#endif
         if (!fail) {
             memset(&params, 0, sizeof(params));
             params.proc = proc;
@@ -5741,6 +5772,10 @@ void PointerAnalysis_GetFunctionDependencies(Object* proc, IROLinear* funccall, 
         (*list)->next = NULL;
     }
 }
+
+#if MWCCPS2 && !MWCC_CORE
+#undef IRO_malloc
+#endif
 
 void PointerAnalysis_PragmaMode(void) {
     if (cparamblkptr->preprocess) {

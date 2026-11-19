@@ -33,4 +33,14 @@
 #define MWCC_CORE 0
 #endif
 
+// b210/b198 code (MWCCPS2) that calls b210 functions no source has yet: the
+// CodeWarrior build (tools/exact) compiles it, as the originals' code, while a
+// native build (MWCCPSP_NATIVE), which could not run the missing callees, compiles 3.0.1 b219's
+// code there instead (the guard's #else). Each use goes once its callees exist.
+#if defined(MWCCPS2) && MWCCPS2 && !(defined(MWCCPSP_NATIVE) && MWCCPSP_NATIVE)
+#define MWCCPS2_B210_PARTIAL 1
+#else
+#define MWCCPS2_B210_PARTIAL 0
+#endif
+
 #endif

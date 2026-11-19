@@ -684,21 +684,42 @@ void func_0056BCC0(FactorCons* items, FactorCons* terms, FactorTerm* term) {
 
 // 0x56BBB0: factor the + - chain at nd
 void func_0056BBB0(IROLinear* nd) {
+#if MWCCPS2 // b210/b198: the lists set up by assignments
+    FactorCons items;
+    FactorCons terms;
+    IROList list;
+    FactorTerm* term;
+    Boolean changed;
+
+    items.head = NULL;
+    items.tail = NULL;
+    terms.head = NULL;
+    terms.tail = NULL;
+#else
     FactorCons terms = {NULL, NULL};
     IROList list;
     FactorCons items = {NULL, NULL};
     FactorTerm* term;
     Boolean changed;
+#endif
 
     IRO_InitList(&list);
     func_0056C6C0(&items, &terms, nd, 0);
     changed = 0;
     do {
         term = func_0056C000(&terms);
+#if MWCCPS2
+        if (term == NULL) {
+            continue;
+        }
+        func_0056BCC0(&items, &terms, term);
+        changed = 1;
+#else
         if (term) {
             func_0056BCC0(&items, &terms, term);
             changed = 1;
         }
+#endif
     } while (term);
     if (changed) {
         IRO_Dump("factoring expression %d\n", nd->index);

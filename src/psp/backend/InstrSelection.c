@@ -264,7 +264,9 @@ Boolean func_00494170(VOperand* src, SInt32 shift, int negate, VOperand* out, Ty
     SInt32 reg;
     CLabel* label;
     VOperand t;
+#if !MWCCPS2
     VOperand v;
+#endif
 
 #if MWCCPS2 // b210 divides a long long in one 64-bit GPR too
     ll = (Boolean)(((type->type == TYPEINT || type->type == TYPEENUM) && type->size == 8) != 0);
@@ -286,8 +288,12 @@ Boolean func_00494170(VOperand* src, SInt32 shift, int negate, VOperand* out, Ty
     t = func_004C3BA0(reg, 0);
     *out = func_0047F9A0(&t);
     if (negate) {
+#if MWCCPS2 // b210/b198: straight into *out
+        *out = func_0047F900(ll ? 0x83 : 0xB9, out, 0);
+#else
         v = func_0047F900(ll ? 0x83 : 0xB9, out, 0);
         *out = v;
+#endif
     }
     return 1;
 }
@@ -533,6 +539,16 @@ __declspec(noinline) void func_004945B0(
     }
 }
 #else
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// b210/b198 (0x49ECC0): a long long shifts in one 64-bit register as well
+void func_004945B0(VOperand* src, Type* type, SInt16 shift, SInt16 negate, VOperand* out) {
+    shift &= 0x3F;
+    *out = func_0047EBB0(src, shift, type);
+    if (negate) {
+        *out = func_0047F900(IS_TYPE_LL(type) ? 0x83 : 0xB9, out, 0);
+    }
+}
+#else
 void func_004945B0(VOperand* src, Type* type, SInt16 shift, SInt16 negate, VOperand* out) {
     SInt16 n;
     Boolean ll;
@@ -576,6 +592,7 @@ void func_004945B0(VOperand* src, Type* type, SInt16 shift, SInt16 negate, VOper
         *out = v;
     }
 }
+#endif
 #endif
 
 extern void func_0049C250(ENode* cond, CLabel* label, Boolean truth); // conditionalstatement
@@ -973,6 +990,33 @@ void func_0049D8D0(ENode* left, ENode* right, VOperand* a, VOperand* b, int load
         }
     }
 }
+
+#if MWCCPS2 && !MWCC_CORE
+// b210/b198 (b198 0x4A8EC0): a fixed-point vector operation into a new FP register, the
+// right operand an immediate or a register with its element selector
+VOperand func_0049D7A0(short regop, short immop, ENode* left, ENode* right) {
+    VOperand b;
+    VOperand a;
+    int sel;
+
+    memset(&b, 0, sizeof(b));
+    memset(&a, 0, sizeof(a));
+    func_0049D8D0(left, right, &a, &b, 0);
+    if (a.kind) {
+        func_004A64C0(&a, left->rtype, 0);
+    }
+    if (b.kind == 3) {
+        emitpcode(immop, data_00625A98[1]++, a.reg, b.imm.lo, 15);
+    } else {
+        if (b.kind) {
+            func_004A64C0(&b, right->rtype, 0);
+        }
+        sel = b.sel ? b.sel - 1 : 11;
+        emitpcode(regop, data_00625A98[1]++, a.reg, b.reg, sel);
+    }
+    return func_004C3B10(data_006246B4->last->args[0]);
+}
+#endif
 
 extern void func_004A5A90(VOperand src, VOperand* dst, Type* type); // store
 extern void func_004A5380(VOperand src, VOperand* dst, PtrInt bitfield); // merge into a bitfield
@@ -1765,6 +1809,23 @@ extern void func_00490BB0(ENode* expr, SInt16 target, VOperand* out);
 #endif
 
 // EMUL
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// b210/b198's emit_binary_gpr_instruction (inlined): both operands in registers, op into a new one
+static inline void ps2_emit_binary_gpr(SInt16 op, ENode* left, ENode* right, VOperand* out) {
+    VOperand a;
+    VOperand b;
+
+    func_0049D8D0(left, right, &a, &b, 0);
+    if (a.kind) {
+        func_004A64C0(&a, left->rtype, 0);
+    }
+    if (b.kind) {
+        func_004A64C0(&b, right->rtype, 0);
+    }
+    emitpcode(op, data_00625A98[0]++, a.reg, b.reg);
+    *out = func_004C3B10(data_006246B4->last->args[0]);
+}
+#endif
 void func_0049A740(ENode* expr, SInt16 target, VOperand* out) {
     ENode* left;
     ENode* right;
@@ -1774,8 +1835,13 @@ void func_0049A740(ENode* expr, SInt16 target, VOperand* out) {
     VOperand b;
 
     left = expr->data.diadic.left;
+#if MWCCPS2 // b210/b198: the type before the right operand
+    type = expr->rtype;
+    right = expr->data.diadic.right;
+#else
     right = expr->data.diadic.right;
     type = expr->rtype;
+#endif
     if (type->type == TYPEFLOAT) {
         if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
             func_0049D8D0(left, right, &a, &b, 1);
@@ -1878,6 +1944,10 @@ void func_0049A740(ENode* expr, SInt16 target, VOperand* out) {
         *out = func_004A46E0(0);
         return;
     }
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+    ps2_emit_binary_gpr(IS_TYPE_LL(type) ? data_00625E4E : data_00625CE0, left, right, out);
+}
+#else
     op = IS_TYPE_LL(type) ? data_00625E4E : data_00625CE0;
     func_0049D8D0(left, right, &a, &b, 0);
     if (a.kind) {
@@ -1889,6 +1959,7 @@ void func_0049A740(ENode* expr, SInt16 target, VOperand* out) {
     emitpcode(op, data_00625A98[0]++, a.reg, b.reg);
     *out = func_004C3B10(data_006246B4->last->args[0]);
 }
+#endif
 
 extern Object* rt_f_div;
 extern Object* rt_divdf3;
@@ -2072,6 +2143,91 @@ extern VOperand func_00479E40(
 #endif
 
 // EMODULO
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // b210/b198 (0x4A4090)
+void func_00499200(ENode* expr, SInt16 target, VOperand* out) {
+    ENode* left;
+    ENode* right;
+    Type* type;
+    VOperand a;
+    VOperand b;
+    VOperand tmp;
+    VOperand t;
+    CInt64 m;
+    int n;
+    SInt16 divop;
+    CLabel* label;
+    MPCodeLabel* ok;
+    MPCodeLabel* trap;
+
+    left = expr->data.diadic.left;
+    type = expr->rtype;
+    right = expr->data.diadic.right;
+
+    if (IS_TYPE_LL(type) && copts.mips_option25) {
+        func_0049D8D0(left, right, &a, &b, 1);
+        func_004A47E0(&a, 1, 1);
+        func_004A47E0(&b, 1, 2);
+        func_004A4A20(is_unsigned(type) ? rt_umoddi3 : rt_moddi3);
+        *out = func_004A46E0(1);
+        return;
+    }
+
+    func_0049D8D0(left, right, &a, &b, 1);
+    if (IS_TYPE_LL(type)) {
+        divop = is_unsigned(type) ? 0x7B : 0x7A;
+    } else {
+        divop = is_unsigned(type) ? 0x7D : 0x7C;
+    }
+
+    if (right->type == EINTCONST) {
+        n = const_log2(right->data.intval);
+        if (n > 0) {
+            m = CInt64_Sub(right->data.intval, cint64_one);
+            if (m.lo == 0xFFFFFFFF) {
+                tmp = a;
+            } else {
+                tmp = func_00479E40(MACRO_OP(0x02), &a, m);
+            }
+            if (is_unsigned(left->rtype)) {
+                *out = tmp;
+            } else {
+                label = newlabel();
+                label->pclabel = (struct PCodeLabel*)makepclabel();
+                func_00479540(0x1C, &a, label);
+                func_00479540(0x1A, &tmp, label);
+                t = func_00479E40(
+                    IS_TYPE_LL(type) ? 0x78 : 3, &tmp, CInt64_Sub(CInt64_Neg(m), cint64_one)
+                );
+                emitpcode(data_00625E48, tmp.reg, t.reg);
+                func_0046FA90((MPCodeLabel*)label->pclabel);
+                *out = func_0047F9A0(&tmp);
+            }
+        } else {
+            emitpcode(divop, a.reg, b.reg);
+            emitpcode(0xA8, data_00625A98[0]++);
+            *out = func_004C3B10(data_006246B4->last->args[0]);
+        }
+        return;
+    }
+
+    emitpcode(divop, a.reg, b.reg);
+    if (copts.divbyzerocheck) {
+        ok = makepclabel();
+        trap = makepclabel();
+        emitpcode(0x2A, b.reg, ok);
+        pcbranch(data_006246B4, ok, 0);
+        pcbranch(data_006246B4, trap, 0);
+        makepcblock();
+        pclabel(data_006246B4, trap);
+        emitpcode(0x3E, 7);
+        pcbranch(data_006246B4, ok, 0);
+        makepcblock();
+        pclabel(data_006246B4, ok);
+    }
+    emitpcode(0xA8, data_00625A98[0]++);
+    *out = func_004C3B10(data_006246B4->last->args[0]);
+}
+#else
 void func_00499200(ENode* expr, SInt16 target, VOperand* out) {
     ENode* left;
     ENode* right;
@@ -2178,6 +2334,7 @@ void func_00499200(ENode* expr, SInt16 target, VOperand* out) {
 #endif
     *out = func_004C3B10(data_006246B4->last->args[0]);
 }
+#endif
 
 extern VOperand func_0047F660(SInt32 value); // a constant in a new register
 
@@ -3417,7 +3574,9 @@ void ps2_lltod_4A5A10(VOperand* op) {
         destination = func_004C3BA0(data_00625A98[1]++, 1);
         skip->pclabel = (struct PCodeLabel*)makepclabel();
         emitpcode(0x88, data_00625A98[0]++, oldreg, 23);
-        narrowed = PS2_LAST_RESULT();
+        narrowed = func_004C3BA0( // b210/b198: a new operand on the result register
+            data_006246B4->last->args[(data_006246B4->last->flags & 0x80000000) ? 1 : 0].reg, 0
+        );
         comparison = func_0047ECC0(&narrowed, (CInt64*)&cint64_one, TYPE(&stsignedlonglong));
         condition = func_0047CD10(&comparison, &constant, TYPE(&stsignedlonglong));
         func_00479540(0x2A, &condition, skip);

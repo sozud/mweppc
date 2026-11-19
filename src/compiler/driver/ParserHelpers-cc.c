@@ -151,6 +151,14 @@ int Opt_PragmaOffOn(const char* opt, void* var, const char* arg, int flags) {
 #if MWCCPSP
 
 #endif
+#if MWCCPSP
+// 3.0.1's option parser asserts with (cond) == 0 (the driver core with !(cond))
+#undef OS_ASSERT
+#define OS_ASSERT(line, cond) \
+    if ((cond) == 0) { \
+        OS_ASSERT_CALL(#cond, line); \
+    }
+#endif
 int SetupPragmas(const Pragma* pragmas) {
     const char* set;
     char on;

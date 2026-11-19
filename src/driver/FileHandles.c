@@ -14,8 +14,12 @@ static int OS_LoadFileHandle(OSFileHandle* hand) {
 
     err = OS_Open(&hand->spec, OSReadOnly, &ref);
     if (!err) {
+#if MWCCPSP // 3.0.1 tests the size call's result in place
+        if (!(err = OS_GetSize(ref, &sz))) {
+#else
         err = OS_GetSize(ref, &sz);
         if (!err) {
+#endif
             err = OS_ResizeHandle(&hand->hand, sz);
             if (!err) {
                 buffer = OS_LockHandle(&hand->hand);

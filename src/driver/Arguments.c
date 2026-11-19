@@ -325,12 +325,21 @@ static void Arg_Parse(void) {
                     Arg_AddToken(ATK_ARG, buffer);
                 }
 
+#if MWCCPSP // 3.0.1: the token kind as a short
+                Arg_AddToken(
+                    (SInt16)((ch == ',')
+                                 ? (int)ATK_COMMA
+                                 : ((ch == '=' || ch == SEP3) ? (int)ATK_EQUALS : (int)ATK_END)),
+                    0
+                );
+#else
                 Arg_AddToken(
                     (unsigned char)((ch == ',')
                                         ? ATK_COMMA
                                         : (((ch == '=') || (ch == SEP3)) ? ATK_EQUALS : ATK_END)),
                     0
                 );
+#endif
 
                 bufptr = buffer;
                 *bufptr = 0;
@@ -346,7 +355,11 @@ static void Arg_Parse(void) {
 
         if (isOpt && bufptr > &buffer[0]) {
             Arg_AddToken(ATK_OPTION, buffer + (isList && strchr(MAINOPTCHAR, buffer[0])));
+#if MWCCPSP
+            Arg_AddToken(ATK_ARG, buffer + 1 + (isList && strchr(MAINOPTCHAR, buffer[0])));
+#else
             Arg_AddToken(ATK_ARG, buffer + (isList && strchr(MAINOPTCHAR, buffer[0])) + 1);
+#endif
         } else {
             Arg_AddToken(ATK_ARG, buffer);
             Arg_AddToken(ATK_ARG_END, 0);

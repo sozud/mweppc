@@ -973,8 +973,6 @@ int func_004B4B50(MPCode* instr) {
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 10 // b145 asserts
 void func_004B4AE0(MPCode* instr) {
-    SInt32 f;
-
     if (ps2_UnitMask(instr) == 0x30000) {
         if (busy[0]) {
             busy[1] = instr;
@@ -984,8 +982,8 @@ void func_004B4AE0(MPCode* instr) {
             busycount[0] = oplatency(instr);
         }
     } else if (ps2_UnitMask(instr) == 0x10000) {
-        f = data_006115F8[instr->op].unk28;
-        if ((f & 0x10000) && (f & 0x10000000)) {
+        UInt32 flags = data_006115F8[instr->op].unk28;
+        if ((flags & 0x10000) && (flags & 0x10000000)) {
             if (busy[0]) {
                 CError_Internal("MIPSSimulation.c", CError_B145_LINE(1488));
             } else {
@@ -999,7 +997,7 @@ void func_004B4AE0(MPCode* instr) {
                     pipecount[0][0] = oplatency(instr);
                 }
             }
-        } else if ((f & 0x10000) && (f & 0x20000000)) {
+        } else if ((flags & 0x10000) && (flags & 0x20000000)) {
             busy[0] = instr;
             busycount[0] = 1;
             pipelat[0] = oplatency(instr);
@@ -1008,8 +1006,8 @@ void func_004B4AE0(MPCode* instr) {
             busycount[0] = oplatency(instr);
         }
     } else if (ps2_UnitMask(instr) == 0x20000) {
-        f = data_006115F8[instr->op].unk28;
-        if ((f & 0x20000) && (f & 0x10000000)) {
+        UInt32 flags = data_006115F8[instr->op].unk28;
+        if ((flags & 0x20000) && (flags & 0x10000000)) {
             if (busy[1]) {
                 CError_Internal("MIPSSimulation.c", CError_B145_LINE(1517));
             } else {
@@ -1023,7 +1021,7 @@ void func_004B4AE0(MPCode* instr) {
                     pipecount[1][0] = oplatency(instr);
                 }
             }
-        } else if ((f & 0x20000) && (f & 0x20000000)) {
+        } else if ((flags & 0x20000) && (flags & 0x20000000)) {
             busy[1] = instr;
             busycount[1] = 1;
             pipelat[1] = oplatency(instr);

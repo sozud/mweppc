@@ -3716,7 +3716,8 @@ start,size,unit
 00581e60,368,
 00581fd0,240,
 005820c0,256,
-005821c0,240,IroTransform.c
+005821c0,80,IroTransform.c
+00582210,160,IroTransform.c
 005822b0,480,IroTransform.c?
 00582490,960,IroTransform.c?
 00582850,944,IroTransform.c

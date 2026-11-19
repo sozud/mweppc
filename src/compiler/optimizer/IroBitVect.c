@@ -289,3 +289,47 @@ int Bv_IsBitSet301(UInt32 bit, BitVector* bv) {
     return result;
 }
 #endif
+
+#if MWCCPS2 // b210 0x5B3340 / b198 0x5B2FD0: writes through IRO_Dump after func_00557340's check
+#include "compiler/IroDump.h"
+Boolean func_00557340(void);
+void IRO_DumpBits(char* name, BitVector* bv) {
+    UInt32 i;
+    UInt32 rangeStart;
+    Boolean inRange = FALSE;
+    Boolean isFirst = TRUE;
+
+    if (!func_00557340()) {
+        return;
+    }
+    IRO_Dump(name);
+    if (!bv) {
+        IRO_Dump("NULL");
+    } else {
+        for (i = 0; i < bv->size * 32; i++) {
+            if (Bv_IsBitSetFn((SInt32)i, bv)) {
+                if (!inRange) {
+                    if (!isFirst) {
+                        IRO_Dump(",");
+                    }
+                    isFirst = FALSE;
+                    IRO_Dump("%d", i);
+                    inRange = TRUE;
+                    rangeStart = i;
+                }
+            } else {
+                if (inRange) {
+                    inRange = FALSE;
+                    if (i != (rangeStart + 1)) {
+                        IRO_Dump("-%d", i - 1);
+                    }
+                }
+            }
+        }
+        if (inRange && i != (rangeStart + 1)) {
+            IRO_Dump("-%d", i - 1);
+        }
+    }
+    IRO_Dump("\n");
+}
+#endif

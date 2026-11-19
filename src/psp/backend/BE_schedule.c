@@ -187,6 +187,91 @@ void func_004B7A50(void) {
     } while (changed);
 }
 
+#if MWCCPS2 && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+// b210/b198 (simplify_block, 0x4C35C0)
+static void func_004B7AE0(MPCodeBlock* block) {
+    MPCode* last;
+    MPCode* first;
+    MPCode* pc;
+    MPCode* next;
+    MOperand* op;
+    MOperand* targetOp;
+    MPCodeBlock* target;
+    MPBlockLink* link;
+    MPBlockLink* edge;
+    int moved;
+
+    last = block->last;
+    moved = 0;
+    if (!last) {
+        return;
+    }
+    if (last->unk38 == 5 || last->unk38 == 6) {
+        return;
+    }
+    if (last->flags & 0x10000000) {
+        op = func_0048FAE0(last);
+        target = LABEL_BLOCK(op);
+        first = target->first;
+        if (first && IS_JUMP(first)) {
+            targetOp = func_0048FAE0(first);
+            *op = *targetOp;
+            edge = block->successors;
+            for (;;) {
+                if (edge->block->number == target->number) {
+                    if (edge->block == LABEL_BLOCK(op)) {
+                        return;
+                    }
+                    edge->block = LABEL_BLOCK(op);
+                    changed = TRUE;
+                    return;
+                }
+                edge = edge->next;
+            }
+        }
+    }
+    link = block->successors;
+    if (!link || link->next) {
+        return;
+    }
+    target = link->block;
+    if (target->number == block->number) {
+        return;
+    }
+    if (IS_JUMP(last) && block->next && target->number == block->next->number) {
+        deletepcode(last);
+        changed = TRUE;
+        return;
+    }
+    if (!func_004B7D10(target)) {
+        return;
+    }
+    if (data_006115F8[last->op].flags & 8) {
+        return;
+    }
+    if (last->flags & 1) {
+        return;
+    }
+    link = target->predecessors;
+    if (link && !link->nextpred) {
+        if (link->from->number != block->number) {
+            return;
+        }
+        if ((pc = target->first) != NULL) {
+            moved = 1;
+            for (; pc; pc = next) {
+                next = pc->next;
+                deletepcode(pc);
+                appendpcode(block, pc);
+            }
+        }
+    }
+    if (moved) {
+        changed = TRUE;
+        block->successors = target->successors;
+    }
+}
+#else
 static void func_004B7AE0(MPCodeBlock* block) {
     MPCode* last;
     MOperand* op;
@@ -270,6 +355,7 @@ static void func_004B7AE0(MPCodeBlock* block) {
         block->successors = target->successors;
     }
 }
+#endif
 
 // does the block end in a jump (or a return) to another block?
 static int func_004B7D10(MPCodeBlock* block) {

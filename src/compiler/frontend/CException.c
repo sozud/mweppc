@@ -602,6 +602,26 @@ void CExcept_Magic(void) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (57)
 #endif
+#if MWCCPSP && MWCC_CORE != MWCC_CORE_B52
+// 3.0.1 (b219, b210, b198): counts a use of the local it finds; asserts at line 637
+static Object* CExcept_FindLocalObject(char* name) {
+    NameResult result;
+    NameSpaceObjectList* list;
+    Object* object;
+
+    list = CScope_FindObjectList(&result, GetHashNameNodeExport(name));
+    if (list) {
+        object = OBJECT(list->object);
+        if (object->otype == OT_OBJECT && object->datatype == DLOCAL) {
+            object->u.var.info->usage++;
+            return object;
+        }
+    }
+
+    CError_Internal(__FILE__, 637);
+    return NULL;
+}
+#else
 static Object* CExcept_FindLocalObject(char* name) {
     NameResult result;
     NameSpaceObjectList* list;
@@ -614,6 +634,7 @@ static Object* CExcept_FindLocalObject(char* name) {
     CError_FATAL(580);
     return NULL;
 }
+#endif
 #if MWCC_CORE == MWCC_CORE_B52
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)
@@ -784,7 +805,7 @@ static Statement* CExcept_DestroyLocalArray(
         darr_func,
         create_objectrefnode(object),
         dtorExpr,
-#if MWCCPSP
+#if MWCCPSP && !MWCCPS2 // PS2 passes unsigned longs
         intconstnode(TYPE_UNSIGNED_OFFSET, element_size),
         intconstnode(TYPE_UNSIGNED_OFFSET, elements)
 #else
@@ -824,6 +845,11 @@ static Statement* CExcept_EndCatch(ExceptionAction* ea, Statement* stmt) {
 }
 
 Statement* CExcept_ActionCleanup(ExceptionAction* ea, Statement* stmt) {
+#if MWCCPS2
+    Object* obj;
+    ENode* expr;
+
+#endif
     switch (ea->type) {
         case EAT_DESTROYLOCALCOND:
         case EAT_DESTROYLOCALPOINTER:
@@ -837,6 +863,9 @@ Statement* CExcept_ActionCleanup(ExceptionAction* ea, Statement* stmt) {
         case EAT_SPECIFICATION:
         case EAT_TERMINATE:
         case EAT_DESTROYBASE:
+#if MWCCPS2
+        case EAT_UNK18:
+#endif
             break;
         case EAT_DESTROYLOCAL:
             stmt = CExcept_DestroyLocal(
@@ -868,15 +897,17 @@ Statement* CExcept_ActionCleanup(ExceptionAction* ea, Statement* stmt) {
             );
             break;
 #if MWCCPS2
-        case EAT_UNK18:
-            break;
         case EAT_UNK19:
             if (((Boolean*)&ea->data)[4]) {
-                ENode* expr = CExpr_NewTemplDepENode(0x19);
-                *(void**)&expr->data = *(void**)&ea->data;
-                stmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
-                stmt->expr = expr;
-                stmt->dobjstack = ea->prev;
+                Statement* newStmt;
+
+                obj = *(Object**)&ea->data;
+                expr = CExpr_NewTemplDepENode(0x19);
+                *(Object**)&expr->data = obj;
+                newStmt = CFunc_InsertStatement(ST_EXPRESSION, stmt);
+                newStmt->expr = expr;
+                newStmt->dobjstack = ea->prev;
+                stmt = newStmt;
             }
             break;
 #endif

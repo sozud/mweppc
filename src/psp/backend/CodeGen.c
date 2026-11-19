@@ -913,8 +913,6 @@ badtoken:
     // 0x4337A0: #pragma align [(n)], n a power of two up to 0x2000
     int ps2_pragma_align(void) {
         UInt32 bits;
-        SInt32 value;
-        SInt32 check;
 
         tk = plex();
         if (tk == TK_EOL) {
@@ -924,12 +922,9 @@ badtoken:
         if (tk == '(') {
             tk = plex();
             if (tk == TK_INTCONST) {
-                value = tkintconst.lo;
-                ps2_pragma_alignment = value;
-                bits = 0x2000;
-                check = value;
-                for (; bits; bits >>= 1) {
-                    if (check == bits) {
+                ps2_pragma_alignment = tkintconst.lo;
+                for (bits = 0x2000; bits; bits >>= 1) {
+                    if (ps2_pragma_alignment == bits) {
                         tk = plex();
                         if (tk == ')') {
                             return 1;
@@ -1219,6 +1214,36 @@ extern int ps2_pragma_definesection(void); // 0x4338D0
     } PS2RegVarNode;
     extern PS2RegVarNode* ps2_objgen_636288; // data objects declared in a register
     extern Boolean func_004B8980(Object * obj);
+#endif
+#if !MWCC_CORE
+// 3.0.1 (b219 0x432420, b198 0x432430): the attribute hook the front end
+// installs (FEInterface.c), never reached
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT -17
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -9
+    Boolean func_00432420(void) {
+        CError_FATAL(5045);
+        return FALSE;
+    }
+#undef CError_PS2_SHIFT
+#define CError_PS2_SHIFT 0
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
+#endif
+
+#if !MWCC_CORE
+    // 3.0.1 (b198 0x433EC0): __declspec(section "name")
+    extern SInt32 func_00464210(char* name);
+
+    void CodeGen_ParseDeclSpec(HashNameNode * identifier, DeclInfo * declinfo) {
+        SInt32 index = func_00464210(identifier->name);
+        if (index) {
+            declinfo->section = index;
+        } else {
+            CError_Error(77);
+        }
+    }
 #endif
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -28 // b145 asserts
@@ -3575,9 +3600,25 @@ skipped:;
         Object * obj, SInt16 reg, Boolean b
     ); // b210-only process_arguments callback
 #else
-extern void ps2_argcb_437DA0(
-    Object* obj, SInt16 reg, Boolean b
-); // b210-only process_arguments callback
+// b210 (0x437DA0, b198 0x437D40): an argument that arrived in a register and
+// can stay there keeps it (an integer-sized one as a GPR, else class 1)
+void ps2_argcb_437DA0(Object* obj, SInt16 reg, Boolean b) {
+    VarInfo* vi = (Registers_GetVarInfo)(obj);
+    Type* type = obj->type;
+
+    if (!reg || !vi->used || vi->noregister) {
+        return;
+    }
+    if ((type->type == TYPEINT ||
+         type->type == TYPEENUM ||
+         type->type == TYPEPOINTER ||
+         (type->type == TYPEMEMBERPOINTER && type->size == 4)) &&
+        type->size <= 4) {
+        retain_register(obj, 0, reg);
+    } else {
+        retain_register(obj, 1, reg);
+    }
+}
 #endif
 #endif
     void func_00437D80(void) {

@@ -229,3 +229,4 @@ src/native/b69/ExprDispatch.c	False		src/native/b69
 src/native/b69/ObjCStubs.c	False		src/native/b69
 src/native/b69/bsearch.c	False		src/native/b69
 src/native/win32_posix.c	True		
+src/host/ShiftJIS.c	True		

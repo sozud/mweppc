@@ -114,6 +114,26 @@ CW_CALLBACK UCBGetFileInfo(
     }
 
     memset(fileinfo, 0, sizeof(CWProjectFileInfo));
+#if MWCCPSP && !MWCCPSP_MAC_FILESPEC
+    // 3.0.1 (0x427EC0): the spec and times are copied, the plugin named in full
+    SHELL_SPEC_FROM_OSSPEC(&file->srcfss, &fileinfo->filespec);
+    fileinfo->moddate = file->srcmoddate;
+    fileinfo->segment = file->segnum;
+    fileinfo->hasobjectcode = file->hasobjectcode;
+    fileinfo->hasresources = file->hasresources;
+    fileinfo->isresourcefile = file->isresourcefile;
+    fileinfo->weakimport = file->weakimport;
+    fileinfo->initbefore = file->initbefore;
+    fileinfo->mergeintooutput = file->mergeintooutput;
+    fileinfo->reserved = FALSE;
+    fileinfo->gendebug = file->gendebug;
+    fileinfo->objmoddate = file->outmoddate;
+    if (file->compiler) {
+        OS_MakeNameSpec(Plugin_GetDropInName(file->compiler), &fileinfo->dropinname);
+    } else {
+        OS_MakeNameSpec("", &fileinfo->dropinname);
+    }
+#else
 #if MWCCPSP
     SHELL_SPEC_FROM_OSSPEC(&file->srcfss, &fileinfo->filespec);
 #else
@@ -140,6 +160,8 @@ CW_CALLBACK UCBGetFileInfo(
     } else {
         fileinfo->dropinname[0] = 0;
     }
+
+#endif
 
     fileinfo->fileID = file->browseFileID;
     fileinfo->recordbrowseinfo = file->recordbrowseinfo;
@@ -1199,11 +1221,20 @@ CW_CALLBACK UCBSetModDate(
 #else
     OS_FSSpec_To_OSSpec(filespec, &spec);
 #endif
+#if MWCCPSP && !MWCCPSP_MAC_FILESPEC
+    // 3.0.1 (0x4291A0): CWSetModDate passes the shell's own time
+    if (!moddate || !memcmp(moddate, "\0\0\0\0\0\0\0\0", 8)) {
+        OS_GetTime(&mdtm);
+    } else {
+        mdtm = *(OSTime*)moddate;
+    }
+#else
     if (!moddate || !*moddate) {
         OS_GetTime(&mdtm);
     } else {
         OS_MacToTime(*moddate, &mdtm);
     }
+#endif
 
     for (idx = 0; idx < Files_Count(&gTarg->files); idx++) {
         file = Files_GetFile(&gTarg->files, idx);

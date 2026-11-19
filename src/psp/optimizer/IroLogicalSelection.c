@@ -155,6 +155,63 @@ void func_0054F380(ENode** ep, ENodeWalkFunc func, int flags, void* arg) {
 #include "compiler/IroLinearForm.h"
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -32 // b145 asserts
+#if MWCCPS2 // b210/b198 (0x565140): the kinds without children listed, the rest fatal
+void func_00552F00(
+    IROLinear* nd, void (*func)(IROLinear* linear, Boolean isEntry, void* arg), void* arg
+) {
+    int i;
+
+    switch (nd->type) {
+        case IROLinearGotoExpr:
+            func(nd->u.monadic, TRUE, arg);
+            break;
+        case IROLinearOp1Arg:
+        case IROLinearBeginCatch:
+        case IROLinearEndCatch:
+        case IROLinearEndCatchDtor:
+            func(nd->u.monadic, TRUE, arg);
+            break;
+        case IROLinearOp2Arg:
+            func(nd->u.diadic.left, TRUE, arg);
+            func(nd->u.diadic.right, TRUE, arg);
+            break;
+        case IROLinearOp3Arg:
+            func(nd->u.args3.a, TRUE, arg);
+            func(nd->u.args3.b, TRUE, arg);
+            func(nd->u.args3.c, TRUE, arg);
+            break;
+        case IROLinearFunccall:
+            func(nd->u.funccall.callee, TRUE, arg);
+            for (i = 0; i < nd->u.funccall.argCount; i++) {
+                func(nd->u.funccall.args[i], TRUE, arg);
+            }
+            break;
+        case IROLinearIf:
+        case IROLinearIfNot:
+            func(nd->u.label.cond, TRUE, arg);
+            break;
+        case IROLinearReturn:
+            if (nd->u.monadic) {
+                func(nd->u.monadic, TRUE, arg);
+            }
+            break;
+        case IROLinearSwitch:
+            func(nd->u.swtch.cond, TRUE, arg);
+            break;
+        case IROLinearNop:
+        case IROLinearOperand:
+        case IROLinearScope:
+        case IROLinearGoto:
+        case IROLinearLabel:
+        case IROLinearAsm:
+        case IROLinearEnd:
+            break;
+        default:
+            CError_FATAL(2581);
+            break;
+    }
+}
+#else
 void func_00552F00(
     IROLinear* nd, void (*func)(IROLinear* linear, Boolean isEntry, void* arg), void* arg
 ) {
@@ -205,6 +262,7 @@ void func_00552F00(
             break;
     }
 }
+#endif
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -563,6 +621,9 @@ Type* func_0055A620(Type* type) {
 }
 
 // --- IroTransform.c -------------------------------------------------------
+#if MWCCPS2
+#line 624 "IroTransform.c" // b210 and b198 name it in their asserts
+#endif
 
 typedef struct BitTestValue {
     CInt64 value;
@@ -747,6 +808,35 @@ Boolean func_0056DE70(BitTestSet* set, ENode* expr, CInt64 value) {
 // values after the others
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -19 // b145 asserts
+#if MWCCPS2 // b210/b198 (0x582A40): the span in a local, the body under its test
+void func_0056DD80(BitTestSet* set) {
+    BitTestValue* first;
+    BitTestValue* last;
+    CInt64 tmp;
+    CInt64 span;
+
+    CError_ASSERT(4911, !set->wrapped);
+    span = CInt64_Sub(set->max, set->min);
+    if (CInt64_Less(span, cint64_zero)) {
+        set->wrapped = TRUE;
+        tmp = set->min;
+        set->min = set->max;
+        set->max = tmp;
+        last = set->values;
+        while (last->next) {
+            last = last->next;
+        }
+        first = set->values;
+        while (CInt64_Less(first->value, cint64_zero)) {
+            last->next = first;
+            last = first;
+            first = first->next;
+            set->values = first;
+            last->next = NULL;
+        }
+    }
+}
+#else
 void func_0056DD80(BitTestSet* set) {
     CInt64 tmp;
     BitTestValue* last;
@@ -770,6 +860,7 @@ void func_0056DD80(BitTestSet* set) {
         last->next = NULL;
     }
 }
+#endif
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -998,24 +1089,40 @@ extern Type* func_0055C960(void); // IroType.c: the type of a comparison
 // the comparisons of the same expression to its left; *rest is what is left
 // of the chain (NULL when all of it was taken)
 ENode* func_0056D580(ENode* op, ENode** rest, ENode* expr, CInt64 value) {
+#if MWCCPS2 // b210/b198: the set zeroed by its initializer
+    BitTestSet set = {0};
+#else
     BitTestSet set;
+#endif
     ENode* parent;
     ENode* node;
     ENode* test;
     Boolean wide;
 
+#if !MWCCPS2
     memset(&set, 0, sizeof(set));
+#endif
 #if MWCCPSP_NATIVE
     wide = FALSE; // left unset by 3.0.1 when the 64-bit form is not allowed
 #endif
     if (func_0054F2F0(expr)) {
         return op;
     }
+#if MWCCPS2
+    set.op = op;
+    set.min = set.max = value;
+    set.expr = expr;
+#else
     set.op = op;
     set.expr = expr;
     set.min = set.max = value;
+#endif
     set.values = lalloc(sizeof(BitTestValue));
+#if MWCCPS2
+    set.values->value = set.min;
+#else
     set.values->value = value;
+#endif
     set.values->next = NULL;
     set.count = 1;
     *rest = op;
@@ -1047,6 +1154,7 @@ ENode* func_0056D580(ENode* op, ENode** rest, ENode* expr, CInt64 value) {
         test = makediadicnode(parent->data.diadic.left, test, set.op->type);
 #if MWCCPS2
         test->rtype = func_0055C960(); // b210 calls IroType.c's copy
+        return test;
 #else
         test->rtype = CParser_GetBoolType();
 #endif
@@ -1100,10 +1208,18 @@ static Boolean CollapseLogicalSelection(ENode** ep, int phase, void* arg) {
 // 0x56D490
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -19 // b145 asserts
+#if MWCCPS2 // b210/b198: the list walked in a local
+void IRO_CollapseLogicalSelections(Statement* statements) {
+    Statement* stmt;
+    Statement* next;
+
+    for (stmt = statements; stmt; stmt = next) {
+#else
 void IRO_CollapseLogicalSelections(Statement* stmt) {
     Statement* next;
 
     for (; stmt; stmt = next) {
+#endif
         next = stmt->next;
         switch (stmt->type) {
             case 4:

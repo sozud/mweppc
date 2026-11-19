@@ -5,6 +5,7 @@
 #include "driver/MacSpecs.h"
 #include "driver/MsDos.h"
 #include "driver/oslib.h"
+#include <string.h>
 
 #pragma auto_inline off
 
@@ -54,4 +55,58 @@ int func_00415710(CWPluginContext context, const OSSpec* spec, void* pluginspec)
 // 0x415730: a plugin's spec for the shell
 int func_00415730(CWPluginContext context, const void* pluginspec, OSSpec* spec) {
     return func_004246A0(func_00424690(context), pluginspec, spec);
+}
+
+extern void func_004247F0(SInt32 api, const OSTime* time, void* filetime);
+
+// 0x415750: a shell time for this plugin
+void func_00415750(CWPluginContext context, OSTime time, void* filetime) {
+    func_004247F0(func_00424690(context), &time, filetime);
+}
+
+extern void func_00424750(SInt32 api, const void* filetime, OSTime* time);
+
+// 0x415770: a plugin's time for the shell
+void func_00415770(CWPluginContext context, const void* filetime, OSTime* time) {
+    func_00424750(func_00424690(context), filetime, time);
+}
+
+// 0x424750: a plugin's file time as an OSTime (none or zero: now)
+void func_00424750(SInt32 api, const void* filetime, OSTime* time) {
+    switch (api) {
+        case 1:
+            if (!filetime || !memcmp(filetime, "\0\0\0\0\0\0\0\0", 8)) {
+                OS_GetTime(time);
+            } else {
+                OS_MacToTime(*(const UInt32*)filetime, time);
+            }
+            return;
+        case 2:
+            if (!filetime || !memcmp(filetime, "\0\0\0\0\0\0\0\0", 8)) {
+                OS_GetTime(time);
+            } else {
+                time->dwLowDateTime = ((const OSTime*)filetime)->dwLowDateTime;
+                time->dwHighDateTime = ((const OSTime*)filetime)->dwHighDateTime;
+            }
+            return;
+        default:
+            CLFatalError("Unsupported CWPLUGIN_API %d\n", api);
+            return;
+    }
+}
+
+// 0x4247F0: an OSTime as a plugin's file time
+void func_004247F0(SInt32 api, const OSTime* time, void* filetime) {
+    switch (api) {
+        case 1:
+            OS_TimeToMac(*time, (UInt32*)filetime);
+            return;
+        case 2:
+            ((OSTime*)filetime)->dwLowDateTime = time->dwLowDateTime;
+            ((OSTime*)filetime)->dwHighDateTime = time->dwHighDateTime;
+            return;
+        default:
+            CLFatalError("Unsupported CWPLUGIN_API %d\n", api);
+            return;
+    }
 }

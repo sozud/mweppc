@@ -150,6 +150,61 @@ Boolean func_0056E480(ENode* expr) {
 }
 
 // 0x56E370: TransformExprTree2 (x & c1 & c2 chains over one variable)
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // 3.0.1: a switch over the node kinds
+void func_0056E370(ENode* expr) {
+    ENodeList* list;
+
+    switch (expr->type) {
+ENODE_CASE_MONADIC:
+        func_0056E370(expr->data.monadic);
+        break;
+
+ENODE_CASE_DIADIC_ALL:
+    case EMIN:
+    case EMAX:
+    case EPOINTERSTAR:
+    case EDOTSTAR:
+        func_0056E370(expr->data.diadic.left);
+        func_0056E370(expr->data.diadic.right);
+        break;
+
+        case EFUNCCALL:
+        case EFUNCCALLP:
+            func_0056E370(expr->data.funccall.funcref);
+            for (list = expr->data.funccall.args; list; list = list->next) {
+                func_0056E370(list->node);
+            }
+            break;
+
+        case ECOND:
+            func_0056E370(expr->data.cond.cond);
+            func_0056E370(expr->data.cond.expr1);
+            func_0056E370(expr->data.cond.expr2);
+            break;
+
+        case ENULLCHECK:
+            func_0056E370(expr->data.nullcheck.nullcheckexpr);
+            func_0056E370(expr->data.nullcheck.condexpr);
+            break;
+        default:
+            break;
+    }
+
+    if (ENODE_IS3(expr, EAND, EOR, EXOR) &&
+        (expr->type == expr->data.diadic.left->type ||
+         expr->type == expr->data.diadic.right->type)) {
+        data_00608AFC = NULL;
+        data_00608AE8 = expr->type;
+        data_00608AF0 = TRUE;
+        data_00608AEC = NULL;
+        if (func_0056E480(expr)) {
+            expr->data.diadic.left = data_00608AEC;
+            expr->data.diadic.right->type = EINTCONST;
+            expr->data.diadic.right->data.intval = data_00608AF4;
+        }
+    }
+}
+#else
 void func_0056E370(ENode* expr) {
     ENodeList* list;
     UInt8 t = expr->type;
@@ -187,6 +242,7 @@ void func_0056E370(ENode* expr) {
         }
     }
 }
+#endif
 
 // 0x56E690: FoldConstantsinAssociativeExprs
 #if MWCCPS2 && !MWCC_CORE
@@ -383,6 +439,49 @@ void func_0056E690(ENode* expr) {
 #endif
 
 // 0x56E5E0: TransformExprTree1 (fold constants bottom-up)
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // 3.0.1: a switch over the node kinds
+void func_0056E5E0(ENode* expr) {
+    ENodeList* list;
+
+    switch (expr->type) {
+ENODE_CASE_MONADIC:
+        func_0056E5E0(expr->data.monadic);
+        break;
+
+ENODE_CASE_DIADIC_ALL:
+    case EMIN:
+    case EMAX:
+    case EPOINTERSTAR:
+    case EDOTSTAR:
+        func_0056E5E0(expr->data.diadic.left);
+        func_0056E5E0(expr->data.diadic.right);
+        break;
+
+        case EFUNCCALL:
+        case EFUNCCALLP:
+            func_0056E5E0(expr->data.funccall.funcref);
+            for (list = expr->data.funccall.args; list; list = list->next) {
+                func_0056E5E0(list->node);
+            }
+            break;
+
+        case ECOND:
+            func_0056E5E0(expr->data.cond.cond);
+            func_0056E5E0(expr->data.cond.expr1);
+            func_0056E5E0(expr->data.cond.expr2);
+            break;
+
+        case ENULLCHECK:
+            func_0056E5E0(expr->data.nullcheck.nullcheckexpr);
+            func_0056E5E0(expr->data.nullcheck.condexpr);
+            break;
+        default:
+            break;
+    }
+
+    func_0056E690(expr);
+}
+#else
 void func_0056E5E0(ENode* expr) {
     ENodeList* list;
     UInt8 t = expr->type;
@@ -408,6 +507,7 @@ void func_0056E5E0(ENode* expr) {
 
     func_0056E690(expr);
 }
+#endif
 
 // 0x56EEC0: an EADD tree with a volatile-typed sum in it
 Boolean func_0056EEC0(ENode* expr) {
@@ -806,6 +906,49 @@ ENode* func_0056EA70(ENode* expr) {
 }
 
 // 0x56E9A0: TransformExprTree
+#if MWCCPSP && !(MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52) // 3.0.1: a switch over the node kinds
+ENode* func_0056E9A0(ENode* expr) {
+    ENodeList* list;
+
+    switch (expr->type) {
+ENODE_CASE_MONADIC:
+        expr->data.monadic = func_0056E9A0(expr->data.monadic);
+        break;
+
+ENODE_CASE_DIADIC_ALL:
+    case EMIN:
+    case EMAX:
+    case EPOINTERSTAR:
+    case EDOTSTAR:
+        expr->data.diadic.left = func_0056E9A0(expr->data.diadic.left);
+        expr->data.diadic.right = func_0056E9A0(expr->data.diadic.right);
+        break;
+
+        case EFUNCCALL:
+        case EFUNCCALLP:
+            func_0056E9A0(expr->data.funccall.funcref);
+            for (list = expr->data.funccall.args; list; list = list->next) {
+                func_0056E9A0(list->node);
+            }
+            break;
+
+        case ECOND:
+            func_0056E9A0(expr->data.cond.cond);
+            func_0056E9A0(expr->data.cond.expr1);
+            func_0056E9A0(expr->data.cond.expr2);
+            break;
+
+        case ENULLCHECK:
+            func_0056E9A0(expr->data.nullcheck.nullcheckexpr);
+            func_0056E9A0(expr->data.nullcheck.condexpr);
+            break;
+        default:
+            break;
+    }
+
+    return func_0056EA70(expr);
+}
+#else
 ENode* func_0056E9A0(ENode* expr) {
     ENodeList* list;
     UInt8 t = expr->type;
@@ -831,6 +974,7 @@ ENode* func_0056E9A0(ENode* expr) {
 
     return func_0056EA70(expr);
 }
+#endif
 
 // 0x56E0A0
 void IRO_TransformTree(Statement* statements) {

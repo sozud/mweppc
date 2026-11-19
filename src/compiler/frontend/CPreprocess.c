@@ -20,12 +20,20 @@ void CPrep_PreprocessDumpNewLine(void) {
     }
 }
 
+#if MWCCPSP && MWCC_CORE != MWCC_CORE_B52
+extern const char* COS_GetFileName(const char* path); // COSToolsCLT.c
+#define CPREP_DUMP_301 1 // 3.0.1: the name from COS_GetFileName, a spec's into linebuf
+#else
+#define CPREP_DUMP_301 0
+#endif
 void CPrep_PreprocessDumpFileInfo(Boolean newLine) {
     char linebuf[512];
     int size;
+#if !CPREP_DUMP_301
     SInt32 tmp32;
     unsigned char filename[256];
     SInt16 tmp16;
+#endif
 
     if (pplist.data && filesp >= 0) {
         if (pplist.size > 0 &&
@@ -59,6 +67,15 @@ void CPrep_PreprocessDumpFileInfo(Boolean newLine) {
                 AppendGListData(&pplist, linebuf, strlen(linebuf));
             }
         } else {
+#if CPREP_DUMP_301
+            if (prep_file->nameNode) {
+                const char* name = COS_GetFileName(prep_file->nameNode);
+                AppendGListData(&pplist, name, strlen(name));
+            } else {
+                COS_FileGetFSSpecInfo(&prep_file->textfile, NULL, 0, linebuf, sizeof(linebuf));
+                AppendGListData(&pplist, linebuf, strlen(linebuf));
+            }
+#else
             if (prep_file->nameNode) {
 #if MWCCPSP
                 char* work = prep_file->nameNode + strlen(prep_file->nameNode);
@@ -79,6 +96,7 @@ void CPrep_PreprocessDumpFileInfo(Boolean newLine) {
 #endif
                 AppendGListData(&pplist, &filename[1], filename[0]);
             }
+#endif
         }
 
         size = sprintf(linebuf, "\"\t/* stack depth %ld */", (long)filesp);
@@ -216,6 +234,539 @@ void CPrep_PreprocessDumpDirectiveEnd(void) {
     }
 }
 
+#if MWCCPS2 // b210/b198 (0x4D39A0): pplist set up by the caller; spaces between tokens that
+// would run together; asm blocks keep the comment options
+void CPrep_Preprocess(void) {
+    int innertoken;
+    short token;
+    short lasttoken;
+    char startToken;
+    char endToken;
+    int depth;
+    Boolean save_asmsemicolcomment;
+    Boolean save_asmpoundcomment;
+    Boolean save_cplusplus;
+    char* p;
+
+    startToken = 0;
+    lasttoken = 0;
+
+    nlflag = FALSE;
+    spaceskip = FALSE;
+
+    if ((token = lex())) {
+        do {
+            if (nlflag) {
+                if (!copts.line_prepdump) {
+                    AppendGListData(&pplist, "\r\n", 2);
+                }
+            } else if (spaceskip) {
+                AppendGListByte(&pplist, ' ');
+            } else if (token == TK_COLON_COLON && lasttoken == '<') {
+                AppendGListByte(&pplist, ' ');
+            } else if (lasttoken == TK_IDENTIFIER &&
+                       (token == TK_IDENTIFIER || token == TK_INTCONST || token == TK_FLOATCONST)) {
+                AppendGListByte(&pplist, ' ');
+            }
+
+            while (1) {
+                switch ((innertoken = token)) {
+                    case TK_INTCONST:
+                    case TK_FLOATCONST:
+                        if (tokenstacklevel > 0) {
+                            p = macropos;
+                        } else {
+                            p = prep_file_start + ts_current[-1].tokenoffset;
+                        }
+                        AppendGListData(&pplist, p, pos - p);
+                        break;
+
+                    case TK_IDENTIFIER:
+                        AppendGListData(&pplist, tkidentifier->name, strlen(tkidentifier->name));
+                        break;
+
+                    case TK_AUTO:
+                        AppendGListData(&pplist, "auto", 4);
+                        break;
+                    case TK_REGISTER:
+                        AppendGListData(&pplist, "register", 8);
+                        break;
+                    case TK_STATIC:
+                        AppendGListData(&pplist, "static", 6);
+                        break;
+                    case TK_EXTERN:
+                        AppendGListData(&pplist, "extern", 6);
+                        break;
+                    case TK_TYPEDEF:
+                        AppendGListData(&pplist, "typedef", 7);
+                        break;
+                    case TK_INLINE:
+                        AppendGListData(&pplist, "inline", 6);
+                        break;
+                    case TK_VOID:
+                        AppendGListData(&pplist, "void", 4);
+                        break;
+                    case TK_CHAR:
+                        AppendGListData(&pplist, "char", 4);
+                        break;
+                    case TK_SHORT:
+                        AppendGListData(&pplist, "short", 5);
+                        break;
+                    case TK_INT:
+                        AppendGListData(&pplist, "int", 3);
+                        break;
+                    case TK_LONG:
+                        AppendGListData(&pplist, "long", 4);
+                        break;
+                    case TK_FLOAT:
+                        AppendGListData(&pplist, "float", 5);
+                        break;
+                    case TK_DOUBLE:
+                        AppendGListData(&pplist, "double", 6);
+                        break;
+                    case TK_SIGNED:
+                        AppendGListData(&pplist, "signed", 6);
+                        break;
+                    case TK_UNSIGNED:
+                        AppendGListData(&pplist, "unsigned", 8);
+                        break;
+                    case TK_STRUCT:
+                        AppendGListData(&pplist, "struct", 6);
+                        break;
+                    case TK_UNION:
+                        AppendGListData(&pplist, "union", 5);
+                        break;
+                    case TK_ENUM:
+                        AppendGListData(&pplist, "enum", 4);
+                        break;
+                    case TK_CLASS:
+                        AppendGListData(&pplist, "class", 5);
+                        break;
+                    case TK_CONST:
+                        AppendGListData(&pplist, "const", 5);
+                        break;
+                    case TK_VOLATILE:
+                        AppendGListData(&pplist, "volatile", 8);
+                        break;
+                    case TK_PASCAL:
+                        AppendGListData(&pplist, "pascal", 6);
+                        break;
+                    case TK_UU_FAR:
+                        AppendGListData(&pplist, "__far", 5);
+                        break;
+                    case TK_ONEWAY:
+                        AppendGListData(&pplist, "oneway", 6);
+                        break;
+                    case TK_IN:
+                        AppendGListData(&pplist, "in", 2);
+                        break;
+                    case TK_OUT:
+                        AppendGListData(&pplist, "out", 3);
+                        break;
+                    case TK_INOUT:
+                        AppendGListData(&pplist, "inout", 5);
+                        break;
+                    case TK_BYCOPY:
+                        AppendGListData(&pplist, "bycopy", 6);
+                        break;
+                    case TK_BYREF:
+                        AppendGListData(&pplist, "byref", 5);
+                        break;
+
+                    case TK_ASM:
+                        AppendGListData(&pplist, "asm", 3);
+                        startToken = endToken = 0;
+                        token = lex();
+                        if (token == TK_VOLATILE) {
+                            AppendGListByte(&pplist, ' ');
+                            AppendGListData(&pplist, "volatile", 8);
+                            token = lex();
+                        }
+                        if (token) {
+                            if (token < ' ' || token > 255) {
+                                AppendGListByte(&pplist, ' ');
+                                continue;
+                            }
+                            AppendGListByte(&pplist, token);
+
+                            if (token == '(') {
+                                startToken = '(';
+                                endToken = ')';
+                            } else if (token == '{') {
+                                startToken = '{';
+                                endToken = '}';
+                            } else {
+                                continue;
+                            }
+
+                            cprep_nostring = TRUE;
+                            in_assembler = TRUE;
+                            save_asmsemicolcomment = copts.asmsemicolcomment;
+                            save_asmpoundcomment = copts.asmpoundcomment;
+                            save_cplusplus = copts.cplusplus;
+                            depth = 1;
+
+                            token = lex();
+                            if (token == '"') {
+                                AppendGListByte(&pplist, token);
+                                copts.cplusplus = FALSE;
+                                break;
+                            }
+                            if (token) {
+                                cprep_nostring = FALSE;
+                                continue;
+                            }
+                        }
+                        break;
+
+                    case TK_CASE:
+                        AppendGListData(&pplist, "case", 4);
+                        break;
+                    case TK_DEFAULT:
+                        AppendGListData(&pplist, "default", 7);
+                        break;
+                    case TK_IF:
+                        AppendGListData(&pplist, "if", 2);
+                        break;
+                    case TK_ELSE:
+                        AppendGListData(&pplist, "else", 4);
+                        break;
+                    case TK_SWITCH:
+                        AppendGListData(&pplist, "switch", 6);
+                        break;
+                    case TK_WHILE:
+                        AppendGListData(&pplist, "while", 5);
+                        break;
+                    case TK_DO:
+                        AppendGListData(&pplist, "do", 2);
+                        break;
+                    case TK_FOR:
+                        AppendGListData(&pplist, "for", 3);
+                        break;
+                    case TK_GOTO:
+                        AppendGListData(&pplist, "goto", 4);
+                        break;
+                    case TK_CONTINUE:
+                        AppendGListData(&pplist, "continue", 8);
+                        break;
+                    case TK_BREAK:
+                        AppendGListData(&pplist, "break", 5);
+                        break;
+                    case TK_RETURN:
+                        AppendGListData(&pplist, "return", 6);
+                        break;
+                    case TK_SIZEOF:
+                        AppendGListData(&pplist, "sizeof", 6);
+                        break;
+                    case TK_CATCH:
+                        AppendGListData(&pplist, "catch", 5);
+                        break;
+                    case TK_DELETE:
+                        AppendGListData(&pplist, "delete", 6);
+                        break;
+                    case TK_FRIEND:
+                        AppendGListData(&pplist, "friend", 6);
+                        break;
+                    case TK_NEW:
+                        AppendGListData(&pplist, "new", 3);
+                        break;
+                    case TK_OPERATOR:
+                        AppendGListData(&pplist, "operator", 8);
+                        break;
+                    case TK_PRIVATE:
+                        AppendGListData(&pplist, "private", 7);
+                        break;
+                    case TK_PROTECTED:
+                        AppendGListData(&pplist, "protected", 9);
+                        break;
+                    case TK_PUBLIC:
+                        AppendGListData(&pplist, "public", 6);
+                        break;
+                    case TK_TEMPLATE:
+                        AppendGListData(&pplist, "template", 8);
+                        break;
+                    case TK_THIS:
+                        AppendGListData(&pplist, "this", 4);
+                        break;
+                    case TK_THROW:
+                        AppendGListData(&pplist, "throw", 5);
+                        break;
+                    case TK_TRY:
+                        AppendGListData(&pplist, "try", 3);
+                        break;
+                    case TK_VIRTUAL:
+                        AppendGListData(&pplist, "virtual", 7);
+                        break;
+                    case TK_INHERITED:
+                        AppendGListData(&pplist, "inherited", 9);
+                        break;
+                    case TK_CONST_CAST:
+                        AppendGListData(&pplist, "const_cast", 10);
+                        break;
+                    case TK_DYNAMIC_CAST:
+                        AppendGListData(&pplist, "dynamic_cast", 12);
+                        break;
+                    case TK_EXPLICIT:
+                        AppendGListData(&pplist, "explicit", 8);
+                        break;
+                    case TK_MUTABLE:
+                        AppendGListData(&pplist, "mutable", 7);
+                        break;
+                    case TK_NAMESPACE:
+                        AppendGListData(&pplist, "namespace", 9);
+                        break;
+                    case TK_REINTERPRET_CAST:
+                        AppendGListData(&pplist, "reinterpret_cast", 16);
+                        break;
+                    case TK_STATIC_CAST:
+                        AppendGListData(&pplist, "static_cast", 11);
+                        break;
+                    case TK_USING:
+                        AppendGListData(&pplist, "using", 5);
+                        break;
+                    case TK_WCHAR_T:
+                        AppendGListData(&pplist, "wchar_t", 7);
+                        break;
+                    case TK_TYPENAME:
+                        AppendGListData(&pplist, "typename", 8);
+                        break;
+                    case TK_TRUE:
+                        AppendGListData(&pplist, "true", 4);
+                        break;
+                    case TK_FALSE:
+                        AppendGListData(&pplist, "false", 5);
+                        break;
+                    case TK_TYPEID:
+                        AppendGListData(&pplist, "typeid", 6);
+                        break;
+                    case TK_EXPORT:
+                        AppendGListData(&pplist, "export", 6);
+                        break;
+                    case TK_UU_STDCALL:
+                        AppendGListData(&pplist, "__stdcall", 9);
+                        break;
+                    case TK_UU_CDECL:
+                        AppendGListData(&pplist, "__cdecl", 7);
+                        break;
+                    case TK_UU_FASTCALL:
+                        AppendGListData(&pplist, "__fastcall", 10);
+                        break;
+                    case TK_UU_3DCALL:
+                        AppendGListData(&pplist, "__3dcall", 8);
+                        break;
+                    case TK_UU_SSECALL:
+                        AppendGListData(&pplist, "__ssecall", 9);
+                        break;
+                    case TK_UU_SSE2CALL:
+                        AppendGListData(&pplist, "__sse2call", 10);
+                        break;
+                    case TK_UU_DECLSPEC:
+                        AppendGListData(&pplist, "__declspec", 10);
+                        break;
+                    case TK_MULT_ASSIGN:
+                        AppendGListData(&pplist, "*=", 2);
+                        break;
+                    case TK_DIV_ASSIGN:
+                        AppendGListData(&pplist, "/=", 2);
+                        break;
+                    case TK_MOD_ASSIGN:
+                        AppendGListData(&pplist, "%=", 2);
+                        break;
+                    case TK_ADD_ASSIGN:
+                        AppendGListData(&pplist, "+=", 2);
+                        break;
+                    case TK_SUB_ASSIGN:
+                        AppendGListData(&pplist, "-=", 2);
+                        break;
+                    case TK_SHL_ASSIGN:
+                        AppendGListData(&pplist, "<<=", 3);
+                        break;
+                    case TK_SHR_ASSIGN:
+                        AppendGListData(&pplist, ">>=", 3);
+                        break;
+                    case TK_AND_ASSIGN:
+                        AppendGListData(&pplist, "&=", 2);
+                        break;
+                    case TK_XOR_ASSIGN:
+                        AppendGListData(&pplist, "^=", 2);
+                        break;
+                    case TK_OR_ASSIGN:
+                        AppendGListData(&pplist, "|=", 2);
+                        break;
+                    case TK_LOGICAL_OR:
+                        AppendGListData(&pplist, "||", 2);
+                        break;
+                    case TK_LOGICAL_AND:
+                        AppendGListData(&pplist, "&&", 2);
+                        break;
+                    case TK_LOGICAL_EQ:
+                        AppendGListData(&pplist, "==", 2);
+                        break;
+                    case TK_LOGICAL_NE:
+                        AppendGListData(&pplist, "!=", 2);
+                        break;
+                    case TK_LESS_EQUAL:
+                        AppendGListData(&pplist, "<=", 2);
+                        break;
+                    case TK_GREATER_EQUAL:
+                        AppendGListData(&pplist, ">=", 2);
+                        break;
+                    case TK_SHL:
+                        AppendGListData(&pplist, "<<", 2);
+                        break;
+                    case TK_SHR:
+                        AppendGListData(&pplist, ">>", 2);
+                        break;
+                    case TK_INCREMENT:
+                        AppendGListData(&pplist, "++", 2);
+                        break;
+                    case TK_DECREMENT:
+                        AppendGListData(&pplist, "--", 2);
+                        break;
+                    case TK_ARROW:
+                        AppendGListData(&pplist, "->", 2);
+                        break;
+                    case TK_ELLIPSIS:
+                        AppendGListData(&pplist, "...", 3);
+                        break;
+                    case TK_DOT_STAR:
+                        AppendGListData(&pplist, ".*", 2);
+                        break;
+                    case TK_ARROW_STAR:
+                        AppendGListData(&pplist, "->*", 3);
+                        break;
+                    case TK_COLON_COLON:
+                        AppendGListData(&pplist, "::", 2);
+                        break;
+                    case TK_AT_INTERFACE:
+                        AppendGListData(&pplist, "@interface", 10);
+                        break;
+                    case TK_AT_IMPLEMENTATION:
+                        AppendGListData(&pplist, "@implementation", 15);
+                        break;
+                    case TK_AT_PROTOCOL:
+                        AppendGListData(&pplist, "@protocol", 9);
+                        break;
+                    case TK_AT_END:
+                        AppendGListData(&pplist, "@end", 4);
+                        break;
+                    case TK_AT_PRIVATE:
+                        AppendGListData(&pplist, "@private", 8);
+                        break;
+                    case TK_AT_PROTECTED:
+                        AppendGListData(&pplist, "@protected", 10);
+                        break;
+                    case TK_AT_PUBLIC:
+                        AppendGListData(&pplist, "@public", 7);
+                        break;
+                    case TK_AT_CLASS:
+                        AppendGListData(&pplist, "@class", 6);
+                        break;
+                    case TK_AT_SELECTOR:
+                        AppendGListData(&pplist, "@selector", 9);
+                        break;
+                    case TK_AT_ENCODE:
+                        AppendGListData(&pplist, "@encode", 7);
+                        break;
+                    case TK_AT_DEFS:
+                        AppendGListData(&pplist, "@defs", 5);
+                        break;
+                    case TK_SELF:
+                        AppendGListData(&pplist, "self", 4);
+                        break;
+                    case TK_SUPER:
+                        AppendGListData(&pplist, "super", 5);
+                        break;
+                    case TK_BOOL:
+                        if (!copts.cplusplus && copts.c9x) {
+                            AppendGListData(&pplist, "_Bool", 5);
+                        } else {
+                            AppendGListData(&pplist, "bool", 4);
+                        }
+                        break;
+                    case TK_RESTRICT:
+                        if (copts.c9x) {
+                            AppendGListData(&pplist, "restrict", 8);
+                        } else {
+                            AppendGListData(&pplist, "__restrict", 10);
+                        }
+                        break;
+                    case TK_CUSTOM_TYPE_113 /* __fixed__8x8 */:
+                        AppendGListData(&pplist, "__fixed__8x8", 12);
+                        break;
+                    case TK_CUSTOM_TYPE_114 /* __int128 */:
+                        AppendGListData(&pplist, "__int128", 8);
+                        break;
+                    case TK_UU_TYPEOF_UU:
+                        AppendGListData(&pplist, "__typeof__", 10);
+                        break;
+                    case TK_UU_ATTRIBUTE_UU:
+                        AppendGListData(&pplist, "__attribute__", 13);
+                        break;
+                    case TK_UU_ALIGNOF_UU:
+                        AppendGListData(&pplist, "__alignof__", 11);
+                        break;
+                    case TK_UU_UUIDOF:
+                        AppendGListData(&pplist, "__uuidof", 8);
+                        break;
+                    case TK_U_COMPLEX:
+                        AppendGListData(&pplist, "_Complex", 8);
+                        break;
+                    case TK_U_IMAGINARY:
+                        AppendGListData(&pplist, "_Imaginary", 10);
+                        break;
+
+                    case TK_STRING:
+                        if (ispascalstring) {
+                            AppendGListData(&pplist, "\"\\p", 3);
+                            CPrep_DumpString((UInt8*)tkstring + 1, tksize - 1);
+                        } else {
+                            AppendGListByte(&pplist, '"');
+                            CPrep_DumpString((UInt8*)tkstring, tksize - 1);
+                        }
+                        AppendGListByte(&pplist, '"');
+                        break;
+
+                    case TK_STRING_WIDE:
+                        AppendGListData(&pplist, "L\"", 2);
+                        CPrep_DumpWString((UInt16*)tkstring, (tksize / stwchar.size) - 1);
+                        AppendGListByte(&pplist, '"');
+                        break;
+
+                    default:
+                        if (cprep_nostring) {
+                            if (innertoken == startToken) {
+                                depth++;
+                            } else if (innertoken == endToken) {
+                                if (--depth == 0) {
+                                    cprep_nostring = FALSE;
+                                    in_assembler = FALSE;
+                                    copts.cplusplus = save_cplusplus;
+                                    copts.asmsemicolcomment = save_asmsemicolcomment;
+                                    copts.asmpoundcomment = save_asmpoundcomment;
+                                }
+                            }
+                        }
+                        if (token >= 32 && token <= 255) {
+                            AppendGListByte(&pplist, token);
+                        } else {
+                            CError_FATAL(656);
+                        }
+                }
+                break;
+            }
+
+            CPrep_TokenStreamFlush();
+            nlflag = FALSE;
+            spaceskip = FALSE;
+            lasttoken = token;
+        } while ((token = lex()));
+    }
+
+    AppendGListData(&pplist, "\r\n", 3);
+    COS_ResizeHandle(pplist.data, pplist.size);
+}
+#else
 void CPrep_Preprocess(void) {
     int innertoken;
     short token;
@@ -742,3 +1293,4 @@ void CPrep_Preprocess(void) {
     AppendGListByte(&pplist, 0);
     COS_ResizeHandle(pplist.data, pplist.size);
 }
+#endif

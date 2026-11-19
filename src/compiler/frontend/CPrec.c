@@ -29,6 +29,7 @@
 #include "driver/DropInCompilerLinker.h"
 #include "driver/Files.h"
 #include "driver/oslib.h"
+#include "compiler/CTemplateTools.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -294,6 +295,10 @@ static AddrPatch* CPrec_NewAddrPatch(void* addr, void* value) {
     return patch;
 }
 
+#if MWCCPS2
+extern TypeIntegral ps2_int128_5E5EF4; // 0x5E5EF4 in b210
+#endif
+
 static void CPrec_SetupBuiltInArray(void) {
     int filled;
     int total;
@@ -377,6 +382,9 @@ static void CPrec_SetupBuiltInArray(void) {
         REG_BUILTIN(&stvectorfloat);
         REG_BUILTIN(&stvectorpixel);
         REG_BUILTIN(&stvec2x32float);
+#if MWCCPS2
+        REG_BUILTIN(&ps2_int128_5E5EF4); // the PS2 compilers' 16-byte integer type
+#endif
 
         if (counting) {
             array = lalloc(sizeof(void*) * total);
@@ -464,7 +472,11 @@ static void CPrec_NewPointerPatch(void* src, void* ptr) {
 #endif
 #endif
 static void CPrec_ExistingPointerPatch(void* src, void* ptr) {
+#if MWCCPSP_NATIVE || (MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52)
+    void* key = ptr; // (b52's code; the native build's pointers are 64-bit)
+#else
     SInt32 key = (SInt32)ptr;
+#endif
     if (cprec_dowrite) {
         AddrPatch* addrPatch;
         Patch* patch;
@@ -579,6 +591,16 @@ static void CPrec_AppendPointer(void* v) {
 static UInt32 CPrec_AppendPointer(void* v) {
     UInt32 offset;
 #endif
+#if MWCCPSP_NATIVE
+    // the native build's records hold its own (64-bit) pointers
+    if (cprec_dowrite) {
+        AppendGListData(&cprec_glist, &v, sizeof(v));
+    }
+#if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
+    offset = cprec_offset;
+#endif
+    cprec_offset += sizeof(v);
+#else
     if (cprec_dowrite) {
         AppendGListLong(&cprec_glist, (SInt32)v);
     }
@@ -586,6 +608,7 @@ static UInt32 CPrec_AppendPointer(void* v) {
     offset = cprec_offset;
 #endif
     cprec_offset += 4;
+#endif
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
     return offset;
 #endif
@@ -760,8 +783,18 @@ static void CPrec_DumpMacroTable(void) {
             CPrec_AppendNamePatch(macro->name);
             CPrec_AppendPointerPatch(macro->text);
             CPrec_AppendWord16(macro->nargs);
+#if MWCCPSP // 3.0.1's Macro has isExpanding first
+            CPrec_AppendByte(macro->isExpanding);
+            CPrec_AppendByte(macro->is_special);
+#else
             CPrec_AppendByte(macro->is_special);
             CPrec_AppendByte(macro->isExpanding);
+#endif
+#if MWCCPSP_NATIVE
+            while (cprec_offset - p < offsetof(Macro, names)) { // the native struct's padding
+                CPrec_AppendByte(0);
+            }
+#endif
 
             for (j = 1; j < (macro->nargs & 0x7FFF); j++) {
                 CPrec_AppendNamePatch(macro->names[j - 1]);
@@ -2370,6 +2403,13 @@ static TypeClass* CPrec_GetTypeClassPatch(TypeClass* tclass) {
     Boolean hasNextTemplInst;
     HashNameNode* name;
 
+#if MWCCPSP
+    // 3.0.1's CPrec_GetTypeClassPatch hands templates and instances straight
+    // here: one already written (they refer to each other) is its patch
+    if ((addrPatch = CPrec_FindAddrPatch(tclass))) {
+        return addrPatch->value;
+    }
+#endif
     first = current = CPrec_AppendAlign();
 
     for (;;) {
@@ -2916,6 +2956,13 @@ static ENode* CPrec_GetExpressionPatch(ENode* expr) {
             );
             break;
         case EOBJREF:
+#if MWCCPSP
+            // 3.0.1's packed inline function bodies name a local by its uid
+            // (CInline.c's ENODE_FLAG_LOCALUID), not by a pointer
+            if (expr->flags & 0x100) {
+                break;
+            }
+#endif
             CPrec_NewPointerPatch(
                 (void*)(p + offsetof(ENode, data.objref)), CPrec_GetObjectPatch(expr->data.objref)
             );
@@ -4604,8 +4651,13 @@ void PrecompilerWrite(void) {
         sprintf(string, str, err);
         CWReportMessage(cparamblkptr->context, NULL, string, NULL, messagetypeError, 0);
     } else {
+#if MWCCPSP
+        OSTime time = {0, 0}; // 3.0.1's plugin file time is a FILETIME (zero: now)
+        CWSetModDate(cparamblkptr->context, &spec, (CWFileTime*)&time, TRUE);
+#else
         CWFileTime time = 0;
         CWSetModDate(cparamblkptr->context, &spec, &time, TRUE);
+#endif
     }
 }
 
@@ -4659,7 +4711,11 @@ static void CPrec_ReadRawBuffer(void) {
 static void CPrec_RelocateRawBuffer(void) {
     UInt8* patches;
     UInt32 offset;
+#if MWCCPSP_NATIVE
+    char* dest; // the native build's pointers (the slots CPrec_NewPointerPatch wrote) are 64-bit
+#else
     UInt32 dest;
+#endif
     UInt8* patch;
     SInt32 count;
     union {
@@ -4679,7 +4735,11 @@ static void CPrec_RelocateRawBuffer(void) {
 
         offset = 0;
         patch = patches;
+#if MWCCPSP_NATIVE
+        dest = (char*)cprec_rawbuffer;
+#else
         dest = (UInt32)cprec_rawbuffer;
+#endif
         do {
             if (!(*patch & 0x80)) {
                 var.b[3] = patch[0];
@@ -4692,7 +4752,11 @@ static void CPrec_RelocateRawBuffer(void) {
                 offset += (SInt8)(*patch << 1);
                 patch++;
             }
+#if MWCCPSP_NATIVE
+            *((char**)(dest + offset)) = dest + (size_t)*((char**)(dest + offset));
+#else
             *((UInt32*)(dest + offset)) += dest;
+#endif
         } while (--count > 0);
 
         freelheap();
@@ -4867,7 +4931,11 @@ void PrecompilerRead(short refnum, void* buffer) {
     base = cprec_rawbuffer;
     index = 0;
     do {
+#if MWCCPSP_NATIVE
+        offset = (SInt32)(size_t)cprec_header->nametable[index]; // pointer-sized entries
+#else
         offset = *offsets;
+#endif
         if (offset != 0) {
             *hashEntries = (HashNameNode*)(base + offset);
         } else {
@@ -4904,7 +4972,11 @@ void PrecompilerRead(short refnum, void* buffer) {
         namespaceBase = cprec_rawbuffer;
         namespaceIndex = 0;
         do {
+#if MWCCPSP_NATIVE
+            namespaceOffset = (SInt32)(size_t)cprec_header->root_nametable[namespaceIndex];
+#else
             namespaceOffset = *namespaceOffsets;
+#endif
             if (namespaceOffset != 0) {
                 *namespaceEntries = (NameSpaceName*)(namespaceBase + namespaceOffset);
             } else {

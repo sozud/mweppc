@@ -65,7 +65,7 @@ Boolean CTempl_CanDeduceFunc(Object* object, TypeFunc* tfunc, TemplArg* args) {
 }
 #if MWCCPSP
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
 // the last argument of b210's CTempl_GetCreateFuncInstance
 #define GCFI_ARG(x) , x
@@ -74,7 +74,7 @@ extern TemplClassInst* CTemplTool_GetTemplClassInst(TypeClass* tclass);
 #endif
 #endif
 
-#if MWCCPS2
+#if MWCCPS2_TEMPL_HEADERS
 // b210's type deduce state as CTempl_GetCreateFuncInstance fills it (0x20
 // bytes; the shared TypeDeduce has the older layout)
 typedef struct TypeDeduce301 {

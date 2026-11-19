@@ -103,6 +103,19 @@ SInt32 func_00462160(char rclass) {
     return count;
 }
 
+#if MWCCPS2
+// b210/b198 (0x46D600): a variable kept in the register it arrived in
+void retain_register(Object* obj, RegClass rclass, short reg) {
+    VarInfo* vi;
+
+    vi = obj->u.var.info;
+    data_0060FEE8[rclass][reg] = 1;
+    vi->flags |= 2;
+    vi->rclass = rclass;
+    vi->reg = reg;
+}
+
+#endif
 void func_004621A0(Object* obj, char rclass) {
     void* vi;
     SInt16 reg;

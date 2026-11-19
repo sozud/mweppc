@@ -3816,11 +3816,7 @@ parsed:
 }
 
 #if MWCCPSP
-extern ENode* func_00543940(void); // const_cast
-extern ENode* func_00544170(void); // dynamic_cast
-extern ENode* func_00543A70(void); // reinterpret_cast
 extern ENode* func_00543CA0(void); // static_cast (CRTTI.c)
-extern ENode* func_005446E0(void); // typeid
 static ENode* CExpr_Subscript301(ENode* expr, ENode* index);
 extern ENode* func_00524050(ENode* func, ENodeList* args); // f(args)
 typedef struct CExprMemberQual CExprMemberQual;
@@ -3947,19 +3943,19 @@ static ENode* postfix_expression(Boolean isAddressOf) {
                 expr = CExpr_ParseExplicitConversion(di.thetype, di.qual);
                 break;
             case TK_CONST_CAST:
-                expr = func_00543940();
+                expr = CRTTI_Parse_const_cast();
                 break;
             case TK_DYNAMIC_CAST:
-                expr = func_00544170();
+                expr = CRTTI_Parse_dynamic_cast();
                 break;
             case TK_REINTERPRET_CAST:
-                expr = func_00543A70();
+                expr = CRTTI_Parse_reinterpret_cast();
                 break;
             case TK_STATIC_CAST:
                 expr = func_00543CA0();
                 break;
             case TK_TYPEID:
-                expr = func_005446E0();
+                expr = CRTTI_ParseTypeID();
                 break;
             default:
                 expr = primary_expression(isAddressOf);

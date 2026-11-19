@@ -8,7 +8,8 @@ must resolve to the address the original's slot holds; a reference to an
 anonymous section (string literals, constant tables, jump tables) is accepted
 only if that section is read-only and the referenced item equals the
 original's bytes there (jump table entries landing at the same offsets in
-the function); anonymous writable data is refused."""
+the function); anonymous writable data is refused, except a C string literal
+(-strings noreadonly), compared the same way."""
 
 import re
 import struct
@@ -108,8 +109,11 @@ def check_relocs(o, unit, s, start, relocs, seg, addr, symbols, pe, res):
             ts = o.section(t.section)
             if ts is s:
                 continue  # same section (jump to a label, local table)
-            if ts.code or ts.bss or ts.flags & SCN_MEM_WRITE:
+            if ts.code or ts.bss:
                 return f"anon writable {ts.name}"
+            # a string literal in writable data (-strings noreadonly) is
+            # compared like a read-only one; any other writable item is refused
+            writable = bool(ts.flags & SCN_MEM_WRITE)
             if typ != REL_DIR32 or pe is None:
                 return f"anon {ts.name}"
             addend = struct.unpack_from("<i", s.data, start + off)[0]
@@ -129,8 +133,11 @@ def check_relocs(o, unit, s, start, relocs, seg, addr, symbols, pe, res):
             )
             end = next((x for x in starts if x > item), ts.size)
             nul = ts.data.find(b"\0", item)
-            if 0 <= nul < end and all(32 <= c < 127 or c in (9, 10, 13) for c in ts.data[item:nul]):
+            cstring = 0 <= nul < end and all(32 <= c < 127 or c in (9, 10, 13) for c in ts.data[item:nul])
+            if cstring:
                 end = nul + 1  # a C string
+            elif writable:
+                return f"anon writable {ts.name}"
             try:
                 theirs = pe.read(base + item, end - item)
             except Exception:

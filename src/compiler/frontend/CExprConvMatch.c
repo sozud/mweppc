@@ -3204,7 +3204,7 @@ static Boolean CExpr_MatchOperands(
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (94)
 #endif
-#if MWCCPS2
+#if MWCCPS2_B210_PARTIAL
 // b210 (3.0.1): CondOperatorMatch (0x545EE0) and OperatorMatch (0x544CF0)
 // call b210's 3.0.1 builtin matchers, operand matcher and overload
 // resolution; this file still has those in their 2.4.7 forms.
