@@ -76,6 +76,19 @@
             : __assertion_failed(text, "IroPointerAnalysisADTs.c", (line) + CError_LINE_SHIFT))
 #endif
 #define IRO_DEBUG_CLEAR(obj, size) memset((obj), 0xFF, (size))
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198, b210): the pointer analysis ADTs are built without their assertions (as
+// the PS2 b198 decompilation's are), allocate from the global heap's pools and free with
+// IRO_free2 (its IRO_malloc / IRO_gfree)
+#undef IRO_ASSERT
+#undef IRO_ASSERT_T
+#undef IRO_ASSERT_MSG
+#define IRO_ASSERT(line, expr) ((void)0)
+#define IRO_ASSERT_T(line, expr) 0
+#define IRO_ASSERT_MSG(line, expr, text) ((void)0)
+#define IRO_malloc IRO_gmalloc
+#define IRO_free IRO_free2
+#endif
 
 HEADER_INLINE UInt32 gcd(UInt32 a, UInt32 b) {
     UInt32 chk;
@@ -115,7 +128,9 @@ typedef struct PTFList PTFList;
 typedef struct Stack Stack;
 typedef struct StackElement StackElement;
 
+#if !(MWCCPS2 && !MWCC_CORE) // mwccps2 (b198, b210): the ADTs keep default alignment
 #pragma pack(push, 2)
+#endif
 struct StackElement {
     Object* proc;
     PartialTransferFunction* ptf;
@@ -242,7 +257,9 @@ typedef struct EvalProcActionStatic {
     Boolean needMeet;
     Boolean nodeChanged;
 } EvalProcActionStatic;
+#if !(MWCCPS2 && !MWCC_CORE)
 #pragma pack(pop)
+#endif
 
 static UInt32 stExtendedParamNum;
 static PartialTransferFunction* stUnknownPTF;
@@ -1013,10 +1030,17 @@ HEADER_INLINE void PAMemoryBlock_Init(PAMemoryBlock* mb, PAMemoryBlockKind kind,
             mb->u.intval = *((CInt64*)thing);
             break;
         case PAMEMORYBLOCKKIND_OTHER:
+#if MWCCPS2 && !MWCC_CORE
+        case PAMEMORYBLOCKKIND_OTHER + 1: // mwccps2 (b198, b210): one more kind, kept like OTHER
+#endif
             mb->u.other = thing;
             break;
         default:
+#if MWCCPS2 && !MWCC_CORE
+            CError_FATAL(1529);
+#else
             CError_FATAL(1535);
+#endif
     }
 }
 
@@ -2873,4 +2897,126 @@ HEADER_INLINE void PTFList_RemoveAll(PTFList* ptfList) {
         PTFList_Remove(ptfList, ptfList->ptf);
     }
 }
+#if MWCCPS2 && !MWCC_CORE
+// b210 0x4D6350, 0x4D6360: type helpers (the PS2 b198 decompilation's)
+UInt32 IRO_TypeSize(Type* type) {
+    return type->size;
+}
+
+Boolean IRO_TypesEqual2(Type* first, Type* second) {
+    return first == second || IRO_TypesEqual(first, second);
+}
+
+// b210 0x4DDFA0..0x4DE610: region sets, kept ordered by kind (the PS2 b198 decompilation's
+// PARegion functions, taken as hints)
+typedef struct PARegion {
+    UInt16 kind; // +0
+    BitVector* thing; // +4
+} PARegion;
+
+typedef struct PARegionSet {
+    PARegion* region;
+    struct PARegionSet* otherRegions;
+} PARegionSet;
+
+void PARegionSet_Init(PARegionSet* set) {
+    set->region = NULL;
+    set->otherRegions = NULL;
+}
+
+PARegionSet* PARegionSet_New(void) {
+    PARegionSet* set = IRO_malloc(sizeof(PARegionSet));
+    set->region = NULL;
+    set->otherRegions = NULL;
+    return set;
+}
+
+PARegion* PARegion_New(void) {
+    PARegion* region = IRO_malloc(sizeof(PARegion));
+    region->thing = NULL;
+    region->kind = 0;
+    return region;
+}
+
+void PARegionSet_Delete(PARegionSet* set) {
+    IRO_DEBUG_CLEAR(set, sizeof(PARegionSet));
+    IRO_free(set);
+}
+
+void PARegion_Delete(PARegion* region) {
+    IRO_DEBUG_CLEAR(region, sizeof(PARegion));
+    IRO_free(region);
+}
+
+#undef IRO_free
+// the bit vector goes back to the optimizer's own pools
+void PARegion_Term(PARegion* region) {
+    if (region->thing) {
+        IRO_free(region->thing);
+        region->thing = NULL;
+    }
+    region->kind = 0;
+}
+#define IRO_free IRO_free2
+
+Boolean PARegions_Equal(PARegion* first, PARegion* second) {
+    return first->kind == second->kind && Bv_Compare(first->thing, second->thing);
+}
+
+PARegion* PARegionSet_Find(PARegionSet* set, PARegion* region) {
+    UInt16 kind = region->kind;
+
+    while (set && set->region) {
+        if (set->region->kind < kind) {
+        } else if (set->region->kind > kind) {
+            break;
+        } else if (set->region->kind == region->kind &&
+                   Bv_Compare(set->region->thing, region->thing)) {
+            return set->region;
+        }
+        set = set->otherRegions;
+    }
+    return NULL;
+}
+
+void PARegion_Copy(PARegion* dest, PARegion* src) {
+    Bv_AllocVector(&dest->thing, src->thing->size);
+    Bv_Copy(src->thing, dest->thing);
+    dest->kind = src->kind;
+}
+
+void PARegionSet_SimpleAdd(PARegionSet* set, PARegion* region) {
+    PARegion* newRegion = PARegion_New();
+    PARegionSet* prev;
+    PARegionSet* newSet;
+    UInt16 kind;
+
+    PARegion_Copy(newRegion, region);
+    if (!set->region) {
+        set->region = newRegion;
+    } else {
+        kind = region->kind;
+        prev = NULL;
+        for (; set && set->region && set->region->kind < kind; set = set->otherRegions) {
+            prev = set;
+        }
+        newSet = PARegionSet_New();
+        PARegionSet_Init(newSet);
+        if (prev) {
+            newSet->region = newRegion;
+            newSet->otherRegions = prev->otherRegions;
+            prev->otherRegions = newSet;
+        } else {
+            newSet->region = set->region;
+            newSet->otherRegions = set->otherRegions;
+            set->region = newRegion;
+            set->otherRegions = newSet;
+        }
+    }
+}
+#endif
+#if MWCCPS2 && !MWCC_CORE
+#undef IRO_malloc
+#undef IRO_free
+#endif
 #endif

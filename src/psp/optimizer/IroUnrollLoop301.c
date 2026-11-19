@@ -389,6 +389,37 @@ void func_0055CDE0(
 // statement and linearized again with the linear state saved around it)
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -24 // b145 asserts
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 RelinearizeExpr, b210): the first node in a local (the PS2 b198
+// decompilation's); b210 leaves the last expression unset (the list always holds one)
+void func_0055CF00(IROLinear* expr, IROList* list) {
+    IROLinearState state;
+    IROLinear* nd;
+    IROLinear* last;
+    Statement* stmt;
+
+    func_00561390(&state);
+    IRO_InitList(list);
+    IRO_AddToList(IRO_NewLinear(IROLinearNop), list);
+    IRO_DuplicateExpr(expr, list);
+    stmt = IRO_Delinearize(NULL, list->head);
+    if (!stmt) {
+        CError_Internal(UNROLL_FILE, CError_B145_LINE(0xE1D));
+    }
+    IRO_Linearize(IRO_PreLinearize301(stmt));
+    IRO_InitList(list);
+    nd = IRO_FirstLinear->next;
+    list->head = nd;
+    for (; nd; nd = nd->next) {
+        if (nd->type >= IROLinearOperand && nd->type <= IROLinearFunccall) {
+            last = nd;
+        }
+    }
+    list->tail = last;
+    list->tail->next = NULL;
+    func_00561320(&state);
+}
+#else
 void func_0055CF00(IROLinear* expr, IROList* list) {
     IROLinearState state;
     Statement* stmt;
@@ -419,6 +450,7 @@ void func_0055CF00(IROLinear* expr, IROList* list) {
     list->tail->next = NULL;
     func_00561320(&state);
 }
+#endif
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -1101,7 +1133,7 @@ IROLinear* func_0055E6D0(IROList* list, IRONaturalLoop* loop, CInt64 adjust) {
             IRO_DuplicateExpr(loop->countExpr.tail, list);
             expr = list->tail;
         }
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 does not evaluate the count first
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 does not evaluate the count first
         return AssignToNewTemp(expr, expr->rtype, list, FALSE, TRUE);
 #else
         return AssignToNewTemp(expr, expr->rtype, list, TRUE, TRUE);
@@ -2287,6 +2319,28 @@ Boolean func_00560C50(
 
 // 0x561160: do bits << 0 .. bits << (count - 1) not overlap; *mask = their
 // union
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00574620, b210): a for loop, the overlap in a local and the union in an else (the
+// PS2 b198 decompilation's)
+Boolean func_00561160(CInt64 count, CInt64 bits, CInt64* mask) {
+    CInt64 shifted = cint64_zero;
+    CInt64 acc = cint64_zero;
+    CInt64 overlap = cint64_zero;
+    CInt64 i;
+
+    for (i = cint64_zero; CInt64_Less(i, count); i = CInt64_Add(i, cint64_one)) {
+        shifted = CInt64_Shl(bits, i);
+        overlap = CInt64_And(shifted, acc);
+        if (CInt64_NotEqual(overlap, cint64_zero)) {
+            return FALSE;
+        } else {
+            acc = CInt64_Or(shifted, acc);
+        }
+    }
+    *mask = acc;
+    return TRUE;
+}
+#else
 Boolean func_00561160(CInt64 count, CInt64 bits, CInt64* mask) {
     CInt64 acc = cint64_zero;
     CInt64 i = cint64_zero;
@@ -2303,3 +2357,4 @@ Boolean func_00561160(CInt64 count, CInt64 bits, CInt64* mask) {
     *mask = acc;
     return TRUE;
 }
+#endif

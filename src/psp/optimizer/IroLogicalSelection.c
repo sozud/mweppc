@@ -264,7 +264,7 @@ Boolean func_0054F500(ENode* a, ENode* b) {
     ENodeList* la;
     ENodeList* lb;
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 masks the same flags for casts
     mask = 0xFDFF;
 #else
     mask = (a->type == ETYPCON && b->type == ETYPCON) ? 0xFD7F : 0xFDFF;
@@ -583,6 +583,74 @@ typedef struct BitTestSet {
 // 0x56DF60: is cmp (an operand of op) "expr == value" (for ||) or
 // "expr != value" (for &&); a truth test of an indirection counts as a
 // comparison with zero
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00582D10, b210): nested tests in place of the shared compare label (the PS2 b198
+// decompilation's IsLogicalSelectionTest)
+Boolean func_0056DF60(ENode* expr, ENode* node, ENode** var, CInt64* value) {
+    ENode* scan;
+    ENode* scan2;
+
+    if (expr->type == ELOR) {
+        if (node->type != EEQU) {
+            if (node->type == ELOGNOT) {
+                scan = node->data.monadic;
+                while (scan->type == ETYPCON) {
+                    scan = scan->data.monadic;
+                }
+                if (scan->type == EINDIRECT) {
+                    if (var) {
+                        *var = node;
+                    }
+                    if (value) {
+                        *value = cint64_zero;
+                    }
+                    return TRUE;
+                }
+            }
+            return FALSE;
+        }
+    } else if (expr->type == ELAND) {
+        if (node->type != ENOTEQU) {
+            scan2 = node;
+            while (scan2->type == ETYPCON) {
+                scan2 = scan2->data.monadic;
+            }
+            if (scan2->type == EINDIRECT) {
+                if (var) {
+                    *var = node->data.monadic;
+                }
+                if (value) {
+                    *value = cint64_zero;
+                }
+                return TRUE;
+            }
+            return FALSE;
+        }
+    } else {
+        return FALSE;
+    }
+
+    if (func_00555B30(node->data.diadic.left)) {
+        if (var) {
+            *var = node->data.diadic.right;
+        }
+        if (value) {
+            *value = node->data.diadic.left->data.intval;
+        }
+        return TRUE;
+    }
+    if (func_00555B30(node->data.diadic.right)) {
+        if (var) {
+            *var = node->data.diadic.left;
+        }
+        if (value) {
+            *value = node->data.diadic.right->data.intval;
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+#else
 Boolean func_0056DF60(ENode* op, ENode* cmp, ENode** expr, CInt64* value) {
     ENode* inner;
 
@@ -643,6 +711,7 @@ compare:
     }
     return FALSE;
 }
+#endif
 
 // 0x56DE70: add a comparison of expr with value, if expr is the set's
 Boolean func_0056DE70(BitTestSet* set, ENode* expr, CInt64 value) {
@@ -736,6 +805,42 @@ SInt32 func_0056DCE0(BitTestSet* set, SInt32 width) {
 #if MWCCPS2
 __declspec(noinline) // b210 calls it (func_0056D580)
 #endif
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00582890, b210): the long long
+// width computed first (the PS2 b198 decompilation's)
+Boolean func_0056DC10(BitTestSet* set, Boolean* wide) {
+    SInt32 n32;
+    SInt32 n64;
+    SInt32 llbits;
+
+    n32 = func_0056DCE0(set, stunsignedint.size * 8);
+    llbits = stunsignedlonglong.size * 8;
+    if (copts.opt_collapselogicalselectionintobittest_uselonglong) {
+        n64 = func_0056DCE0(set, llbits);
+        *wide = 3 * n64 < 2 * n32;
+        if (*wide) {
+            if (2 * n64 >= set->count) {
+                IRO_Dump(
+                    "IsLogicalSelectionBitTestBeneficial: no (%d vals, %d llranges)\n",
+                    set->count,
+                    n64
+                );
+                return FALSE;
+            }
+            IRO_Dump(
+                "IsLogicalSelectionBitTestBeneficial: yes (%d vals, %d llranges)\n", set->count, n64
+            );
+            return TRUE;
+        }
+    }
+    if (2 * n32 >= set->count) {
+        IRO_Dump("IsLogicalSelectionBitTestBeneficial: no (%d vals, %d ranges)\n", set->count, n32);
+        return FALSE;
+    }
+    IRO_Dump("IsLogicalSelectionBitTestBeneficial: yes (%d vals, %d ranges)\n", set->count, n32);
+    return TRUE;
+}
+#else
 Boolean func_0056DC10(BitTestSet* set, Boolean* wide) {
     SInt32 n32;
     SInt32 n64;
@@ -766,6 +871,7 @@ Boolean func_0056DC10(BitTestSet* set, Boolean* wide) {
     IRO_Dump("IsLogicalSelectionBitTestBeneficial: yes (%d vals, %d ranges)\n", set->count, n32);
     return TRUE;
 }
+#endif
 
 // 0x56D990: the test for the window first..last (mask: the values present,
 // bit 0 for first)

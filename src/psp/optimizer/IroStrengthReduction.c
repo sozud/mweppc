@@ -271,7 +271,7 @@ void func_0059CE30(IRONaturalLoop* loop, IROLinear* pre) {
         if (expr->linear->type == IROLinearOp2Arg && expr->linear->nodetype == ESHL) {
             expr->linear->nodetype = EMUL;
             factor->u.node->data.intval = CInt64_Shl(cint64_one, factor->u.node->data.intval);
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 keeps the qualified type
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 keeps the qualified type
             factor->u.node->rtype = expr->linear->rtype;
             factor->rtype = expr->linear->rtype;
 #else
@@ -552,7 +552,7 @@ static inline IROLinear* ScaledVariable(IROLinear* nd, IROLinear** shl) {
     return IRO_IsVariable(x) ? x : NULL;
 }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145's scaled operand s (x * c or x << c, c constant): a shift becomes the
 // multiply at once; x is a variable or a safe conversion of one
 #define SCALED_145(s) \
@@ -611,7 +611,7 @@ Boolean func_0059DB80(
     CInt64 r;
     IROTreeSearch search;
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     // b145: one conversion stripped per side (tested where it is kept), a
     // scaled operand's shift becomes the multiply at once (no range check),
     // and a variable under a conversion is matched as such
@@ -930,7 +930,7 @@ Boolean func_0059DB80(
     if (Bv_BitsInCommon(loop->xC, IRO_Depends)) {
         return FALSE;
     }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 rewrote the shift where it found it
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 rewrote the shift where it found it
     if (shl) {
         shl->nodetype = EMUL;
         shl->u.diadic.right->u.node->data.intval =

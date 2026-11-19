@@ -70,6 +70,18 @@ COMPILERS = {
         # a unit that needs the PSP compiler's layouts (none today) is
         # compiled without -DMWCCPS2=1, as the research harness does
         "fallback": "-DMWCCPS2=1",
+        "map": "config/PS2_3_0_1",
+    },
+    "b198": {
+        "label": "mwccps2 b198",
+        "badge": "mwccps2-b198.json",
+        "exe": "orig/PS2_3_0_1_b198/mwccps2.exe",
+        # b210's units with -DMWCCPS2_BUILD=198; the name map, address map and
+        # function table come from the sotn-decomp tree's MWCCPS2_BUILD=198 work
+        "units": "config/PS2_3_0_1b198/native/exact_units.json",
+        "functions": "config/PS2_3_0_1b198/native/functions.csv",
+        "fallback": "-DMWCCPS2=1",
+        "map": "config/PS2_3_0_1b198/native",
     },
     "b52": {
         "label": "mwccps2 b52",
@@ -138,9 +150,9 @@ def names(key, cfg, objects, pe, functions, res):
         symbols = {**psp_names.prove(objects, pe), **manual}
         guessed = psp_names.guess(objects, pe, functions, symbols, res)
         return {**guessed, **symbols}
-    if key == "mwccps2":
+    if "map" in cfg:
         # the research harness's PS2 name map (tools/mwccpsp/sync_sotn.py --ps2)
-        return load_symbols(repo("config/PS2_3_0_1/symbols.txt"))
+        return load_symbols(repo(os.path.join(cfg["map"], "symbols.txt")))
     d = repo(cfg["dir"])
 
     def syms(f):
@@ -188,10 +200,10 @@ def measure(key, compilers, wibo_path, jobs):
     pe = PE(repo(cfg["exe"]))
     functions = [(int(r["start"], 16), int(r["size"]), r["unit"]) for r in csv.DictReader(open(repo(cfg["functions"])))]
     amap = None
-    if key == "mwccps2":
+    if "map" in cfg:
         import ps2_map
 
-        _, amap = ps2_map.ps2_address_map()
+        _, amap = ps2_map.ps2_address_map(repo(cfg["map"]))
     res = Resolver(cfg.get("addr_name", r"_([0-9A-Fa-f]{8})$"), amap)
     symbols = names(key, cfg, objects, pe, functions, res)
     rows = compare(objects, symbols, pe, res, check_relocs_pro53 if "dir" in cfg else check_relocs)

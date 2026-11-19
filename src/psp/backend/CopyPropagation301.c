@@ -395,10 +395,17 @@ int func_00545170(int candidateID, int useID) {
         return FALSE;
     }
     for (op = use->args, i = use->argcount; i--; op++) {
+#if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+        // b198 (0x555270, unplaced; b145/b119 too) tests 0x8 on every operand, outside the
+        // register match: a memory operand's stack residue (VReg.c) can block a copy
+        if ((op->kind == 0 && op->rclass == rclass && op->reg == destReg && (op->flags & 3) == 3) ||
+            (op->flags & 8)) {
+#else
         if (op->kind == 0 &&
             op->rclass == rclass &&
             op->reg == destReg &&
             ((op->flags & 3) == 3 || (op->flags & 8))) {
+#endif
             return FALSE;
         }
     }

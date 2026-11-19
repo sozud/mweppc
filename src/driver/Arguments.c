@@ -598,6 +598,55 @@ void Arg_InitToolArgs(PtrList* ta) {
     Arg_GrowArgs(ta);
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b210/b198 0x4146DD): an argument that must come first goes in as argv[1]
+// (the PS2 b198 decompilation's fn_004146DD)
+static void Arg_InsertFirstArg(PtrList* ta, char* txt) {
+    Arg_GrowArgs(ta);
+    memmove(&ta->argv[2], &ta->argv[1], (ta->nargv - 1) * sizeof(char*));
+    ta->argv[1] = xmalloc("command line", strlen(txt) + 1);
+    strcpy(ta->argv[1], txt);
+}
+
+// mwccps2 (b210/b198 0x414755): a token with bit 15 set is an argument that goes first
+// (the PS2 b198 decompilation's)
+void Arg_AddToToolArgs(PtrList* ta, short tokval, char* toktxt) {
+    int value = tokval;
+    int atstart = (value & 0x8000) != 0;
+
+    value &= ~0x8000;
+    tokval = value;
+    switch (tokval) {
+        case ATK_END:
+            Arg_FinishToolArgs(ta);
+            break;
+        case ATK_ARG_END:
+            if (ta->argv && ta->argv[ta->argc]) {
+                Arg_GrowArgs(ta);
+            }
+            break;
+        case ATK_ARG:
+            if (atstart) {
+                Arg_InsertFirstArg(ta, toktxt);
+            } else {
+                Arg_GrowArg(ta, toktxt);
+            }
+            break;
+        case ATK_OPTION:
+            Arg_GrowArg(ta, "-");
+            break;
+        case ATK_EQUALS:
+            Arg_GrowArg(ta, "=");
+            break;
+        case ATK_COMMA:
+            Arg_GrowArg(ta, ",");
+            break;
+        default:
+            CLPFatalError(__FILE__, 802, "Unknown token (%d)", tokval);
+            break;
+    }
+}
+#else
 void Arg_AddToToolArgs(PtrList* ta, short tokval, char* toktxt) {
     switch (tokval) {
         case ATK_END:
@@ -625,6 +674,7 @@ void Arg_AddToToolArgs(PtrList* ta, short tokval, char* toktxt) {
             break;
     }
 }
+#endif
 
 void Arg_FinishToolArgs(PtrList* ta) {
     Arg_GrowArgs(ta);

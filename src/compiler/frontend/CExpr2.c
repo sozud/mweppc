@@ -2967,6 +2967,42 @@ static inline Boolean CExpr_ConversionIteratorIsHidden(ConIterator* iter, TypeFu
     return FALSE;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00535AE0, b210): the same walk as two while loops (the PS2 b198 decompilation's)
+Object* CExpr_ConversionIteratorNext(ConversionIterator* iter) {
+    ConIterator* ci;
+    Object* obj;
+
+    ci = iter->coniter;
+    if (!ci) {
+        return NULL;
+    }
+
+    while (1) {
+        if ((obj = OBJECT(CScope_NextObjectIteratorObject(&iter->objiter))) != NULL) {
+            if (IS_TYPE_FUNC(obj->type) &&
+                (TYPE_FUNC(obj->type)->flags & FUNC_CONVERSION) &&
+                !CExpr_ConversionIteratorIsHidden(ci->parent, TYPE_FUNC(obj->type))) {
+                return obj;
+            }
+            continue;
+        }
+
+        while (1) {
+            if (ci->children) {
+                iter->coniter = ci->children->iter;
+                ci->children = ci->children->next;
+                ci = iter->coniter;
+                CScope_InitObjectIterator(&iter->objiter, ci->tclass->nspace);
+                break;
+            }
+            if (!(ci = ci->parent)) {
+                return NULL;
+            }
+        }
+    }
+}
+#else
 Object* CExpr_ConversionIteratorNext(ConversionIterator* iter) {
     ConIterator* ci;
     Object* obj;
@@ -2998,6 +3034,7 @@ restart:
 
     return NULL;
 }
+#endif
 
 short user_assign_check(
     ENode* expr,

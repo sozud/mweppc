@@ -60,6 +60,12 @@ void func_0045B8C0(ENode* funccall, short id) {
 // register, so the result is an int)
 int func_0045B8E0(ENode* funccall) {
     ENode* funcref = funccall->data.funccall.funcref;
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x4663A0, b210): one expression (the PS2 b198 decompilation's)
+    return ENODE_IS(funcref, EOBJREF) &&
+        funcref->data.objref->datatype == DFUNC &&
+        (TYPE_FUNC(funcref->data.objref->type)->flags & FUNC_INTRINSIC);
+#else
     int result = 0;
 
     if (ENODE_IS(funcref, EOBJREF) &&
@@ -68,6 +74,7 @@ int func_0045B8E0(ENode* funccall) {
         result++;
     }
     return result;
+#endif
 }
 
 // 0x45C520: a builtin for every opcode that names one, with an argument per
@@ -4564,3 +4571,41 @@ void func_0045C780(void) {
     }
     data_0062506C = data_005CBED8[0].object;
 }
+
+#if MWCCPS2 && !MWCC_CORE
+extern Boolean func_004B8980(Object* obj);
+extern VarInfo* Registers_GetVarInfo(Object* obj);
+
+// b210 0x466320 (b198 0x4662F0): the register variable info of an operand's object, if it
+// lives in a register of class klass (-1: any) and, given one, register reg (the PS2 b198
+// decompilation's fn_004662F0)
+VarInfo* ps2_regvar_466320(VOperand* op, SInt8 klass, SInt32 reg) {
+    Object* object;
+    VarInfo* info;
+
+    if (!op) {
+        return NULL;
+    }
+    object = (Object*)op->object;
+    if (!object) {
+        return NULL;
+    }
+    if (func_004B8980(object)) {
+        info = Registers_GetVarInfo(object);
+        if (!info) {
+            return NULL;
+        }
+        if (klass == -1) {
+            return info;
+        }
+        if ((SInt8)info->unk24[2] != klass) {
+            return NULL;
+        }
+        if (reg >= 0 && info->reg != reg) {
+            return NULL;
+        }
+        return info;
+    }
+    return NULL;
+}
+#endif

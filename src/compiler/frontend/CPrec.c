@@ -1745,6 +1745,8 @@ static ObjCInfo* CPrec_GetObjCInfoPatch(ObjCInfo* info) {
 #if MWCCPSP
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -3 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -3 // b198 asserts, as b145's
 #endif
 static TemplArg* CPrec_GetTemplateArgPatch(TemplArg* arg) {
     TemplArg* first;
@@ -1800,6 +1802,8 @@ static TemplArg* CPrec_GetTemplateArgPatch(TemplArg* arg) {
 #if MWCCPSP
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #endif
 
 static TemplParam* CPrec_GetTemplateParamPatch(TemplParam* param) {
@@ -3246,6 +3250,8 @@ static CI_FuncData* CPrec_GetInlineFuncPatch(CI_FuncData* ifunc) {
 #if MWCCPSP
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -3 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -3 // b198 asserts, as b145's
 #endif
 static ObjEnumConst* CPrec_GetObjEnumConstPatch(ObjEnumConst* obj) {
     AddrPatch* addrPatch;
@@ -3301,6 +3307,8 @@ static ObjEnumConst* CPrec_GetObjEnumConstPatch(ObjEnumConst* obj) {
 #if MWCCPSP
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #endif
 
 static ObjType* CPrec_GetObjTypePatch(ObjType* obj) {

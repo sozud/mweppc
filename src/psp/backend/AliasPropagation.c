@@ -29,7 +29,7 @@ struct Alias* func_0053BD10(VOperand* mem, MPCode* pc) {
         );
     } else if (obj->datatype == DDATA) {
         alias = make_alias(obj, pc->args[1].value, func_0048FBE0(pc->op));
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 has no function case
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 has no function case
     } else {
         CError_Internal("AliasPropagation.c", 53);
     }
@@ -205,7 +205,7 @@ void func_0053B620(MPCode* pc, MPCode* def) {
     if (obj2) {
         pc->args[1].value = off + obj2->u.var.offset;
     }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 stops at the local offset
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 stops at the local offset
     obj2 = def->alias->object;
     if (obj2->datatype == DLOCAL) {
         pc->args[1].value = off + obj2->u.var.offset;
@@ -388,7 +388,7 @@ extern void add_aliased_locals_to_worst_case(Alias* alias);
 extern void func_005452C0(Object* proc, Propagation301* config, int passCount, Boolean localflag);
 
 // 0x53B8B0: propagate_alias_to_use
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 asserts
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 asserts
 #define B145_ALP_M4 -4
 #define B145_ALP_M7 -7
 #else
@@ -442,7 +442,7 @@ void func_0053B8B0(MPCode* use, int reg, Alias* alias) {
                     if (MOP_OBJ(use->args[1])) {
                         return;
                     }
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 has no frame-relative local case
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 has no frame-relative local case
                     offset = use->args[1].value;
 #else
                     obj = alias->object;

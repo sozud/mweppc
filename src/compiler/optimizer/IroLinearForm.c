@@ -115,7 +115,7 @@ static void MarkAssigned(IROLinear* linear, Boolean isModify) {
                 }
             }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             // b145 decomposes into an allocated address record
             {
                 IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));
@@ -186,7 +186,7 @@ if (IS_LINEAR_MONADIC(linear, EINDIRECT)) {
             }
         }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         // b145 decomposes into an allocated address record
         {
             IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));
@@ -589,7 +589,7 @@ static void MarkSubs1(IROLinear* linear) {
             linear->u.diadic.left->flags |= IROLF_Ind;
         }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         // b145 decomposes into an allocated address record
         {
             IROAddrRecord301* rec = IRO_Alloc(sizeof(IROAddrRecord301));

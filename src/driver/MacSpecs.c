@@ -492,12 +492,26 @@ int __stdcall OS_GetRsrcOSSpec(const OSSpec* spec, OSSpec* rspec, Boolean create
         if (err) {
             return err;
         }
+#if MWCCPS2 && !MWCC_CORE
+    } else {
+        // mwccps2 (b198, b210): the nested test and the combined check (the PS2 b198
+        // decompilation's)
+        if (OS_IsFile(rspec)) {
+            return ERROR_DIRECTORY;
+        }
+    }
+
+    if ((err = OS_MakeNameSpec(
+             OS_NameSpecToString(&spec->name, STSbuf, sizeof(STSbuf)), &rspec->name
+         )) != 0) {
+#else
     } else if (OS_IsFile(rspec)) {
         return ERROR_DIRECTORY;
     }
 
     err = OS_MakeNameSpec(OS_NameSpecToString(&spec->name, STSbuf, sizeof(STSbuf)), &rspec->name);
     if (err) {
+#endif
         return err;
     }
 

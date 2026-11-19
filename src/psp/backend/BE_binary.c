@@ -63,6 +63,406 @@ static inline SInt32 ps2_reg(MOperand* a) {
 #define ENC_IMM(a) ((a)->value2)
 #endif
 
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+// b198 (0x4C2C40, the PS2 b198 decompilation's): its operand cases written as
+// b198 has them (its own locals, a for loop; no label word for 'A'/'U', no 'l')
+#define B198_FATAL(line) CError_Internal(__FILE__, line)
+void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
+    OpcodeDef* info;
+    SInt32 value;
+    int index;
+    char* format;
+    Boolean quoted;
+    Boolean paired;
+
+    index = 0;
+    info = &data_006115F8[pc->op];
+    format = info->format;
+    pc->word = info->unk10;
+    for (; *format; format++) {
+        if (*format == ';') {
+            break;
+        }
+        if (*format == '=' || *format == '+') {
+            format++;
+        }
+        if (*format == '!') {
+            format++;
+        }
+        if (*format == '$') {
+            format++;
+        }
+        paired = FALSE;
+        quoted = FALSE;
+        if (*format == '2') {
+            format++;
+            if (*format == '+') {
+                format++;
+            }
+            paired = TRUE;
+        }
+        if (*format == '\'') {
+            format++;
+            quoted = TRUE;
+        }
+        switch (*format) {
+            case '&':
+                pc->word |= pc->args[index].value << 21;
+                index++;
+                break;
+            case '<': {
+                int reg;
+                reg = pc->args[index].value;
+                if (reg > 31) {
+                    func_004C5890(31, reg);
+                }
+                pc->word |= (reg & 31) << 6;
+                index++;
+                break;
+            }
+            case '>': {
+                int reg;
+                reg = pc->args[index].value;
+                if (reg > 31) {
+                    func_004C5890(31, reg);
+                }
+                pc->word |= (reg & 31) << 6;
+                index++;
+                break;
+            }
+            case '@': {
+                int reg;
+                if (pc->op == 0x3EF) {
+                    reg = pc->args[index].value + (((UInt32)pc->word >> 6) & 31);
+                } else {
+                    reg = pc->args[index].value;
+                }
+                pc->word |= ((reg - 1) & 31) << 11;
+                index++;
+                break;
+            }
+            case 'a':
+                if (pass == 2 && pc->args[index].kind == 6) {
+                    value = LABEL_OFFSET(pc->args[index].ptr) / 4;
+                    if (pc->flags & 0x4000000) {
+                        value++;
+                    }
+                    pc->word |= value & 0x3FFFFFF;
+                }
+                break;
+            case 'b':
+                if (paired && pass == 2 && pc->args[index].kind == 6) {
+                    value = LABEL_OFFSET(pc->args[index].ptr) / 8;
+                    pc->word |= (value & 0x7FFF) << 6;
+                }
+                index++;
+                break;
+            case 'q':
+                value = data_00625208 * 4;
+                if (!(value & 0x8000) && (value & 0xFFFF0000)) {
+                    func_004C5940(14);
+                }
+                if (value & 0xFFFF0000) {
+                    func_004C5940(14);
+                }
+                pc->word |= value & 0xFFFF;
+                break;
+            case 'c':
+                value = pc->args[index].value << 6;
+                pc->word |= value & 0x7FFFF;
+                break;
+            case 'j':
+                if (pc->args[index].kind == 6) {
+                    if (pass == 2) {
+                        UInt32 high;
+                        value = LABEL_OFFSET(pc->args[index].ptr);
+                        pc->word |= value & 0xFFFF;
+                        high = value >> 16;
+                        if (value & 0x8000) {
+                            high++;
+                        }
+                        pc->pair->word |= high & 0xFFFF;
+                    }
+                } else {
+                    pc->word |= (UInt16)ENC_IMM(&pc->args[index]);
+                }
+                index++;
+                break;
+            case 'i': {
+                SInt32 immediate = ENC_IMM(&pc->args[index]);
+                if (paired) {
+                    pc->word |= (immediate >> 3) << 6;
+                } else {
+                    pc->word |= immediate & 0xFFFF;
+                }
+                index++;
+                break;
+            }
+            case 'k':
+                pc->word |= (ENC_IMM(&pc->args[index]) & 31) << 16;
+                index++;
+                break;
+            case 'o':
+                if (pc->args[index].kind == 4) {
+                    value = pc->args[index].value;
+                } else if (pc->args[index].kind == 2) {
+                    value = pc->args[index].value;
+                } else if (pc->args[index].kind == 6) {
+                    B198_FATAL(250);
+                } else {
+                    B198_FATAL(252);
+                }
+                pc->word |= value & 0xFFFF;
+                index++;
+                break;
+            case 'p':
+                if (pass == 2) {
+                    if (pc->unk38 != 10) {
+                        if (pc->args[index].kind == 2) {
+                            value = ENC_IMM(&pc->args[index]);
+                        } else {
+                            value = LABEL_OFFSET(pc->args[index].ptr) / 4 - data_00625208 - 1;
+                            if (pc->flags & 0x4000000) {
+                                value++;
+                            }
+                            if ((SInt16)value != value) {
+                                func_004C5940(14);
+                            }
+                        }
+                    }
+                    pc->word |= value & 0xFFFF;
+                }
+                index++;
+                break;
+            case 'd':
+                pc->word |= (SInt16)pc->args[index].value << 11;
+                index++;
+                break;
+            case 's':
+                pc->word |= (SInt16)pc->args[index].value << 21;
+                index++;
+                break;
+            case 'P':
+                pc->word |= (SInt16)pc->args[index].value * 2;
+                index++;
+                break;
+            case 'u':
+                value = ENC_IMM(&pc->args[index]) >> 16;
+                pc->word |= value & 0xFFFF;
+                index++;
+                break;
+            case 'v':
+                pc->word |= pc->args[index].value & 15;
+                index++;
+                break;
+            case 'C':
+                value = pc->args[index].value;
+                pc->word |= value;
+                break;
+            case 'B':
+                value = pc->args[index].value;
+                pc->word |= (value & 0xFFFFF) << 6;
+                break;
+            case 'x':
+                if (paired) {
+                    pc->word |= (SInt16)pc->args[index].value << 6;
+                    index++;
+                    break;
+                }
+                B198_FATAL(341);
+            case 'z':
+                B198_FATAL(344);
+                break;
+            case 'D': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 6;
+                index++;
+                break;
+            }
+            case 'J': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg & 0xFF;
+                index++;
+                break;
+            }
+            case 'L': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= (reg & 0xFF) << 8;
+                index++;
+                break;
+            }
+            case 'M': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= (reg & 0xFF) << 16;
+                index++;
+                break;
+            }
+            case 'R': {
+                int reg;
+                if (!paired) {
+                    reg = (SInt16)pc->args[index].value;
+                    if (pc->args[index].flags & 0x4000) {
+                        reg++;
+                    }
+                    pc->word |= reg << 21;
+                }
+                index++;
+                break;
+            }
+            case 'S': {
+                int reg;
+                if (paired && quoted) {
+                    pc->word &= ~0x600000;
+                    if (pc->args[index].flags & 0x400) {
+                        pc->word |= 0x200000;
+                    } else if (pc->args[index].flags & 0x200) {
+                        pc->word |= 0x400000;
+                    } else if (pc->args[index].flags & 0x100) {
+                        pc->word |= 0x600000;
+                    }
+                }
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 11;
+                index++;
+                break;
+            }
+            case 'N':
+            case 'T': {
+                int reg;
+                if (paired && quoted) {
+                    pc->word &= ~0x1800000;
+                    if (pc->args[index].flags & 0x400) {
+                        pc->word |= 0x800000;
+                    } else if (pc->args[index].flags & 0x200) {
+                        pc->word |= 0x1000000;
+                    } else if (pc->args[index].flags & 0x100) {
+                        pc->word |= 0x1800000;
+                    }
+                }
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 16;
+                index++;
+                break;
+            }
+            case 'X':
+                pc->word |= (pc->args[index].value & 31) << 16;
+                index++;
+                break;
+            case 't': {
+                int reg;
+                pc->word |= (SInt16)pc->args[index].value << 16;
+                index++;
+                break;
+            }
+            case 'W': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 16;
+                index++;
+                break;
+            }
+            case 'V': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 11;
+                index++;
+                break;
+            }
+            case 'E': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 16;
+                index++;
+                break;
+            }
+            case 'G': {
+                int reg;
+                reg = (SInt16)pc->args[index].value;
+                if (pc->args[index].flags & 0x4000) {
+                    reg++;
+                }
+                pc->word |= reg << 11;
+                index++;
+                break;
+            }
+            case 'A':
+            case 'U':
+                index++;
+                break;
+            case 'I':
+                if (!paired) {
+                    pc->word |= ENC_IMM(&pc->args[index]);
+                }
+                index++;
+                break;
+            case 'Q':
+                index++;
+                break;
+            case 'F':
+                B198_FATAL(509);
+                break;
+            case 'f':
+                B198_FATAL(517);
+                break;
+            case 'l':
+                B198_FATAL(521);
+                break;
+            default:
+                B198_FATAL(537);
+                break;
+            case '(':
+            case ')':
+            case ',':
+            case '-':
+            case '9':
+            case '|':
+            case '}':
+                break;
+        }
+    }
+    if (pc->op >= 0x2EF && pc->op <= 0x32E) {
+        pc->word |= (((UInt32)pc->word & 0xF800) >> 11) << 21;
+    } else if (pc->op >= 0x32F && pc->op <= 0x337) {
+        pc->word |= (((UInt32)pc->word & 0x1F0000) >> 16) << 21;
+    } else if (pc->op >= 0x338 && pc->op <= 0x353) {
+        pc->word |= (((UInt32)pc->word & 0xF800) >> 11) << 16;
+    } else if (pc->op >= 0x354 && pc->op <= 0x37D) {
+        pc->word |= (((UInt32)pc->word & 0x7C0) >> 6) << 11;
+    }
+}
+#undef B198_FATAL
+#else
 void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
     char* fmt;
     SInt32 argi;
@@ -461,7 +861,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     break;
                 case 'A':
                 case 'U':
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 encodes no label word here
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 encodes no label word here
                     if (pass == 2 && arg->kind == 6) {
                         pc->word = LABEL_OFFSET(arg->ptr);
                     }
@@ -486,7 +886,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
                     CError_FATAL(524);
                     break;
                 case 'l':
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                     CError_FATAL(528); // b145: no 'l' operands
 #else
                     if (pass == 2 && arg->kind == 6) {
@@ -541,6 +941,7 @@ void BE_EncodeInstruction(MPCode* pc, SInt32 pass) {
         pc->word |= ((pc->word & 0x7C0) >> 6) << 11;
     }
 }
+#endif
 
 // Final pass for one instruction: branches whose target is out of 16-bit
 // range become the long form, then instructions with label operands are
@@ -569,7 +970,7 @@ void BE_EncodeFinal(MPCode* pc) {
         BE_EncodeInstruction(pc, 2);
     } else if (pc->op == 3 && pc->args[2].kind == 6) {
         BE_EncodeInstruction(pc, 2);
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no second case
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 has no second case
     } else if (pc->op == 0x2EE && pc->args[0].kind == 6) {
         BE_EncodeInstruction(pc, 2);
 #endif

@@ -599,6 +599,21 @@ void* IRO_Alloc(size_t size) {
 #if MWCCPSP
 
 #endif
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b210 0x506C90, b198 0x506910): IRO_malloc on the global heap, which the
+// pointer analysis allocates from (the PS2 b198 decompilation's IRO_malloc)
+void* IRO_gmalloc(size_t size) {
+    void* result;
+
+    if (!size) {
+        result = NULL;
+    } else {
+        result = allocate_from_var_pools(size, galloc);
+    }
+    return result;
+}
+#endif
+
 #if MWCCPS2
 // mwccps2 b210: one return (differs from the original only in the register
 // that holds size; config/replace.txt)

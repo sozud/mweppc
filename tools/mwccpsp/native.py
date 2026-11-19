@@ -67,9 +67,16 @@ GENERATED = {"exe_data.c", "parser_tables.c", "strings.c"}
 # the PS2 build traces which functions run (MWCCPS2_NATIVE_TRACE): every
 # function gets an entry hook (src/native/ps2/trace.c)
 # MWCCPS2_BUILD picks the PS2 compiler build (default 210, as build_ps2.py)
+PS2_BUILD = int(os.environ.get("MWCCPS2_BUILD", "210"))
+# b210 is the default PS2 build; another (MWCCPS2_BUILD=198) reads
+# orig/PS2_3_0_1_b<N>/mwccps2.exe, takes its generated tables from
+# src/native/ps2/b<N>/ (tools/mwccps2/native_ps2.py) and builds into
+# build/PS2_3_0_1_b<N>/native/
+PS2_DIR = "PS2_3_0_1" if PS2_BUILD == 210 else f"PS2_3_0_1_b{PS2_BUILD}"
+PS2_GEN_DIR = "src/native/ps2" if PS2_BUILD == 210 else f"src/native/ps2/b{PS2_BUILD}"
 PS2_FLAGS = [
     "-DMWCCPS2=1",
-    f"-DMWCCPS2_BUILD={int(os.environ.get('MWCCPS2_BUILD', '210'))}",
+    f"-DMWCCPS2_BUILD={PS2_BUILD}",
     "-finstrument-functions-after-inlining",
 ]
 
@@ -85,7 +92,7 @@ def name():
 
 def exe_path():
     return (
-        os.path.join(REPO, "orig", "PS2_3_0_1", "mwccps2.exe")
+        os.path.join(REPO, "orig", PS2_DIR, "mwccps2.exe")
         if PS2
         else os.path.join(REPO, "orig", "PSP_3_0_1", "mwccpsp.exe")
     )
@@ -100,7 +107,7 @@ def arch_flags(arch):
 
 
 def out_dir(arch, asan=False):
-    return os.path.join(REPO, "build", "PS2_3_0_1" if PS2 else "PSP_3_0_1", "native", arch + ("-asan" if asan else ""))
+    return os.path.join(REPO, "build", PS2_DIR if PS2 else "PSP_3_0_1", "native", arch + ("-asan" if asan else ""))
 
 
 def all_units(only=None):
@@ -111,10 +118,16 @@ def all_units(only=None):
         if f.endswith(".c") and (not only or only in rel) and not (PS2 and f in GENERATED):
             todo.append((rel, {}))
     if PS2:
+        gen = GENERATED | {"compileroptions.c"}
         for f in sorted(os.listdir(os.path.join(TOP, "src", "native", "ps2"))):
             rel = "src/native/ps2/" + f
-            if f.endswith(".c") and (not only or only in rel):
+            if f.endswith(".c") and (not only or only in rel) and not (PS2_BUILD != 210 and f in gen):
                 todo.append((rel, {}))
+        if PS2_BUILD != 210:
+            for f in sorted(os.listdir(os.path.join(TOP, PS2_GEN_DIR))):
+                rel = PS2_GEN_DIR + "/" + f
+                if f.endswith(".c") and f in gen and (not only or only in rel):
+                    todo.append((rel, {}))
     return todo
 
 

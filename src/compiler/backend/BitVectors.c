@@ -65,8 +65,12 @@ void bitvectorinitialize(UInt32* vec, SInt32 len, UInt32 initval) {
 
 #if VERSION >= VERSION_GC_2_5
 void bitvectorinitialize_range(BitVectorRange* range, SInt32 first, SInt32 count, UInt32 value) {
+#if MWCCPS2 && !MWCC_CORE
+    int i, n; // mwccps2 (b198 0x0054B7F0, b210): plain ints (the PS2 b198 decompilation's)
+#else
     SInt32 i;
     SInt32 n;
+#endif
 
     range->firstword = first >> 5;
     n = count ? ((first + count + 31) >> 5) - (first >> 5) : 0;
@@ -208,6 +212,21 @@ CompressedBitVector* bitvector_empty_compressed(void) {
 }
 
 CompressedBitVector* bitvector_compress(UInt32* vec, int bitCount) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x0054B440, b210): SInt32 counters, the word pointer after them (the PS2 b198
+    // decompilation's)
+    CompressedBitRun* run;
+    SInt32 nwords;
+    SInt32 size;
+    SInt32 nruns;
+    SInt32 count;
+    SInt32 zeros;
+    UInt32* words;
+    UInt32 word;
+    SInt32 i;
+    FreeCompressedBitVector** prev;
+    FreeCompressedBitVector* scan;
+#else
     CompressedBitRun* run;
     UInt32* words;
     int nwords;
@@ -219,6 +238,7 @@ CompressedBitVector* bitvector_compress(UInt32* vec, int bitCount) {
     int i;
     FreeCompressedBitVector** prev;
     FreeCompressedBitVector* scan;
+#endif
 
     nwords = (bitCount + 31) >> 5;
     size = 4;

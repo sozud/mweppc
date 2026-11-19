@@ -136,6 +136,43 @@ void func_0056D390(FactorCons* list, FactorItem* item);
 
 // 0x56C000: the term dividing the most addends (at least two), then the one
 // negated in the fewest
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x5809B0, b210): the term test inside the loop (the PS2 b198
+// decompilation's)
+FactorTerm* func_0056C000(FactorCons* terms) {
+    FactorTerm* best;
+    FactorTerm* term;
+    FactorCons* c;
+    SInt32 bestUses;
+    SInt32 bestOther;
+    FactorCons* p;
+    SInt32 uses;
+    SInt32 other;
+
+    best = NULL;
+    bestUses = 2;
+    bestOther = 0x7FFFFFFF;
+    for (c = terms; c && c->head; c = c->tail) {
+        term = (FactorTerm*)c->head;
+        if (term != NULL) {
+            for (p = term->uses, uses = 0; p && p->head; p = p->tail) {
+                uses++;
+            }
+            if (uses >= bestUses) {
+                for (p = term->other, other = 0; p && p->head; p = p->tail) {
+                    other++;
+                }
+                if (uses > bestUses || other < bestOther) {
+                    bestUses = uses;
+                    bestOther = other;
+                    best = term;
+                }
+            }
+        }
+    }
+    return best;
+}
+#else
 FactorTerm* func_0056C000(FactorCons* terms) {
     FactorTerm* best = NULL;
     int bestUses = 2;
@@ -166,6 +203,7 @@ FactorTerm* func_0056C000(FactorCons* terms) {
     }
     return best;
 }
+#endif
 
 // 0x56C090: expr without one multiplier term, appended to list; FALSE (and a
 // copy of expr) when expr is not a product

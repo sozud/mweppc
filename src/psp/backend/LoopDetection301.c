@@ -123,6 +123,38 @@ void func_0054AD10(void (*func)(Loop301*)) {
 }
 
 // 0x54B8A0: steps the live sets back over pc.
+#if MWCCPS2 && !MWCC_CORE && !MWCCPSP_NATIVE
+// mwccps2 (b198 0x55D890, b210): the bit operations written out with the class as a
+// signed byte (the PS2 b198 decompilation's); they rely on x86 masking the shift count,
+// so the native keeps the bit macros
+static void stepback(MPCode* pc) {
+    MOperand* op;
+    SInt32 n;
+
+    op = pc->args;
+    n = pc->argcount;
+    while (n--) {
+        if (op->kind == 0 && (op->flags & 2)) {
+            if ((data_0062541C[(SInt8)op->rclass].current[op->reg >> 5] >> op->reg) & 1) {
+                data_00624E04[(SInt8)op->rclass].count--;
+            }
+            data_0062541C[(SInt8)op->rclass].current[op->reg >> 5] &= ~(1u << (op->reg & 31));
+        }
+        op++;
+    }
+    op = pc->args;
+    n = pc->argcount;
+    while (n--) {
+        if (op->kind == 0 && (op->flags & 1)) {
+            if (!((data_0062541C[(SInt8)op->rclass].current[op->reg >> 5] >> op->reg) & 1)) {
+                data_00624E04[(SInt8)op->rclass].count++;
+            }
+            data_0062541C[(SInt8)op->rclass].current[op->reg >> 5] |= 1u << op->reg;
+        }
+        op++;
+    }
+}
+#else
 static void stepback(MPCode* pc) {
     MOperand* op;
     int n;
@@ -147,6 +179,7 @@ static void stepback(MPCode* pc) {
         }
     }
 }
+#endif
 
 // 0x54B760: the register pressure of every block
 static void computepressure(void) {

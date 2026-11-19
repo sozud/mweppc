@@ -13,7 +13,7 @@ extern void BE_DumpPCode(char* name, char* title); // pcode listing (empty in re
 extern void func_004AFBE0(Object* func); // peephole
 void func_004AFA00(Object* func, Boolean all); // below
 extern void func_004B11D0(int unk); // removecommonsubexpressions
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145's removecommonsubexpressions takes no argument
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 #define CSE_PASS(arg) ((void (*)(void))func_004B11D0)()

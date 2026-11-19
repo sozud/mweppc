@@ -170,6 +170,12 @@ void func_0059CBF0(
 // 0x59CB00: the variables another statement reads cannot stay in temporaries
 void func_0059CB00(IROLinear* nd, BitVector* bv, IROLoopAccessList* list) {
     VarRecord* var;
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x5B4B30, b210): the bit test into locals (the PS2 b198
+    // decompilation's)
+    Boolean used;
+    UInt32 bit;
+#endif
 
     if ((nd->type == IROLinearOp1Arg && nd->nodetype == EINDIRECT) ||
         nd->type == IROLinearFunccall ||
@@ -180,7 +186,13 @@ void func_0059CB00(IROLinear* nd, BitVector* bv, IROLoopAccessList* list) {
         Bv_Copy(IRO_Depends, bv);
         if (!Bv_IsEmpty(bv)) {
             for (var = IRO_FirstVar; var; var = var->next) {
+#if MWCCPS2 && !MWCC_CORE
+                bit = var->index;
+                used = (bit >> 5) < bv->size && (bv->data[bit >> 5] & (1 << (bit & 31)));
+                if (used) {
+#else
                 if (Bv_IsBitSet(var->index, bv)) {
+#endif
                     if (var->unk24) {
                         ((IROLoopAccess*)var->unk24)->kind = ACCESS_INVALID;
                     } else {

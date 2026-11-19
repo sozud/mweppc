@@ -35,6 +35,39 @@ void func_004AFD20(UInt16 op, int (*func)(MPCode* pc)) {
 }
 
 // 0x4AFD50: runs the patterns over a block, last instruction first
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x4BB790, b210): the dead instruction is deleted first, and the
+// counter is initialised where it is declared (the PS2 b198 decompilation's)
+static int func_004AFD50(MPCodeBlock* block) {
+    int changed = 0;
+    MPCode* pc;
+    PeepholeFunc* p;
+
+    func_004C3460(block);
+    for (pc = block->last; pc; pc = pc->prev) {
+        if (func_004C3310(pc)) {
+            deletepcode(pc);
+        } else {
+            p = data_005F0F10[pc->op];
+            while (p) {
+                if (p->func(pc)) {
+                    changed = 1;
+                    if (!pc->block) {
+                        break;
+                    }
+                    p = data_005F0F10[pc->op];
+                } else {
+                    p = p->next;
+                }
+            }
+            if (pc->block) {
+                func_004C33C0(pc);
+            }
+        }
+    }
+    return changed;
+}
+#else
 static int func_004AFD50(MPCodeBlock* block) {
     MPCode* pc;
     PeepholeFunc* p;
@@ -64,6 +97,7 @@ static int func_004AFD50(MPCodeBlock* block) {
     }
     return changed;
 }
+#endif
 
 // 0x4AFDD0: is the register used by an instruction between a and b?
 int func_004AFDD0(MPCode* a, MPCode* b, MOperand* reg) {

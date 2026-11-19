@@ -544,6 +544,8 @@ extern char* _GetThreadLocalData(int create);
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (55)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -4
 UInt32 func_00479040(char* format) {
     UInt32 implicit = 0;
     Boolean pair = 0;
@@ -773,13 +775,30 @@ UInt32 func_00479040(char* format) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 
 // The number of operands a VFPU format describes.
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -16
+#endif
 int func_00479220(char* format) {
     int n = 0;
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+    // b198 (0x4860E0, the PS2 b198 decompilation's count_mips_format_operands): the
+    // character is read once into an int and the table test kept in a variable
+    int ch;
+    int skip;
 
+    for (; *format; format++) {
+        ch = *format;
+        skip = MW_ISSPACE(ch);
+        if (!skip) {
+#else
     while (*format) {
         if (!MW_ISSPACE(*format)) {
+#endif
             switch (*format) {
                 case 'r':
                     n++;
@@ -835,10 +854,16 @@ int func_00479220(char* format) {
                     CError_Internal("mips.c", CError_B145_LINE(2152));
             }
         }
+#if !(MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210)
         format++;
+#endif
     }
     return n;
 }
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
+#endif
 
 #undef CError_PS2_SHIFT
 #define CError_PS2_SHIFT -12 // mwccps2: its assert is at line 0x827
@@ -847,6 +872,8 @@ int func_00479220(char* format) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (52)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -4
 int func_004792B0(char* format) {
     int n = 0;
 
@@ -1025,6 +1052,8 @@ int func_004792B0(char* format) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_PS2_SHIFT
 #define CError_PS2_SHIFT 0
 
@@ -1930,7 +1959,7 @@ VOperand func_0047E650(VOperand* src, UInt32 mask) {
     }
     if (mask == 0xFFFFFFFF) {
 #if MWCCPS2 && MWCCPS2_BUILD < 210
-        // b145 clears the high word: dsll32 then dsrl32 (by 0, i.e. 32)
+        // b145 and b198 clear the high word: dsll32 then dsrl32 (by 0, i.e. 32)
         n = data_00625A98[0]++;
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
         emitpcode(OPC(0x85), n, src->reg, 0);
@@ -2143,11 +2172,35 @@ VOperand func_0047CF50(VOperand* src, SInt32 value) {
 }
 
 // src == value, as 0 or 1 in a new register.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x0048B950, b210): the zero case first and returned from inside it (the PS2 b198
+// decompilation's emit_equal_constant)
+__declspec(noinline) VOperand func_0047E210(VOperand* src, SInt32 value) {
+    MPCode* pc;
+    VOperand t;
+
+    if (!value) {
+        pc = func_00480420(0xD6, 3);
+        pc->args[0] = func_004C3DD0(0);
+        pc->args[1] = func_004C3C60(src);
+        pc->args[2] = func_004C3D90(1);
+        appendpcode(data_006246B4, pc);
+        return func_004C3B10(pc->args[0]);
+    }
+    t = func_0047E3D0(src, value);
+    pc = func_00480420(0xD6, 3);
+    pc->args[0] = func_004C3DD0(0);
+    pc->args[1] = func_004C3C60(&t);
+    pc->args[2] = func_004C3D90(1);
+    appendpcode(data_006246B4, pc);
+    return func_004C3B10(pc->args[0]);
+}
+#else
 #if MWCCPS2 // b210 calls it from every user
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 BE_NOINLINE
 #else
-    __declspec(noinline)
+__declspec(noinline)
 #endif
 #endif
 VOperand func_0047E210(VOperand* src, SInt32 value) {
@@ -2171,6 +2224,7 @@ VOperand func_0047E210(VOperand* src, SInt32 value) {
         return func_004C3B10(pc->args[0]);
     }
 }
+#endif
 
 // src == a constant: a wide long long constant goes through registers.
 VOperand func_0047DFC0(VOperand* src, CInt64* value, Type* type) {
@@ -2717,6 +2771,8 @@ VOperand func_00479D10(SInt16 op, VOperand* src, SInt32 shift) {
 #if MWCCPS2
 #undef CError_PS2_SHIFT
 #define CError_PS2_SHIFT -12 // mwccps2: 0x6A3
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -4
 // b210 (0x486D10): 64-bit registers, so only a 64-bit "extension" is a copy
 VOperand func_00479C30(SInt16 op, VOperand* src, SInt32 bits) {
     MPCode* pc;
@@ -2729,6 +2785,8 @@ VOperand func_00479C30(SInt16 op, VOperand* src, SInt32 bits) {
     appendpcode(data_006246B4, pc);
     return func_004C3B10(pc->args[0]);
 }
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_PS2_SHIFT
 #define CError_PS2_SHIFT 0
 #else
@@ -3132,6 +3190,51 @@ VOperand func_00479F10(VOperand* src) {
     setpcodeflags(0x4000);
     return func_004C3B10(data_006246B4->last->args[0]);
 }
+
+#if MWCCPS2 && !MWCC_CORE
+// b210 0x487060 (b198 emit_mfc1_paired): a double FP register to a new pair of integer
+// registers (two mfc1s when doubles are kept in register pairs, else one dmfc1)
+VOperand ps2_fromfpr64_487060(VOperand* src) {
+    SInt32 reg;
+    SInt32 from;
+    VOperand result;
+
+    if (copts.mips_option0F) {
+        emitpcode(0xA5, data_00625A98[0]++, src->reg);
+        data_006246B4->last->args[1].flags |= 0x8000;
+        setpcodeflags(0x100);
+        result = func_004C3B10(data_006246B4->last->args[0]);
+        from = src->reg;
+        emitpcode(0xA5, reg = data_00625A98[0]++, from);
+        data_006246B4->last->args[1].flags |= 0xC000;
+        setpcodeflags(0x100);
+        result.regHi = reg;
+        return result;
+    }
+    emitpcode(0x7F, data_00625A98[0]++, src->reg);
+    return func_004C3B10(data_006246B4->last->args[0]);
+}
+
+// b210 0x487210 (b198 emit_mtc1_paired): src to a new double FP register (two mtc1s of
+// its halves when doubles are kept in register pairs, else one dmtc1)
+VOperand ps2_tofpr64_487210(VOperand* src) {
+    SInt32 reg;
+
+    if (copts.mips_option0F) {
+        reg = data_00625A98[1]++;
+        emitpcode(0xAD, src->reg, reg);
+        data_006246B4->last->args[1].flags |= 0x8000;
+        setpcodeflags(0x100);
+        emitpcode(0xAD, src->regHi, reg);
+        data_006246B4->last->args[1].flags |= 0xC000;
+        setpcodeflags(0x100);
+        return func_004C3B10(data_006246B4->last->args[1]);
+    }
+    reg = data_00625A98[1]++;
+    emitpcode(0xB1, src->reg, reg);
+    return func_004C3B10(data_006246B4->last->args[1]);
+}
+#endif
 
 #if !MWCCPS2 // b210's twin (0x487210, ps2_tofpr64_487210) moves with dmtc1
 // 0x479F70: move src to a new double-precision FP register: two moves of its

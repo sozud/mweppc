@@ -92,11 +92,19 @@ void func_004A72B0(VOperand* op, ENode* expr) {
         case 1:
             op->offset = 0;
             op->object = 0;
+#if MWCCPS2 && !MWCC_CORE
+            // mwccps2 (b198 0x4B2C40, b210): falls through to the shared store (the
+            // PS2 b198 decompilation's indirect)
+        case 2:
+            op->kind = 4;
+            break;
+#else
             op->kind = 4;
             break;
         case 2:
             op->kind = 4;
             break;
+#endif
         case 3:
             if (CInt64_IsInRange(op->imm, 4) || CInt64_IsInURange(op->imm, 4)) {
                 op->reg = 0;
@@ -139,12 +147,34 @@ void func_004A5A60(VOperand* op, Type* type) {
 // for a double) with the float library, else the float result register.
 #if MWCCPS2
 // b210 (0x4B0100): a float-library double comes back in one 64-bit register
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 get_call_result, b210): the integral kind read once, the soft-float
+// case first (the PS2 b198 decompilation's)
+VOperand func_004A4710(Type* type) {
+    UInt8 integral;
+    UInt16 opcode;
+
+    integral = TYPE_INTEGRAL(type)->integral;
+    if (type->type == TYPEFLOAT &&
+        (((integral == IT_FLOAT || (type->type == TYPEFLOAT && type->size == 4)) &&
+          !(copts.fp_library & 1)) ||
+         ((integral == IT_DOUBLE || (type->type == TYPEFLOAT && type->size == 8)) &&
+          !(copts.fp_library & 2)))) {
+        return func_0047FAA0(data_00625E48, 0, 0);
+    }
+    opcode = (integral == IT_FLOAT || (type->type == TYPEFLOAT && type->size == 4))
+        ? MACRO_OP(0x99)
+        : MACRO_OP(0x9A);
+    return func_0047FAA0(opcode, 1, 0);
+}
+#else
 VOperand func_004A4710(Type* type) {
     if (type->type != TYPEFLOAT || !IS_SOFTFLOAT(type)) {
         return func_0047FAA0(IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), 1, 0);
     }
     return func_0047FAA0(data_00625E48, 0, 0);
 }
+#endif
 #else
 VOperand func_004A4710(Type* type) {
     Boolean pair = IS_DOUBLE(type);
@@ -166,6 +196,24 @@ extern SInt32 data_00624788;
 // b210 (0x4B01B0): a 64-bit general register holds any integer argument;
 // without mips_long64 (copts+0x15) the outgoing area grows to 8-byte slots
 void func_004A47E0(VOperand* op, Boolean pair, int n) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x4AFEF0, b210): the index built in two steps, the size held
+    // unsigned and compared signed (the PS2 b198 decompilation's pass_int_argument)
+    SInt32 reg;
+    UInt32 size;
+
+    reg = 4;
+    reg += n - 1;
+    emitpcode((SInt16)data_00625E48, reg, (UInt16)op->reg);
+    data_005F0E68[0] |= 1U << reg;
+    if (!copts.mips_long64) {
+        size = ps2_argarea_635B78;
+        if (data_006242B4 > (SInt32)size) {
+            size = data_006242B4;
+        }
+        data_006242B4 = (size + 7) & ~7;
+    }
+#else
     int reg;
     SInt32 size;
 
@@ -179,6 +227,7 @@ void func_004A47E0(VOperand* op, Boolean pair, int n) {
         }
         data_006242B4 = (size + 7) & ~7;
     }
+#endif
 }
 #else
 void func_004A47E0(VOperand* op, Boolean pair, int n) {
@@ -288,6 +337,28 @@ extern VOperand func_0047F9A0(VOperand* src); // copy into a new register
 // b210: a 128-bit integer is one register (one quadword move,
 // data_00625E74); no soft-float pair
 extern SInt16 data_00625E74;
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x004B2AB0, b210): the hardware float case first (the PS2 b198 decompilation's
+// convert_operand_type)
+VOperand func_004A7050(VOperand* src, Type* type) {
+    MPCode* pc;
+    VOperand v;
+
+    if (type->type == TYPEFLOAT && IS_HARDFLOAT(type)) {
+        pc = makepcode(
+            IS_SINGLE(type) ? MACRO_OP(0x99) : MACRO_OP(0x9A), data_00625A98[1]++, src->reg
+        );
+        v = func_004C3B10(pc->args[0]);
+        appendpcode(data_006246B4, pc);
+        return v;
+    }
+    if ((type->type == TYPEINT || type->type == TYPEENUM) && type->size == 16) {
+        emitpcode(data_00625E74, data_00625A98[0]++, src->reg);
+        return func_004C3B10(data_006246B4->last->args[0]);
+    }
+    return func_0047F9A0(src);
+}
+#else
 VOperand func_004A7050(VOperand* src, Type* type) {
     MPCode* pc;
     VOperand v;
@@ -312,6 +383,7 @@ VOperand func_004A7050(VOperand* src, Type* type) {
     }
     return func_0047F9A0(src);
 }
+#endif
 #else
 VOperand func_004A7050(VOperand* src, Type* type) {
     MPCode* pc;

@@ -408,11 +408,17 @@ extern void CError_QualifierCheck(UInt32 qual);
 // b145 (MWCCPS2_BUILD < 210) moves some asserts again: CError_B145_SHIFT is
 // added on top of CError_PS2_SHIFT there (set around a function like it)
 #define CError_B145_SHIFT 0
+// b198 (198 <= MWCCPS2_BUILD < 210) has b210's assert lines except where it
+// sets this instead (b145's shifts do not apply to it)
+#define CError_B198_SHIFT 0
 // CError_B145_LINE(n) is for direct CError_Internal(file, n) calls (PS2-only
 // code written with b210's number): only the b145 shift applies
-#if MWCCPS2 && defined(MWCCPS2_BUILD) && MWCCPS2_BUILD < 210
+#if MWCCPS2 && defined(MWCCPS2_BUILD) && MWCCPS2_BUILD < 198
 #define CError_B145_LINE(line) ((line) + CError_B145_SHIFT)
 #define CError_PS2_LINE(line) ((line) + CError_PS2_SHIFT + CError_B145_SHIFT)
+#elif MWCCPS2 && defined(MWCCPS2_BUILD) && MWCCPS2_BUILD < 210
+#define CError_B145_LINE(line) ((line) + CError_B198_SHIFT)
+#define CError_PS2_LINE(line) ((line) + CError_PS2_SHIFT + CError_B198_SHIFT)
 #elif MWCCPS2
 #define CError_PS2_LINE(line) ((line) + CError_PS2_SHIFT)
 #else

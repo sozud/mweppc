@@ -346,6 +346,60 @@ void ObjGen_Finish(void) {
 }
 
 // Which section an object goes in.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x0046EF20, b210): the data type tested as a range, the name text in a local, the
+// size test written the other way round (the PS2 b198 decompilation's fn_0046EF20)
+SInt32 ObjGen_GetObjectSection(Object* obj) {
+    UInt8 datatype;
+    SInt32 sec;
+    HashNameNode* name;
+    const char* text;
+
+    datatype = obj->datatype;
+    sec = obj->section;
+    datatype = (UInt8)(datatype - DFUNC);
+    if (datatype <= 1) {
+        if (!sec || !(data_005ECF98[sec].flags & 4)) {
+            return data_0062477C;
+        }
+    }
+
+    name = obj->name;
+    if (name->name[1] == '_' && !strncmp(name->name, "__vt__", 6)) {
+        return data_006241DC;
+    }
+    text = name->name;
+    if (!strncmp(text, "@stringBase0", 12)) {
+        return data_006250B4;
+    }
+    if (!strncmp(text, "@wstringBase0", 13)) {
+        return data_006250B4;
+    }
+    if (sec == data_00624D74 || sec == data_00624D60) {
+        return sec;
+    }
+    if (data_00625E9B) {
+        data_00625E9B = 0;
+        obj->section = data_006250B4;
+        obj->qual |= Q_CONST;
+        return data_006250B4;
+    }
+    if (sec) {
+        return sec;
+    }
+    if (is_const_object(obj)) {
+        return data_006250B4;
+    }
+    if (!sec) {
+        if (!(obj->type->size > 0 && obj->type->size <= func_00438FC0())) {
+            sec = data_00624764;
+        } else {
+            sec = data_0062524C;
+        }
+    }
+    return sec;
+}
+#else
 SInt32 ObjGen_GetObjectSection(Object* obj) {
     SInt32 sec;
     HashNameNode* name;
@@ -391,6 +445,7 @@ SInt32 ObjGen_GetObjectSection(Object* obj) {
     }
     return sec;
 }
+#endif
 
 #if MWCC_CORE == MWCC_CORE_B52
 #undef CError_B52_SHIFT

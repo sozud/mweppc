@@ -189,6 +189,104 @@ void func_0056E370(ENode* expr) {
 }
 
 // 0x56E690: FoldConstantsinAssociativeExprs
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x005834F0, b210): one guarded block, the right constant read into val1 (the PS2
+// b198 decompilation's FoldConstantsinAssociativeExprs)
+void func_0056E690(ENode* expr) {
+    UInt8 nodetype1;
+    UInt8 nodetype2;
+    UInt8 nodetype3;
+    Boolean changed;
+    short op;
+    CInt64 val1;
+    CInt64 val2;
+    CInt64 typeBits;
+    CInt64 sum;
+
+    if ((expr->type == EADD ||
+         expr->type == EMUL ||
+         expr->type == EAND ||
+         expr->type == EOR ||
+         expr->type == EXOR ||
+         expr->type == ESHL ||
+         expr->type == ESHR) &&
+        IS_TYPE_INT(expr->rtype) &&
+        TYPE_INTEGRAL(expr->rtype)->integral < 0x11 &&
+        func_00555B30(expr->data.diadic.right)) {
+        do {
+            changed = FALSE;
+
+            if (expr->data.diadic.left->type == expr->type &&
+                func_00555B30(expr->data.diadic.left->data.diadic.right)) {
+                val1 = expr->data.diadic.right->data.intval;
+                val2 = expr->data.diadic.left->data.diadic.right->data.intval;
+                switch (expr->type) {
+                    case EADD:
+                    case ESHL:
+                        op = '+';
+                        break;
+                    case ESHR:
+                        op = '+';
+                        if (!is_unsigned(expr->rtype)) {
+                            CInt64_SetLong(&typeBits, expr->rtype->size * 8);
+                            if (CInt64_GreaterEqualU(val1, typeBits) ||
+                                CInt64_GreaterEqualU(val2, typeBits)) {
+                                return;
+                            }
+
+                            sum = CMach_CalcIntDiadic(expr->rtype, val1, '+', val2);
+                            if (CInt64_GreaterEqualU(sum, typeBits)) {
+                                val1 = CInt64_Sub(typeBits, cint64_one);
+                                val2 = cint64_zero;
+                            }
+                        }
+                        break;
+                    case EMUL:
+                        op = '*';
+                        break;
+                    case EAND:
+                        op = '&';
+                        break;
+                    case EOR:
+                        op = '|';
+                        break;
+                    case EXOR:
+                        op = '^';
+                        break;
+                    default:
+                        return;
+                }
+
+                expr->data.diadic.right->data.intval =
+                    CMach_CalcIntDiadic(expr->rtype, val1, op, val2);
+                expr->data.diadic.left = expr->data.diadic.left->data.diadic.left;
+                changed = TRUE;
+            } else if (((nodetype1 = expr->type) == EAND || nodetype1 == EOR) &&
+                       ((nodetype2 = expr->data.diadic.left->type) == EAND || nodetype2 == EOR) &&
+                       ((nodetype3 = expr->data.diadic.left->data.diadic.left->type) == EAND ||
+                        nodetype3 == EOR) &&
+                       func_00555B30(expr->data.diadic.left->data.diadic.left->data.diadic.right)) {
+                val1 = expr->data.diadic.right->data.intval;
+                if (CInt64_Equal(
+                        val1,
+                        expr->data.diadic.left->data.diadic.left->data.diadic.right->data.intval
+                    )) {
+                    if (nodetype1 == nodetype3) {
+                        expr->data.diadic.left->data.diadic.left =
+                            expr->data.diadic.left->data.diadic.left->data.diadic.left;
+                        changed = TRUE;
+                    } else if (nodetype2 == nodetype3) {
+                        *expr = *expr->data.diadic.right;
+                    } else {
+                        expr->data.diadic.left = expr->data.diadic.left->data.diadic.right;
+                        changed = TRUE;
+                    }
+                }
+            }
+        } while (changed);
+    }
+}
+#else
 void func_0056E690(ENode* expr) {
     UInt8 nodetype1;
     UInt8 nodetype2;
@@ -282,6 +380,7 @@ void func_0056E690(ENode* expr) {
         }
     } while (changed);
 }
+#endif
 
 // 0x56E5E0: TransformExprTree1 (fold constants bottom-up)
 void func_0056E5E0(ENode* expr) {
@@ -367,6 +466,160 @@ static inline Type* SumType(ENode* left, Type* other) {
 
 // 0x56EB50: CombineConstants (an address sum: variable first, constant parts
 // added together at the end)
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00583A90, b210): while loops for the searches and the frees, the result types
+// written out (the PS2 b198 decompilation's CombineConstants)
+ENode* func_0056EB50(ENode* expr) {
+    ENode* addend;
+    ENodeList* el;
+    ENode* result;
+    ENode* var;
+    Type* type;
+    ENode* tmp;
+    ENodeList* prev;
+    ENodeList* next;
+    CInt64 val;
+
+    if (func_0056EEC0(expr)) {
+        return expr;
+    }
+
+    data_00608B04 = data_00608B00 = NULL;
+    func_0056F0F0(expr->data.diadic.left);
+    func_0056F0F0(expr->data.diadic.right);
+
+    el = data_00608B04;
+    prev = NULL;
+    var = NULL;
+    while (el) {
+        addend = el->node;
+        if (addend->type == EOBJREF) {
+            var = addend;
+            if (prev) {
+                prev->next = el->next;
+            } else {
+                data_00608B04 = el->next;
+            }
+            break;
+        }
+        prev = el;
+        el = el->next;
+    }
+
+    if (!var) {
+        el = data_00608B04;
+        prev = NULL;
+        while (el) {
+            addend = el->node;
+            if (addend->type == EINDIRECT) {
+                var = addend;
+                if (prev) {
+                    prev->next = el->next;
+                } else {
+                    data_00608B04 = el->next;
+                }
+                break;
+            }
+            prev = el;
+            el = el->next;
+        }
+    }
+
+    prev = NULL;
+    CInt64_SetLong(&val, 0);
+    type = NULL;
+
+    for (el = data_00608B04; el; el = el->next) {
+        addend = el->node;
+        if (func_00555B30(addend)) {
+            if (!type || type->size < addend->rtype->size) {
+                type = addend->rtype;
+            }
+            val = CInt64_Add(val, addend->data.intval);
+            if (prev) {
+                prev->next = el->next;
+            } else {
+                data_00608B04 = el->next;
+            }
+        } else if (addend->type == EMUL && func_00555B30(addend->data.diadic.right)) {
+            if (!type || type->size < addend->rtype->size) {
+                type = addend->rtype;
+            }
+
+            tmp = addend->data.diadic.left;
+            if (tmp->type == EADD && func_00555B30(tmp->data.diadic.right)) {
+                val = CInt64_Add(
+                    val,
+                    CInt64_MulU(
+                        tmp->data.diadic.right->data.intval, addend->data.diadic.right->data.intval
+                    )
+                );
+                addend->data.diadic.left = tmp->data.diadic.left;
+            }
+            prev = el;
+        } else {
+            prev = el;
+        }
+    }
+
+    result = NULL;
+    if (var) {
+        result = var;
+        if (!CInt64_IsZero(&val)) {
+            result = IRO_NewENode(EADD);
+            result->data.diadic.left = var;
+            result->data.diadic.right = IRO_NewIntConstENode(val, type);
+            if (var->rtype->type == TYPEPOINTER) {
+                result->rtype = var->rtype;
+            } else {
+                result->rtype = type;
+            }
+            result->cost = 1;
+            CInt64_SetLong(&val, 0);
+        }
+    }
+
+    for (el = data_00608B04; el; el = el->next) {
+        addend = el->node;
+        if (result) {
+            tmp = IRO_NewENode(EADD);
+            tmp->data.diadic.left = result;
+            tmp->data.diadic.right = addend;
+            tmp->cost = result->cost + 1;
+            if (result->rtype->type == TYPEPOINTER) {
+                tmp->rtype = result->rtype;
+            } else {
+                tmp->rtype = addend->rtype;
+            }
+            result = tmp;
+        } else {
+            result = addend;
+        }
+    }
+
+    if (!CInt64_IsZero(&val)) {
+        tmp = IRO_NewENode(EADD);
+        tmp->data.diadic.left = result;
+        tmp->data.diadic.right = IRO_NewIntConstENode(val, type);
+        tmp->cost = result->cost + 1;
+        if (result->rtype->type == TYPEPOINTER) {
+            tmp->rtype = result->rtype;
+        } else {
+            tmp->rtype = type;
+        }
+        result = tmp;
+    }
+
+    result->flags = expr->flags;
+    el = data_00608B04;
+    while (el) {
+        next = el->next;
+        IRO_free(el);
+        el = next;
+    }
+    return result;
+}
+#else
 ENode* func_0056EB50(ENode* expr) {
     ENode* addend;
     ENodeList* el;
@@ -500,6 +753,7 @@ ENode* func_0056EB50(ENode* expr) {
 
     return result;
 }
+#endif
 
 // 0x56EA70: TransformExprNode
 ENode* func_0056EA70(ENode* expr) {

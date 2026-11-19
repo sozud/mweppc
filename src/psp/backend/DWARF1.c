@@ -44,7 +44,11 @@ typedef struct DwNode {
     void* f20; // +0x20 name, object or ELF symbol
     void* f24; // +0x24 link name (a unit: the .debug section symbol)
     void* f28; // +0x28 type (a unit: the .line section symbol)
-#if MWCCPS2
+#if MWCCPS2 && MWCCPSP_NATIVE
+    UInt8 body
+        [2 * (0x48 - 0x2C) +
+         (0x658 - 0x48)]; // mwccps2's 0x658 bytes, the slots below 0x48 widened (DW_ADDR)
+#elif MWCCPS2
     UInt8 body[0x658 - 0x2C]; // mwccps2 b210: 0x658-byte nodes (DW_NewNode, 0x531A60's twin)
 #elif MWCCPSP_NATIVE
     UInt8 body[2 * (0x1858 - 0x2C)]; // every 32-bit slot widened to 8 bytes
@@ -101,7 +105,7 @@ typedef struct DwSavedRegs {
 } DwSavedRegs;
 
 static SInt32 dw_active; // 0x604840 set up for this file
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #define DW_ACTIVE 1 // b145 has no dw_active: every test of it is gone
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 #define DW_SET_ACTIVE() ((void)0)
@@ -489,10 +493,11 @@ void func_00531D90(Object* obj, Boolean global, ELFSymbol* sym, SInt32 size) {
     DW_S32(func, 0x34) = size;
     DW_PTR(func, 0x40) = func_00532800(0, size);
 #if MWCCPS2 // b210's 32-entry tables
-    *(DwFrame*)((char*)func + 0x48) = data_0060EF38;
-    *(DwSavedRegs*)((char*)func + 0x58) = data_00610438;
-    *(DwSavedRegs*)((char*)func + 0x58 + sizeof(DwSavedRegs)) = data_0060A020;
-    *(DwSavedRegs*)((char*)func + 0x58 + 2 * sizeof(DwSavedRegs)) = data_00609820;
+    // through DW_ADDR: natively the header's wider pointers put f24 at +0x48
+    *(DwFrame*)DW_ADDR(func, 0x48) = data_0060EF38;
+    *(DwSavedRegs*)DW_ADDR(func, 0x58) = data_00610438;
+    *(DwSavedRegs*)DW_ADDR(func, 0x58 + sizeof(DwSavedRegs)) = data_0060A020;
+    *(DwSavedRegs*)DW_ADDR(func, 0x58 + 2 * sizeof(DwSavedRegs)) = data_00609820;
 #else
     *(DwFrame*)DW_ADDR(func, 0x48) = data_0060EF38;
     *(DwSavedRegs*)DW_ADDR(func, 0x58) = data_00610438;

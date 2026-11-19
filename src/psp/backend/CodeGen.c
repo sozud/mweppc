@@ -53,7 +53,7 @@ extern void BE_PeepholeMerge(Object* func, int flag);
 extern void BE_PeepholeOptimizePCode(Object* func);
 extern void BE_EarlyConditionalMoves(void);
 extern void BE_RemoveCommonSubexpressions(int postcoloring);
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145's removecommonsubexpressions takes no argument
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 #define BE_CSE(arg) ((void (*)(void))BE_RemoveCommonSubexpressions)()
@@ -261,7 +261,7 @@ void CodeGen_GenerateFunction(Object* func, Boolean emitreturn, Boolean optimize
         BE_DumpPCode(func_0049F6E0(func)->name, "AFTER CodeGen");
 #endif
     }
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 always deletes unreachable blocks
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 always deletes unreachable blocks
     deleteunreachableblocks();
 #else
     if (!data_0062525C) {
@@ -440,7 +440,7 @@ regs_done:
         }
         func_0048F260(func);
         DUMP("After macro expansion");
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145: conditional_move, any ISA
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145: conditional_move, any ISA
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
         if (copts.peephole && copts.conditional_move) {
 #else
@@ -821,14 +821,295 @@ void CodeGen_UpdateOptimizerOptions(void) {
         } while (tk != TK_EOL && tk != TK_EOF);
         return 0;
     }
+#elif !MWCC_CORE
+    // b210/b198's own pragma handlers (the PS2 b198 decompilation's fn_004336B0 ..
+    // fn_00433DC0, taken as hints; the addresses are b210's)
+    extern SInt32 ps2_pragma_alignment; // #pragma align: the alignment, 0 if none
+    extern SInt32 ps2_section_open; // #pragma section: the section a begin opened
+    extern SInt32 func_00464210(char* name);
+    extern SInt32 ObjGen_DefineSection(
+        char* name, char* elfname, char* bssname, char* addressing, char* access
+    );
+    void func_00435300(void);
+
+    // 0x4336B0, 0x4336C0: a bad register number, a bad token
+    __declspec(noinline) static int ps2_pragma_badregister(void) {
+        CPrep_Error(55);
+        skipendofline();
+        return 0;
+    }
+
+    __declspec(noinline) static int ps2_pragma_badtoken(void) {
+        CPrep_Error(6);
+        skipendofline();
+        return 0;
+    }
+
+    // 0x433660: #pragma vu0_max_used_nvreg n (0..25)
+    int ps2_pragma_vu0maxusednvreg(void) {
+        SInt16 token;
+        SInt32 reg;
+
+        if (!notendofline()) {
+            if (copts.warn_illpragma) {
+                CPrep_Warning(87);
+            }
+            skipendofline();
+            return 0;
+        }
+        token = plex();
+        if (token == TK_INTCONST) {
+            reg = tkintconst.lo;
+            if (reg < 0 || reg > 25) {
+                return ps2_pragma_badregister();
+            }
+            copts.function_align16 = reg;
+            func_004621F0();
+            return 1;
+        }
+        return ps2_pragma_badtoken();
+    }
+
+    // 0x4336D0: #pragma vu0_register_number n (0..32) | reset
+    int ps2_pragma_vu0regnumber(void) {
+        SInt16 token;
+        SInt32 reg;
+
+        if (!notendofline()) {
+            if (copts.warn_illpragma) {
+                CPrep_Warning(87);
+            }
+            skipendofline();
+            return 0;
+        }
+        token = plex();
+        if (token == TK_INTCONST) {
+            reg = tkintconst.lo;
+            if (reg < 0 || reg > 32) {
+                goto badregister;
+            }
+            copts.vu0_register_number = reg;
+            copts.enable_vu0_registers = TRUE;
+            func_004621F0();
+            return 1;
+        } else if (token == TK_IDENTIFIER) {
+            if (!strcmp(tkidentifier->name, "reset")) {
+                copts.vu0_register_number = 32;
+                copts.enable_vu0_registers = TRUE;
+                return 1;
+            }
+        }
+        goto badtoken;
+badregister:
+        CPrep_Error(55);
+        skipendofline();
+        return 0;
+badtoken:
+        CPrep_Error(6);
+        skipendofline();
+        return 0;
+    }
+
+    // 0x4337A0: #pragma align [(n)], n a power of two up to 0x2000
+    int ps2_pragma_align(void) {
+        UInt32 bits;
+        SInt32 value;
+        SInt32 check;
+
+        tk = plex();
+        if (tk == TK_EOL) {
+            ps2_pragma_alignment = 0;
+            return 1;
+        }
+        if (tk == '(') {
+            tk = plex();
+            if (tk == TK_INTCONST) {
+                value = tkintconst.lo;
+                ps2_pragma_alignment = value;
+                bits = 0x2000;
+                check = value;
+                for (; bits; bits >>= 1) {
+                    if (check == bits) {
+                        tk = plex();
+                        if (tk == ')') {
+                            return 1;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        ps2_pragma_alignment = 0;
+        return 0;
+    }
+
+    // 0x4338D0: #pragma define_section name "elf" ["bss"] [addressing [access]]
+    int ps2_pragma_definesection(void) {
+        char* first;
+        char* second;
+        char* third;
+        char* fourth;
+        char* fifth;
+
+        first = NULL;
+        third = NULL;
+        fourth = NULL;
+        fifth = NULL;
+        tk = plex();
+        if (tk != TK_IDENTIFIER) {
+            return 0;
+        }
+        first = tkidentifier->name;
+        tk = plex();
+        if (tk != TK_STRING) {
+            return 0;
+        }
+        second = tkstring;
+        tk = plex();
+        if (tk == TK_STRING) {
+            third = tkstring;
+            tk = plex();
+        }
+        if (tk == TK_IDENTIFIER) {
+            fourth = tkidentifier->name;
+            tk = plex();
+        }
+        if (tk == TK_IDENTIFIER) {
+            fifth = tkidentifier->name;
+            tk = plex();
+        }
+        if (!ObjGen_DefineSection(first, second, third, fourth, fifth)) {
+            return 0;
+        }
+        if (tk == TK_EOL || tk == 0) {
+            return 1;
+        }
+        do {
+            tk = plex();
+        } while (tk != TK_EOL && tk != 0);
+        return 0;
+    }
+
+    // 0x433A30: #pragma processor NAME
+    int ps2_pragma_processor(void) {
+        const char* name;
+
+        tk = plex();
+        if (tk != TK_IDENTIFIER) {
+            return 0;
+        }
+        name = tkidentifier->name;
+        if (!strcmp(name, "VR4100")) {
+            copts.mips_flags02 = 0x11;
+        } else if (!strcmp(name, "VR4111")) {
+            copts.mips_flags02 = 0x12;
+        } else if (!strcmp(name, "VR4121")) {
+            copts.mips_flags02 = 0x13;
+        } else if (!strcmp(name, "VR4200")) {
+            copts.mips_flags02 = 0x14;
+        } else if (!strcmp(name, "VR4300")) {
+            copts.mips_flags02 = 0x15;
+        } else if (!strcmp(name, "VR5000")) {
+            copts.mips_flags02 = 0x16;
+        } else if (!strcmp(name, "VR5400")) {
+            copts.mips_flags02 = 0x17;
+        } else if (!strcmp(name, "RM7000")) {
+            copts.mips_flags02 = 0x1B;
+        } else if (!strcmp(name, "R5900")) {
+            copts.mips_flags02 = 0x1D;
+        } else if (!strcmp(name, "PSP")) {
+            copts.mips_flags02 = 0x1E;
+        } else if (!strcmp(name, "IDT3081")) {
+            copts.mips_flags02 = 0x8;
+        } else if (!strcmp(name, "IDT4640")) {
+            copts.mips_flags02 = 0xC;
+        } else if (!strcmp(name, "IDT4650")) {
+            copts.mips_flags02 = 0xD;
+        } else if (!strcmp(name, "IDT4700")) {
+            copts.mips_flags02 = 0xB;
+        } else if (!strcmp(name, "IDT32364")) {
+            copts.mips_flags02 = 0xE;
+        } else if (!strcmp(name, "SONY4500")) {
+            copts.mips_flags02 = 0x3;
+        } else if (!strcmp(name, "TR4101")) {
+            copts.mips_flags02 = 0x1C;
+        } else {
+            return 0;
+        }
+        func_00435300();
+        do {
+            tk = plex();
+        } while (tk != TK_EOL && tk != 0);
+        return 1;
+    }
+
+    // 0x433D30: #pragma maxtempforblkmv [(n)], n 1..6 (4 by default)
+    int ps2_pragma_maxtempforblkmv(void) {
+        SInt32 value;
+
+        tk = plex();
+        if (tk == TK_EOL) {
+            copts.mips_option33 = 4;
+            return 1;
+        }
+        if (tk == '(') {
+            tk = plex();
+            if (tk == TK_INTCONST) {
+                value = tkintconst.lo;
+                if (value >= 1 && value <= 6) {
+                    copts.mips_option33 = value;
+                    tk = plex();
+                    if (tk == ')') {
+                        return 1;
+                    }
+                }
+            }
+        }
+        copts.mips_option33 = 4;
+        return 0;
+    }
+
+    // 0x433DC0: #pragma section NAME begin|end
+    int ps2_pragma_section(void) {
+        SInt32 index;
+        const char* name;
+
+        tk = plex();
+        if (tk != TK_IDENTIFIER) {
+            return 0;
+        }
+        index = func_00464210(tkidentifier->name);
+        tk = plex();
+        if (tk != TK_IDENTIFIER) {
+            return 0;
+        }
+        name = tkidentifier->name;
+        if (!strcmp(name, "begin")) {
+            if (!index || ps2_section_open) {
+                return 0;
+            }
+            ps2_section_open = index;
+        } else if (!strcmp(name, "end")) {
+            if (!index || ps2_section_open != index) {
+                return 0;
+            }
+            ps2_section_open = 0;
+        } else {
+            return 0;
+        }
+        do {
+            tk = plex();
+        } while (tk != TK_EOL && tk != 0);
+        return 1;
+    }
 #else
-    extern int ps2_pragma_align(void); // 0x4337A0
-    extern int ps2_pragma_processor(void); // 0x433A30
-    extern int ps2_pragma_maxtempforblkmv(void); // 0x433D30
-    extern int ps2_pragma_vu0regnumber(void); // 0x4336D0
-    extern int ps2_pragma_vu0maxusednvreg(void); // 0x433660
-    extern int ps2_pragma_section(void); // 0x433DC0
-    extern int ps2_pragma_definesection(void); // 0x4338D0
+extern int ps2_pragma_align(void); // 0x4337A0
+extern int ps2_pragma_processor(void); // 0x433A30
+extern int ps2_pragma_maxtempforblkmv(void); // 0x433D30
+extern int ps2_pragma_vu0regnumber(void); // 0x4336D0
+extern int ps2_pragma_vu0maxusednvreg(void); // 0x433660
+extern int ps2_pragma_section(void); // 0x433DC0
+extern int ps2_pragma_definesection(void); // 0x4338D0
 #endif
     extern UInt8 ps2_cgswitch[16]; // 0x622580
 
@@ -945,6 +1226,8 @@ void CodeGen_UpdateOptimizerOptions(void) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (-247)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -9
     void CodeGen_UpdateObject(Object * obj) {
 #if MWCCPS2
         // b210 (0x433EF0): a data object in a register takes over the entry
@@ -1042,6 +1325,8 @@ void CodeGen_UpdateOptimizerOptions(void) {
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -1139,7 +1424,7 @@ void CodeGen_UpdateOptimizerOptions(void) {
         ObjCodeReloc* scan;
 
         if (!pc->relobj) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             if (pc->unk38 == 4) {
 #else
         if (pc->unk38 == 4 || pc->unk38 == 2) {
@@ -1261,9 +1546,19 @@ void CodeGen_UpdateOptimizerOptions(void) {
 #endif
                 return expr;
             }
-            if (expr->rtype->type == TYPEINT && expr->rtype->size == 16) {
-                CError_Error(0x39);
+#if MWCCPS2 && !MWCC_CORE
+            {
+                // the type in a local (the PS2 b198 decompilation's fn_00435040)
+                Type* type = expr->rtype;
+                if (type->type == TYPEINT && type->size == 16) {
+                    CError_Error(0x39);
+                }
             }
+#else
+        if (expr->rtype->type == TYPEINT && expr->rtype->size == 16) {
+            CError_Error(0x39);
+        }
+#endif
         }
         return expr;
     }
@@ -1556,6 +1851,8 @@ void func_00434F30(void) {
 // fp_library for the CodeGen panel's FPU setting.
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -10 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -2
     inline char panel_fp_library(void) {
         switch (data_005B0A78.fpu) {
             case 0:
@@ -1571,12 +1868,16 @@ void func_00434F30(void) {
                 return 0;
         }
     }
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
 // Set the ISA, FPU and code generation options for the selected processor.
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -21 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -2
     void func_00435300(void) {
         SInt16 processor;
 
@@ -1870,6 +2171,8 @@ void func_00434F30(void) {
         func_0046FFB0();
         CMach_Configure();
     }
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -2255,7 +2558,13 @@ extern void func_00480B40(
 
     // Start the function's code: its used-register record and, when asked, the
     // entry pseudo-instruction.
-    void func_00436F00(Object * func, int entry) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x436FA0, b210): the function in a register variable (the PS2 b198
+    // decompilation's)
+    void func_00436F00(register Object * func, int entry) {
+#else
+void func_00436F00(Object* func, int entry) {
+#endif
         data_006241D8 = galloc(sizeof(UsedRegs));
         memclrw(data_006241D8, sizeof(UsedRegs));
         *(UsedRegs**)&func->toc = data_006241D8;
@@ -2328,7 +2637,7 @@ void CodeGen_Generator(
         data_00624BA0 = 0;
         data_006246CC = 0;
         data_00624810 = 0;
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198
         data_0062525C = 0;
 #endif
         if (copts.cplusplus && copts.exceptions) {
@@ -2377,7 +2686,7 @@ void CodeGen_Generator(
         if (data_006246CC && data_00624810) {
             data_00625350 = 1;
         }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198
         if (data_0062525C) {
             data_00625350 = 0;
             data_00624DEC |= 1;
@@ -2737,6 +3046,31 @@ skipped:;
     extern struct Alias* worst_case_func;
 
     // 0x4342E0: load a nonzero constant into a register
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+    // b198 (0x434490, the PS2 b198 decompilation's): the register is an int, the
+    // zero case asserts and returns first, and the low half is kept
+    static void func_004342E0(SInt32 value, SInt32 reg) {
+        UInt32 low;
+
+        if (!value) {
+            CError_Internal("CodeGen.c", 3964);
+            return;
+        }
+        if (value >= -0x8000 && value < 0x8000) {
+            emitpcode(3, reg, 0, value); // addiu
+        } else if (value >= 0 && value < 0x10000) {
+            emitpcode(0xBF, reg, 0, value); // ori
+        } else {
+            low = value & 0xFFFF;
+            if (low) {
+                emitpcode(0x90, reg, (UInt16)(value >> 16)); // lui
+                emitpcode(0xBF, reg, reg, low);
+            } else {
+                emitpcode(0x90, reg, (UInt16)(value >> 16));
+            }
+        }
+    }
+#else
     static void func_004342E0(SInt32 value, SInt16 reg) {
         if (value) {
             if (value >= -0x8000 && value < 0x8000) {
@@ -2766,6 +3100,7 @@ skipped:;
             CError_FATAL(3990);
         }
     }
+#endif
 
 // 0x433FB0: a thunk that adjusts this (through the vtable when ctoroffset
 // is not negative) and jumps to func; the adjustment goes in the delay slot
@@ -3051,6 +3386,8 @@ skipped:;
 
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 5 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 6
     void func_00436F90(ENode * expr, Boolean islast) {
         Type* type;
         UInt16 opcode;
@@ -3132,6 +3469,8 @@ skipped:;
             }
         }
     }
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 
@@ -3601,19 +3940,16 @@ void BE_TailCalls(void) {
 
 // 0x435AA0: a register-allocated local "name'reg" standing for obj in a
 // register (the store-load optimization).
-#if MWCCPS2
-// b210 (0x435C40) passes the register number to sprintf as a whole int
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x435C10, b210 0x435C40): the fields set through the object, the type
+// read first (the PS2 b198 decompilation's makeregaliasformem)
 void func_00435AA0(Object* obj, char rclass, int reg) {
-#else
-            void func_00435AA0(Object * obj, char rclass, short reg) {
-#endif
-    Type* type;
     Object* local;
-    char* name;
+    Type* type = obj->type;
     VarInfo* vi;
     ObjectList* list;
+    char* name;
 
-    type = obj->type;
     local = lalloc(sizeof(Object));
     memclrw(local, sizeof(Object));
     name = lalloc(strlen(obj->name->name) + 0x16);
@@ -3625,18 +3961,56 @@ void func_00435AA0(Object* obj, char rclass, int reg) {
     local->name = GetHashNameNodeExport(name);
     vi = CodeGen_GetNewVarInfo();
     local->u.var.info = vi;
-    vi->func = data_00625078;
-    vi->usage = 1;
-    vi->used = 1;
-    vi->flags |= VarInfoFlag_InReg;
-    vi->rclass = rclass;
-    vi->reg = reg;
+    local->u.var.info->func = data_00625078;
+    local->u.var.info->usage = 1;
+    local->u.var.info->used = 1;
+    local->u.var.info->flags |= VarInfoFlag_InReg;
+    local->u.var.info->rclass = rclass;
+    local->u.var.info->reg = reg;
     list = lalloc(sizeof(ObjectList));
     memclrw(list, sizeof(ObjectList));
     list->next = locals;
     list->object = local;
     locals = list;
 }
+#else
+#if MWCCPS2
+            // b210 (0x435C40) passes the register number to sprintf as a whole int
+            void func_00435AA0(Object * obj, char rclass, int reg) {
+#else
+            void func_00435AA0(Object * obj, char rclass, short reg) {
+#endif
+                Type* type;
+                Object* local;
+                char* name;
+                VarInfo* vi;
+                ObjectList* list;
+
+                type = obj->type;
+                local = lalloc(sizeof(Object));
+                memclrw(local, sizeof(Object));
+                name = lalloc(strlen(obj->name->name) + 0x16);
+                sprintf(name, "%s'%d", obj->name->name, reg);
+                local->otype = OT_OBJECT;
+                local->access = 0;
+                local->datatype = DLOCAL;
+                local->type = type;
+                local->name = GetHashNameNodeExport(name);
+                vi = CodeGen_GetNewVarInfo();
+                local->u.var.info = vi;
+                vi->func = data_00625078;
+                vi->usage = 1;
+                vi->used = 1;
+                vi->flags |= VarInfoFlag_InReg;
+                vi->rclass = rclass;
+                vi->reg = reg;
+                list = lalloc(sizeof(ObjectList));
+                memclrw(list, sizeof(ObjectList));
+                list->next = locals;
+                list->object = local;
+                locals = list;
+            }
+#endif
 
 // The PSP Project panel's option (0 turns on .mwcats).
 int func_00438FC0(void) {
@@ -4213,6 +4587,8 @@ extern VOperand func_0047F660(SInt32 value); // a constant in a new register
 #define CError_B52_SHIFT (16)
 #endif
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 6
 VOperand func_00438680(VOperand* which) {
     if (which->kind != 3) {
         CError_FATAL(891);
@@ -4239,6 +4615,8 @@ VOperand func_00438680(VOperand* which) {
 #undef CError_B69_SHIFT
 #define CError_B69_SHIFT 0
 #endif
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 

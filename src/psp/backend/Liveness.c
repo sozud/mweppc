@@ -119,21 +119,48 @@ return 0;
 }
 
 // Step the live sets backwards over pc: kill its results, add its operands.
+#if MWCCPS2 && !MWCC_CORE && !MWCCPSP_NATIVE
+// mwccps2 (b198 update_live_registers, b210): the bit operations written out, the class
+// as a signed byte (the PS2 b198 decompilation's); the set relies on x86 masking the
+// shift count, so the native keeps the bitvector helpers
 void func_004C33C0(MPCode* pc) {
-    SInt32 k;
     MOperand* op;
+    SInt32 k;
+    SInt32 rclass;
+    SInt32 reg;
 
-    for (k = pc->argcount, op = pc->args; k--; op++) {
+    for (op = pc->args, k = pc->argcount; k--; op++) {
         if (op->kind == 0 && (op->flags & 2)) {
-            bitvectorclearbit(op->reg, data_0062541C[op->rclass].current);
+            reg = op->reg;
+            rclass = (SInt8)op->rclass;
+            data_0062541C[rclass].current[reg >> 5] &= ~(1UL << (reg & 31));
         }
     }
-    for (k = pc->argcount, op = pc->args; k--; op++) {
+    for (op = pc->args, k = pc->argcount; k--; op++) {
         if (op->kind == 0 && (op->flags & 1)) {
-            bitvectorsetbit(op->reg, data_0062541C[op->rclass].current);
+            reg = op->reg;
+            rclass = (SInt8)op->rclass;
+            data_0062541C[rclass].current[reg >> 5] |= (1UL << reg);
         }
     }
 }
+#else
+    void func_004C33C0(MPCode * pc) {
+        SInt32 k;
+        MOperand* op;
+
+        for (k = pc->argcount, op = pc->args; k--; op++) {
+            if (op->kind == 0 && (op->flags & 2)) {
+                bitvectorclearbit(op->reg, data_0062541C[op->rclass].current);
+            }
+        }
+        for (k = pc->argcount, op = pc->args; k--; op++) {
+            if (op->kind == 0 && (op->flags & 1)) {
+                bitvectorsetbit(op->reg, data_0062541C[op->rclass].current);
+            }
+        }
+    }
+#endif
 
 // Solve liveness for one register class (backwards, to a fixed point).
 void func_004C37C0(char rclass) {

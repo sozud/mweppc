@@ -37,6 +37,7 @@ jobs:
           python3 tools/mwccps2/get_orig.py
           python3 tools/mwccps2/b52/get_orig.py
           python3 tools/mwccps2/b69/get_orig.py
+          python3 tools/mwccps2/b198/get_orig.py
           python3 tools/download_tool.py wibo build/tools/wibo
 
       # CodeWarrior 9.2, Pro 6, Pro 5.3 and Pro 5, and the discs' MSL/runtime

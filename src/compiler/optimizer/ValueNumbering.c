@@ -163,7 +163,7 @@ void killmemory(Alias* alias, MPCode* newValue) {
 }
 
 // 0x4B2DC0
-#if MWCCPS2 && MWCCPS2_BUILD >= 210
+#if MWCCPS2 && MWCCPS2_BUILD >= 198
 __declspec(noinline) // b210 calls it (functioncall); b145 inlines it
 #endif
 static void killallCSEs(void) {
@@ -236,7 +236,7 @@ static int matchvalues(AvailableValue301* av, MPCode* match) {
                         return FALSE;
                     }
                     break;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                 case 1:
                     CError_Internal("LocalCSE.c", 579); // b145's file name and line
                     break;
@@ -333,7 +333,7 @@ static int findavailablevalue(MPCode* pcode, MOperand* op) {
                 }
             }
             chooselocation(av, op);
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             return (int)av; // b145 returns the value itself
 #else
             return TRUE;
@@ -392,7 +392,7 @@ static inline int isCSEop(MPCode* pcode) {
     MOperand* op;
     int i;
 
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198
     if (pcode->flags & 0x180) {
         return FALSE;
     }
@@ -418,7 +418,7 @@ static inline void reusevalue(MPCode* pcode, MOperand* op, MOperand* base) {
     removedcommonsubexpressions = TRUE;
 }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145 (LocalCSE.c) also numbers stores, in the list of each store opcode: a
 // store of a value the location already holds goes away, and a load takes the
 // value an earlier store left in a register. Its loads have no copy kinds
@@ -702,7 +702,7 @@ static void operatefrommemory(MPCode* pcode, Boolean propagate) {
     MOperand op;
 
     if ((pcode->flags & 0x4000) && isCSEop(pcode) && !(pcode->flags & 0x80)) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         if (findavailablevalue(pcode, &op)) { // b145 does not test propagate
 #else
         if (propagate && findavailablevalue(pcode, &op)) {
@@ -719,7 +719,7 @@ static void operatefrommemory(MPCode* pcode, Boolean propagate) {
 // 0x4B1F60
 static void functioncall(MPCode* pcode) {
     killregisters(pcode);
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     killstores(pcode);
 #endif
     if (coloring) {
@@ -744,7 +744,7 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
     MOperand* base;
     MOperand buf;
     RegValue301* value;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     AvailableValue301* av;
 #endif
     Boolean propagate;
@@ -793,7 +793,7 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
                 simpleload(pcode, propagate);
             }
         } else if (pcode->flags & 4) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             if (pcode->flags & 0x20) {
                 pointerstore(pcode);
             } else {
@@ -806,7 +806,7 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
         } else if (pcode->flags & 0x20000) {
             operatefrommemory(pcode, propagate);
         } else if (pcode->flags & 0x40000) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             CError_Internal("LocalCSE.c", 1405);
             update_alias_value(pcode->alias, NULL);
 #else
@@ -815,7 +815,7 @@ static void removecsesfrombasicblock(MPCodeBlock* block) {
             killregisters(pcode);
         } else if ((pcode->flags & 0x4000) && isCSEop(pcode)) {
             base = RESULT_OP(pcode);
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             // b145: no propagate test; a %hi's partner is pointed at the kept value
             if ((av = (AvailableValue301*)findavailablevalue(pcode, &buf))) {
                 if (REGVALUE(base)->number != REGVALUE(&buf)->number) {
@@ -934,7 +934,7 @@ static void initializecsedatastructures(void) {
 }
 
 // 0x4B11D0
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145: no argument (no more-aggressive mode); a char class counter
 void func_004B11D0(void) {
     MPCodeBlock* block;

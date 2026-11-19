@@ -56,4 +56,8 @@ extern void IRO_TerminateAllocator(void);
 #if MWCC_CORE == MWCC_CORE_B52
 #pragma pack(pop)
 #endif
+#if MWCCPS2 && !MWCC_CORE
+extern void* IRO_gmalloc(size_t size); // mwccps2: variable pools on the global heap
+#endif
+
 #endif

@@ -4408,7 +4408,7 @@ void CInit_InitializeData(Object* obj) {
         obj->datatype == DABSOLUTE) {
         CError_Error(ERR_DATA_OBJECT_REDEFINED, obj);
     }
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145: no __attribute__ after an initializer
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145: no __attribute__ after an initializer
     CInit_StaticObject(obj, CInit_ParseInitRecord(obj->type, FALSE), NULL, FALSE);
 #else
     rec = CInit_ParseInitRecord(obj->type, FALSE);

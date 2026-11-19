@@ -105,6 +105,35 @@ void func_0049B930(ENode* expr, VOperand* old, VOperand* updated);
       ((t)->type == TYPEMEMBERPOINTER && (t)->size == 12)))
 
 // The operand of the node, loaded when it has to be.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x004A73D0, b210): nested tests and the type
+// read again (the PS2 b198 decompilation's)
+void func_0049B770(ENode* expr, void* target, VOperand* out) {
+    ENode* sub;
+    Type* type;
+
+    sub = expr->data.monadic;
+    data_005D0140[sub->type](sub, NULL, out);
+    func_004A72B0(out, expr);
+    if (out->flags & 0x80) {
+        type = expr->rtype;
+        if (type->type == TYPEINT ||
+            type->type == TYPEENUM ||
+            type->type == TYPEPOINTER ||
+            (type->type == TYPEMEMBERPOINTER && type->size == 4) ||
+            type->type == TYPEFLOAT ||
+            (IS_AGGREGATE(type) && type->size <= data_00624788)) {
+            if (out->kind) {
+                func_004A64C0(out, type, 0);
+            }
+            type = expr->rtype;
+            if (IS_AGGREGATE(type) && sub->type == 0x3A) {
+                func_00480230(CMach_GetTypeAlign(sub->rtype), sub->data.monadic);
+            }
+        }
+    }
+}
+#else
 void func_0049B770(ENode* expr, void* target, VOperand* out) {
     ENode* sub;
     Type* type;
@@ -142,6 +171,7 @@ void func_0049B770(ENode* expr, void* target, VOperand* out) {
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
 }
 #endif
+#endif
 
 void func_0049B8D0(ENode* expr, void* target, VOperand* out) {
     VOperand a;
@@ -156,8 +186,15 @@ void func_0049C160(ENode* expr, void* target, VOperand* out) {
     ENode* node = expr->data.monadic;
 
     if (!CACHED_OP(node)) {
+#if MWCCPS2 && !MWCC_CORE
+        // the new operand in a local (the PS2 b198 decompilation's, b198 0x4A7E30)
+        VOperand* cached = lalloc(sizeof(VOperand));
+        CACHED_OP(node) = cached;
+        data_005D0140[CACHED_SUB(node)->type](CACHED_SUB(node), NULL, cached);
+#else
         CACHED_OP(node) = lalloc(sizeof(VOperand));
         data_005D0140[CACHED_SUB(node)->type](CACHED_SUB(node), NULL, CACHED_OP(node));
+#endif
     }
     *out = *CACHED_OP(node);
 }
@@ -166,8 +203,15 @@ void func_0049C1E0(ENode* expr, void* target, VOperand* out) {
     ENode* node = expr;
 
     if (!CACHED_OP(node)) {
+#if MWCCPS2 && !MWCC_CORE
+        // the new operand in a local (the PS2 b198 decompilation's, b198 0x4A7EB0)
+        VOperand* cached = lalloc(sizeof(VOperand));
+        CACHED_OP(node) = cached;
+        data_005D0140[CACHED_SUB(node)->type](CACHED_SUB(node), NULL, cached);
+#else
         CACHED_OP(node) = lalloc(sizeof(VOperand));
         data_005D0140[CACHED_SUB(node)->type](CACHED_SUB(node), NULL, CACHED_OP(node));
+#endif
     }
     *out = *CACHED_OP(node);
 }
@@ -1418,7 +1462,30 @@ extern VOperand MultiplyByConstant(
 extern SInt16 ps2_pipeop3_63732A; // multiply, unsigned (data_00625E4A)
 // b210's func_00491840 (0x49D250) takes the value as a native 64-bit integer,
 // not a 128-bit CInt64
+#if MWCCPSP_NATIVE
+// Natively the name was an alias of func_00491840, which takes a 16-byte
+// CInt64: called with a 64-bit integer, its second register was whatever was
+// left there, so a long long multiply by a constant took a shift or not at
+// random (e.g. g * 0x7000000000000 lost the constant). The original reads
+// the two stack words of its 64-bit argument, low word first, so its answer is
+// the bit's plain index: -1 for zero, 0..63 for a single bit, -2 otherwise.
+static int ps2_bitnum_49D250(unsigned long long v) {
+    int n;
+
+    if (!v) {
+        return -1;
+    }
+    if (v & (v - 1)) {
+        return -2;
+    }
+    for (n = 0; !(v & 1); n++) {
+        v >>= 1;
+    }
+    return n;
+}
+#else
 extern int ps2_bitnum_49D250(unsigned long long v);
+#endif
 
 // the size of a multiply operand: a widening cast (same signedness, not from
 // a float) counts as the size it converts from; an assignment as its value
@@ -2544,7 +2611,7 @@ void func_0049C250(ENode* cond, CLabel* label, Boolean truth) {
     if (a.kind == 3 && b.kind == 3 && a.kind) {
         func_004A64C0(&a, left->rtype, 0);
     }
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 moves only a constant to the right
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 moves only a constant to the right
     if (a.kind == 3) {
 #else
     if (a.kind == 3 || (!IS_TYPE_LL(left->rtype) && a.kind == 0 && a.reg == 0 && b.kind != 3)) {
@@ -2844,7 +2911,7 @@ void func_0049C250(ENode* cond, CLabel* label, Boolean truth) {
             }
             break;
         case EEQU:
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 has no compare-with-zero branch here
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 has no compare-with-zero branch here
             if (b.kind == 3) {
 #else
             if (iszero) {
@@ -2857,7 +2924,7 @@ void func_0049C250(ENode* cond, CLabel* label, Boolean truth) {
             }
             break;
         case ENOTEQU:
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             if (b.kind == 3) {
 #else
             if (iszero) {
@@ -2932,6 +2999,34 @@ VOperand func_0049A430(VOperand* src, SInt32 d) {
 }
 
 // src / d (unsigned) with a multiply by the magic number.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x004A6290, b210): one return at the end (the PS2 b198 decompilation's
+// unsigned_division_by_constant)
+VOperand func_0049A5C0(VOperand* src, UInt32 d) {
+    UMagic m = func_0053ECC0(d);
+    VOperand q;
+    VOperand t;
+
+    emitpcode(0xB7, func_0047F680(m.magic), src->reg);
+    emitpcode(0xA8, data_00625A98[0]++);
+    q = func_004C3B10(data_006246B4->last->args[0]);
+    if (m.add == 0) {
+        if (m.shift) {
+            q = func_00479D10(0xDA, &q, m.shift);
+        }
+    } else {
+        t = func_0047F740(0xDD, src, &q, 0);
+        t = func_00479D10(0xDA, &t, 1);
+        q = func_0047F740(4, &t, &q, 0);
+        if (m.shift - 1) {
+            q = func_00479D10(0xDA, &q, m.shift - 1);
+        } else {
+            q = t;
+        }
+    }
+    return q;
+}
+#else
 VOperand func_0049A5C0(VOperand* src, UInt32 d) {
     UMagic m;
     VOperand q;
@@ -2962,6 +3057,7 @@ VOperand func_0049A5C0(VOperand* src, UInt32 d) {
     }
     return q;
 }
+#endif
 
 extern Object* rt_f_flt;
 extern Object* rt_f_fgt;
@@ -3180,9 +3276,229 @@ static void float_to_uint(
 // fastmath truncate a float without the library.
 extern VOperand ps2_tofpr64_487210(VOperand* src); // into a double FPR (dmtc1)
 extern VOperand ps2_const128_48E3D0(CInt64 value, Type* type); // load a constant (128-bit CInt64)
+#if !MWCC_CORE
+// b210 0x4A5810..0x4A6140: long long to float/double with the FPU (cvt.s.l/cvt.d.l); with
+// #pragma gencvtcheck a value too wide for the FPU's 53/24 bits goes through
+// ps2_lltod_wide / ps2_lltof_wide, which split it. From the PS2 b198 decompilation's
+// fn_004A55B0..fn_004A5EE0, taken as hints.
+extern VOperand ps2_fromfpr64_487060(VOperand* src);
+extern VOperand func_004C3B10(MOperand op);
+extern VOperand func_004C3BA0(SInt32 reg, UInt8 kind);
+extern VOperand func_00479C30(UInt16 op, VOperand* src, SInt32 bits);
+extern VOperand func_0047ECC0(VOperand* src, CInt64* value, Type* type);
+extern VOperand func_0047CD10(VOperand* src, CInt64* value, Type* type);
+extern void func_00479540(UInt16 op, VOperand* src, CLabel* label);
+extern void func_00480710(MPCodeLabel* label);
+extern void func_0046FA90(MPCodeLabel* label);
+extern CInt64 ps2_cvt_ulimit_5E8B50; // the split's bias (b210 0x5E8B50)
+extern CInt64 ps2_cvt_dlimit_5E8B60; // the widest long long a double holds (0x5E8B60)
+extern CInt64 ps2_cvt_flimit_5E8B70; // the widest long long a float holds (0x5E8B70)
+
+#define PS2_LAST_RESULT() \
+    func_004C3B10(data_006246B4->last->args[(data_006246B4->last->flags & 0x80000000) ? 1 : 0])
+
+// b210 0x4A5F00: a long long too wide for a double: high part and low part converted
+// separately and added
+void ps2_lltod_wide_4A5F00(VOperand* left, VOperand* right) {
+    VOperand a;
+    VOperand b;
+    VOperand c;
+    VOperand d;
+    VOperand e;
+    VOperand f;
+    VOperand g;
+    VOperand h;
+    VOperand i;
+    CInt64 constant;
+    SInt32 original_reg;
+
+    original_reg = left->reg;
+    constant = ps2_cvt_ulimit_5E8B50;
+    a = func_00479C30(0x48C, left, 55);
+    b = ps2_tofpr64_487210(&a);
+    emitpcode(0x6C, data_00625A98[1]++, b.reg);
+    c = PS2_LAST_RESULT();
+    emitpcode(0x8B, data_00625A98[0]++, original_reg, 23);
+    d = PS2_LAST_RESULT();
+    e = ps2_tofpr64_487210(&d);
+    emitpcode(0x6C, data_00625A98[1]++, e.reg);
+    f = PS2_LAST_RESULT();
+    g = ps2_fromfpr64_487060(&f);
+    h = func_0047ECC0(&g, &constant, TYPE(&stsignedlonglong));
+    i = ps2_tofpr64_487210(&h);
+    emitpcode(0xEC, right->reg, i.reg, c.reg);
+}
+
+// b210 0x4A6140: the same for a float
+void ps2_lltof_wide_4A6140(VOperand* left, VOperand* right) {
+    VOperand a;
+    VOperand b;
+    VOperand c;
+    VOperand d;
+    VOperand e;
+    VOperand f;
+    VOperand g;
+    VOperand h;
+    VOperand i;
+    SInt32 original_reg;
+
+    original_reg = left->reg;
+    a = func_00479C30(0x48C, left, 55);
+    b = ps2_tofpr64_487210(&a);
+    emitpcode(0x72, data_00625A98[1]++, b.reg);
+    c = PS2_LAST_RESULT();
+    emitpcode(0x8B, data_00625A98[0]++, original_reg, 23);
+    d = PS2_LAST_RESULT();
+    e = ps2_tofpr64_487210(&d);
+    emitpcode(0x72, data_00625A98[1]++, e.reg);
+    f = PS2_LAST_RESULT();
+    g = func_00479F10(&f);
+    h = func_0047EF00(&g, 0x1B800000, TYPE(&stsignedlong));
+    i = func_0047A060(&h);
+    emitpcode(0xED, right->reg, i.reg, c.reg);
+}
+
+// b210 0x4A5810: long long to float
+void ps2_lltof_4A5810(VOperand* op) {
+    SInt32 oldreg;
+    CLabel* done;
+    CLabel* skip;
+    VOperand moved;
+    VOperand comparison;
+    VOperand narrowed;
+    VOperand condition;
+    VOperand destination;
+    CInt64 constant;
+
+    oldreg = op->reg;
+    newlabel();
+    done = newlabel();
+    skip = newlabel();
+    destination = func_004C3BA0(data_00625A98[1]++, 1);
+    done->pclabel = (struct PCodeLabel*)makepclabel();
+    if (copts.gencvtcheck) {
+        constant = ps2_cvt_flimit_5E8B70;
+        destination = func_004C3BA0(data_00625A98[1]++, 1);
+        skip->pclabel = (struct PCodeLabel*)makepclabel();
+        emitpcode(0x88, data_00625A98[0]++, oldreg, 23);
+        narrowed = PS2_LAST_RESULT();
+        comparison = func_0047ECC0(&narrowed, (CInt64*)&cint64_one, TYPE(&stsignedlonglong));
+        condition = func_0047CD10(&comparison, &constant, TYPE(&stsignedlonglong));
+        func_00479540(0x2A, &condition, skip);
+        ps2_lltof_wide_4A6140(op, &destination);
+        func_00480710((MPCodeLabel*)done->pclabel);
+        func_0046FA90((MPCodeLabel*)skip->pclabel);
+    }
+    moved = ps2_tofpr64_487210(op);
+    emitpcode(0x72, destination.reg, moved.reg);
+    *op = destination;
+    func_0046FA90((MPCodeLabel*)done->pclabel);
+}
+
+// b210 0x4A5A10: long long to double
+void ps2_lltod_4A5A10(VOperand* op) {
+    SInt32 oldreg;
+    CLabel* done;
+    CLabel* skip;
+    VOperand moved;
+    VOperand comparison;
+    VOperand narrowed;
+    VOperand condition;
+    VOperand destination;
+    CInt64 constant;
+
+    oldreg = op->reg;
+    done = newlabel();
+    skip = newlabel();
+    destination = func_004C3BA0(data_00625A98[1]++, 1);
+    done->pclabel = (struct PCodeLabel*)makepclabel();
+    if (copts.gencvtcheck) {
+        constant = ps2_cvt_dlimit_5E8B60;
+        destination = func_004C3BA0(data_00625A98[1]++, 1);
+        skip->pclabel = (struct PCodeLabel*)makepclabel();
+        emitpcode(0x88, data_00625A98[0]++, oldreg, 23);
+        narrowed = PS2_LAST_RESULT();
+        comparison = func_0047ECC0(&narrowed, (CInt64*)&cint64_one, TYPE(&stsignedlonglong));
+        condition = func_0047CD10(&comparison, &constant, TYPE(&stsignedlonglong));
+        func_00479540(0x2A, &condition, skip);
+        ps2_lltod_wide_4A5F00(op, &destination);
+        func_00480710((MPCodeLabel*)done->pclabel);
+        func_0046FA90((MPCodeLabel*)skip->pclabel);
+    }
+    moved = ps2_tofpr64_487210(op);
+    emitpcode(0x6C, destination.reg, moved.reg);
+    *op = destination;
+    func_0046FA90((MPCodeLabel*)done->pclabel);
+}
+
+// b210 0x4A5C00: unsigned long long to float or double; a value with the top bit set is
+// halved (keeping the low bit), converted and doubled
+void ps2_ulltod_4A5C00(Type* type, VOperand* op) {
+    CLabel* end;
+    CLabel* alternative;
+    VOperand destination;
+    VOperand branch_arg;
+    VOperand scratch;
+    SInt32 previous;
+    SInt32 gpr;
+    SInt16 opcode2;
+
+    previous = op->reg;
+    {
+        CLabel* conditional;
+        SInt32 fpr;
+        SInt16 opcode;
+
+        fpr = data_00625A98[1];
+        data_00625A98[1]++;
+        conditional = newlabel();
+        end = newlabel();
+        alternative = newlabel();
+        if (type->type == TYPEFLOAT && type->size == 4) {
+            opcode = 0x72;
+            opcode2 = 0xED;
+        } else {
+            opcode = 0x6C;
+            opcode2 = 0xEC;
+        }
+        destination = func_004C3BA0(data_00625A98[1]++, 1);
+        end->pclabel = (struct PCodeLabel*)makepclabel();
+        if (copts.gencvtcheck) {
+            alternative->pclabel = (struct PCodeLabel*)makepclabel();
+            emitpcode(0x8B, data_00625A98[0]++, previous, 23);
+            branch_arg = PS2_LAST_RESULT();
+            func_00479540(0x1A, &branch_arg, alternative);
+            if (type->type == TYPEFLOAT && type->size == 4) {
+                ps2_lltof_wide_4A6140(op, &destination);
+            } else {
+                ps2_lltod_wide_4A5F00(op, &destination);
+            }
+            func_00480710((MPCodeLabel*)end->pclabel);
+            func_0046FA90((MPCodeLabel*)alternative->pclabel);
+        }
+        conditional->pclabel = (struct PCodeLabel*)makepclabel();
+        func_00479540(0x24, op, conditional);
+        scratch = ps2_tofpr64_487210(op);
+        emitpcode(opcode, destination.reg, scratch.reg);
+        func_00480710((MPCodeLabel*)end->pclabel);
+        func_0046FA90((MPCodeLabel*)conditional->pclabel);
+        emitpcode(0x8A, gpr = data_00625A98[0]++, op->reg, 1);
+        scratch = func_0047E650(op, 1);
+        emitpcode(0xBE, gpr, gpr, scratch.reg);
+        scratch.reg = gpr;
+        scratch = ps2_tofpr64_487210(&scratch);
+        emitpcode(opcode, fpr, scratch.reg);
+        emitpcode(opcode2, destination.reg, fpr, fpr);
+        *op = destination;
+        func_0046FA90((MPCodeLabel*)end->pclabel);
+    }
+}
+#undef PS2_LAST_RESULT
+#else
 extern void ps2_ulltod_4A5C00(Type* to, VOperand* out); // unsigned long long to double
 extern void ps2_lltof_4A5810(VOperand* out); // long long to float
 extern void ps2_lltod_4A5A10(VOperand* out); // long long to double
+#endif
 
 // float_to_uint with the constant made after the label (b210 inlines it)
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
@@ -4109,6 +4425,40 @@ void func_00493BB0(ENode* expr, void* target, VOperand* out) {
 
 // A floating-point comparison as 0 or 1: the runtime routine with the float
 // library, else c.cond and a branch around li 1 / move 0.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x0049D5F0, b210): the soft-float call returns early, the condition kept in an int
+// (the PS2 b198 decompilation's fn_0049D5F0)
+void func_00491E40(short cond, ENode* left, ENode* right, VOperand* out) {
+    int reg;
+    VOperand a;
+    Type* type;
+    MPCodeLabel* label;
+    UInt32 brop;
+    UInt32 cmpop;
+    VOperand b;
+    int condition;
+
+    condition = cond;
+    reg = data_00625A98[0]++;
+    func_0049D8D0(left, right, &a, &b, 1);
+    type = left->rtype;
+    if (type->type == TYPEFLOAT && IS_SOFTFLOAT(type)) {
+        func_004A4890(&a, type, 1);
+        func_004A4890(&b, right->rtype, 2);
+        func_004A4A20(func_0049D400(condition, right->rtype));
+        *out = func_004A46E0(0);
+        return;
+    }
+    label = makepclabel();
+    func_0049D530(condition, right->rtype, (SInt16*)&brop, (SInt16*)&cmpop, 1);
+    emitpcode(cmpop, a.reg, b.reg);
+    emitpcode(data_00625E48, reg, func_0047F680(1));
+    func_00479B00(brop, label);
+    emitpcode(data_00625E48, reg, 0);
+    func_0046FA90(label);
+    *out = func_004C3BA0(reg, 0);
+}
+#else
 void func_00491E40(short cond, ENode* left, ENode* right, VOperand* out) {
     VOperand a;
     VOperand b;
@@ -4136,6 +4486,7 @@ void func_00491E40(short cond, ENode* left, ENode* right, VOperand* out) {
         *out = func_004C3BA0(reg, 0);
     }
 }
+#endif
 
 #define IS_LONGLONG(t) (((t)->type == TYPEINT || (t)->type == TYPEENUM) && (t)->size == 8)
 

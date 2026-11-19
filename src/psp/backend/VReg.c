@@ -72,6 +72,66 @@ MOperand func_004C3C00(CLabel* label) {
     return op;
 }
 
+// b198 leaves its operands' rclass/flags as stack residue (func_004C3C60 is exact
+// there: 0x4D006F, 0x4D00A4): natively a defined value, or the original's when replaying
+#if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+#include <stdio.h>
+#include <stdlib.h>
+// Classification aid: MWCCPS2_B119_RESIDUE names a file of the original's
+// residue words, one "kind rclass flags" hex triple per kind-4 (memory) or
+// kind-3 (immediate) operand in order
+// (tools/mwccps2/b119/residue/resid.py --seq). Replaying them shows whether a
+// case fails only because of the residue.
+static int b119_residue_used, b119_residue_short;
+static FILE* b119_residue_file;
+static void b119_residue_report(void) {
+    unsigned rc, fl;
+    int left = 0;
+    unsigned k;
+    while (b119_residue_file && fscanf(b119_residue_file, "%x %x %x", &k, &rc, &fl) == 3) {
+        left++;
+    }
+    if (b119_residue_short || left) {
+        char path[4096];
+        FILE* r;
+        snprintf(path, sizeof(path), "%s.mis", getenv("MWCCPS2_B119_RESIDUE"));
+        if ((r = fopen(path, "w"))) {
+            fprintf(
+                r,
+                "%d operands, %d past the end, %d left over\n",
+                b119_residue_used,
+                b119_residue_short,
+                left
+            );
+            fclose(r);
+        }
+    }
+}
+static void b119_replay_residue(MOperand* op, int kind) {
+    static FILE* f;
+    static int opened;
+    unsigned k, rc, fl;
+    if (!opened) {
+        const char* path = getenv("MWCCPS2_B119_RESIDUE");
+        opened = 1;
+        f = path ? fopen(path, "r") : NULL;
+        if (f) {
+            atexit(b119_residue_report);
+        }
+    }
+    b119_residue_used++;
+    if (f && fscanf(f, "%x %x %x", &k, &rc, &fl) == 3) {
+        if ((int)k != kind) {
+            b119_residue_short++; // out of step: count it as misaligned
+        }
+        op->rclass = rc;
+        op->flags = fl;
+    } else if (f) {
+        b119_residue_short++;
+    }
+    b119_residue_file = f;
+}
+#endif
 // The instruction operand for a VOperand.
 MOperand func_004C3C60(VOperand* v) {
     MOperand op;
@@ -90,6 +150,13 @@ MOperand func_004C3C60(VOperand* v) {
         case 2:
         case 4:
             op.kind = 4;
+#if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+            // b198 leaves rclass/flags as stack residue (often the high half of a heap or
+            // code pointer); copypropagatestouse tests flags & 8 on every operand
+            op.rclass = 0;
+            op.flags = 0;
+            b119_replay_residue(&op, 4);
+#endif
             op.value = v->offset;
             MOP_SETOBJ(op, v->object);
             break;
@@ -101,8 +168,16 @@ MOperand func_004C3C60(VOperand* v) {
             break;
         case 3:
             imm.kind = 3;
+#if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+            // and an immediate's ([esp+0x19..0x1b] at 0x4D00A4)
+            imm.rclass = 0;
+            imm.flags = 0;
+#endif
             *(CInt64*)&imm.value = v->imm;
             op = imm;
+#if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+            b119_replay_residue(&op, 3);
+#endif
             break;
         case 1:
             op.kind = 0;
@@ -155,6 +230,26 @@ MOperand func_004C3D90(SInt32 value) {
 }
 
 // A new virtual register of the class, as a definition.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 new_register_arg, b210): an if-chain (the PS2 b198 decompilation's)
+MOperand func_004C3DD0(UInt8 rclass) {
+    MOperand op;
+
+    op.kind = 0;
+    op.rclass = rclass;
+    op.flags = 2;
+    if (rclass == 0) {
+        op.reg = data_00625A98[0]++;
+    } else if (rclass == 1) {
+        op.reg = data_00625A98[1]++;
+    } else if (rclass == 5) {
+        op.reg = data_00625A98[5]++;
+    } else {
+        CError_Internal("VReg.c", CError_B145_LINE(60));
+    }
+    return op;
+}
+#else
 MOperand func_004C3DD0(UInt8 rclass) {
     MOperand op;
 
@@ -176,7 +271,22 @@ MOperand func_004C3DD0(UInt8 rclass) {
     }
     return op;
 }
+#endif
 
+#if MWCCPS2 && !MWCC_CORE && !MWCCPSP_NATIVE
+// mwccps2 (b198 0x4D02D0, b210): int parameters, the class before the register
+// (the PS2 b198 decompilation's fn_004D02D0); the native keeps the SInt16 prototype
+// its callers declare
+MOperand func_004C3E70(int reg, int rclass, int flags) {
+    MOperand op;
+
+    op.kind = 0;
+    op.rclass = rclass;
+    op.reg = reg;
+    op.flags = flags;
+    return op;
+}
+#else
 MOperand func_004C3E70(SInt16 reg, UInt8 rclass, UInt16 flags) {
     MOperand op;
 
@@ -186,6 +296,7 @@ MOperand func_004C3E70(SInt16 reg, UInt8 rclass, UInt16 flags) {
     op.reg = reg;
     return op;
 }
+#endif
 
 Boolean func_004C40A0(void) {
     return 0;

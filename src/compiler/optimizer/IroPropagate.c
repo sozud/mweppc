@@ -1305,7 +1305,7 @@ void IRO_ExpressionPropagation(void) {
                 Bv_Clear(IRO_VarKills);
                 IRO_GetKills(linear);
                 for (ass = IRO_FirstAssign; ass; ass = ass->next) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                     { // b145 tests every assignment's kills, available or not
 #else
                     if (Bv_IsBitSet(PROP_BIT(ass->index), avail)) {
@@ -1334,7 +1334,7 @@ void IRO_ExpressionPropagation(void) {
                     }
                 }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                 // b145 gathers every assignment's dependences, available or not
                 for (ass = IRO_FirstAssign; ass; ass = ass->next) {
                     IRO_Depends = ass->depends;

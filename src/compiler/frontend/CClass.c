@@ -1730,6 +1730,61 @@ ENode* CClass_AccessPathCast(BClassList* path, ENode* expr, Boolean reverse) {
     return expr;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00511400, b210): an unknown base is an error (110) unless this is a cast, the
+// access is checked with CClass_CheckPathAccess's class form, and an ambiguous base reports
+// error 322 (the PS2 b198 decompilation's)
+ENode* CClass_ClassPointerCast(
+    ENode* expr,
+    TypeClass* a,
+    TypeClass* b,
+    Boolean typconflag,
+    Boolean ambigerrorflag,
+    Boolean pathcheckflag
+) {
+    BClassList* path;
+    Boolean reverse;
+    short depth;
+    Boolean isambigbase;
+
+    reverse = FALSE;
+
+    if (a != b) {
+        do {
+            path = CClass_GetBasePath(a, b, &depth, &isambigbase);
+            if (path == NULL) {
+                if (!typconflag) {
+                    CError_Error(110, a, 0, b, 0);
+                    break;
+                }
+                if ((path = CClass_GetBasePath(b, a, &depth, &isambigbase)) == NULL) {
+                    break;
+                }
+                if (pathcheckflag) {
+                    func_00500ED0(NULL, b, a, 0, NULL, NULL);
+                }
+                reverse = TRUE;
+            } else {
+                if (pathcheckflag) {
+                    func_00500ED0(NULL, a, b, 0, NULL, NULL);
+                }
+            }
+            if (isambigbase && ambigerrorflag) {
+                CError_Error(322, a, 0, b, 0);
+            }
+            if (!(a->flags & CLASS_SINGLE_OBJECT) && !b->sominfo) {
+                expr = CClass_AccessPathCast(path, expr, reverse);
+            }
+        } while (0);
+    }
+
+    if (typconflag && ENODE_IS(expr, EINDIRECT) && IS_TYPE_POINTER_ONLY(expr->rtype)) {
+        expr = makemonadicnode(expr, ETYPCON);
+    }
+
+    return expr;
+}
+#else
 ENode* CClass_ClassPointerCast(
     ENode* expr,
     TypeClass* a,
@@ -1772,6 +1827,7 @@ doCast:
 
     return expr;
 }
+#endif
 
 #if MWCC_CORE == MWCC_CORE_B52
 #undef CError_B52_SHIFT
@@ -3479,7 +3535,7 @@ static void CClass_OptimizeBitFieldAccess(Type** ptype, SInt32* poffset) {
                     *ptype = TYPE(&stsignedlong);
 #endif
             }
-#if MWCCPS2 && MWCCPS2_BUILD >= 210 // b210 leaves a full-width 32-bit bitfield's type alone
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 // b210 leaves a full-width 32-bit bitfield's type alone
         }
 #else
             } else {

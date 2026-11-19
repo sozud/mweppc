@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if MWCCPS2 && !MWCC_CORE
+extern char RESPFILECHAR; // Arguments.c
+#endif
+
 void ShowTextHandle(const char* description, Handle text) {
     CWMemHandle mh;
 
@@ -91,6 +95,16 @@ void ShowVersion(Boolean decorate) {
     HPrintF(txt, "\n");
 
     if (decorate) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198, b210): the usage line first
+        HPrintF(
+            txt,
+            "Usage: %s [%coptions]... [files]... [%cresponse]...\n\n",
+            OS_GetFileNamePtr(parseopts.args->argv[0]),
+            MAINOPTCHAR[0],
+            RESPFILECHAR
+        );
+#endif
         HPrintF(
             txt,
             "Please enter '%s %chelp' for information about options.\n\n",

@@ -10,3 +10,7 @@ src/native/ps2/compileroptions.c
 src/native/ps2/exe_data.c
 src/native/ps2/parser_tables.c
 src/native/ps2/strings.c
+src/native/ps2/b198/compileroptions.c
+src/native/ps2/b198/exe_data.c
+src/native/ps2/b198/parser_tables.c
+src/native/ps2/b198/strings.c

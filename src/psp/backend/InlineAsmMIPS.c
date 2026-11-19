@@ -1153,6 +1153,83 @@ extern void InlineAsm_SyntaxError(short code);
 
 // 0x483C40: a directive (after '.'): .set's options; any other directive is
 // an instruction
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -70
+// b198 (0x4921D0, the PS2 b198 decompilation's InlineAsm_ScanAssemblyDirective):
+// .set first, then an instruction; names compared with memcmp
+void func_00483C40(void) {
+    Statement* stmt;
+    AsmSetRecord* rec;
+    AsmSetState* st;
+    char* name;
+
+    InlineAsm_SkipComment();
+    tk = lex();
+    if (tk != TK_IDENTIFIER) {
+        InlineAsm_SyntaxError(8);
+    }
+    name = tkidentifier->name;
+    if (!memcmp(name, "set", 4)) {
+        stmt = CFunc_AppendStatement((StatementType)16);
+        rec = lalloc(sizeof(AsmSetRecord));
+        memclrw(rec, sizeof(AsmSetRecord));
+        stmt->expr = (ENode*)rec;
+        rec->opcode = MACRO_OP(0xAC);
+
+        InlineAsm_SkipComment();
+        tk = lex();
+        if (tk != TK_IDENTIFIER) {
+            InlineAsm_SyntaxError(8);
+        }
+        name = tkidentifier->name;
+        if (!memcmp(name, "asm_volatile", 13)) {
+            rec->mode = 4;
+        } else if (!memcmp(name, "asm_nonvolatile", 16)) {
+            rec->mode = 0x10;
+        } else if (!memcmp(name, "reorder", 8)) {
+            rec->mode = 1;
+        } else if (!memcmp(name, "noreorder", 10)) {
+            rec->mode = 2;
+        } else if (!memcmp(name, "at", 3)) {
+            data_00625E98 = 0;
+        } else if (!memcmp(name, "noat", 5)) {
+            data_00625E98 = 1;
+        } else if (!memcmp(name, "nomacro", 8)) {
+            data_00625E7F = 1;
+        } else if (!memcmp(name, "macro", 6)) {
+            data_00625E7F = 0;
+        } else if (!memcmp(name, "push", 5)) {
+            if ((st = lalloc(sizeof(AsmSetState)))) {
+                st->next = data_005F0BC8;
+                st->volatileasm = volatileasm;
+                st->unk5 = data_00625EAC;
+                st->nomacro = data_00625E7F;
+                st->noat = data_00625E98;
+                st->unk8 = data_00625E5A;
+                data_005F0BC8 = st;
+            } else {
+                CError_FATAL(3544);
+            }
+        } else if (!memcmp(name, "pop", 4) && data_005F0BC8) {
+            st = data_005F0BC8;
+            data_005F0BC8 = st->next;
+            volatileasm = st->volatileasm;
+            data_00625EAC = st->unk5;
+            data_00625E7F = st->nomacro;
+            data_00625E98 = st->noat;
+            data_00625E5A = st->unk8;
+        } else {
+            CError_Error(0x2D);
+        }
+        tk = lex();
+        return;
+    }
+    func_00483B20();
+}
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
+#else
 void func_00483C40(void) {
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
     Statement* stmt;
@@ -1243,7 +1320,7 @@ void func_00483C40(void) {
     } else if (!strcmp(name, "macro")) {
 #endif
             data_00625E7F = 0;
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no .set push/pop
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 has no .set push/pop
         } else if (!strcmp(name, "push")) {
             if ((st = lalloc(sizeof(AsmSetState)))) {
                 st->next = data_005F0BC8;
@@ -1257,7 +1334,7 @@ void func_00483C40(void) {
 #if MWCCPS2
                 CError_FATAL(3544);
 #else
-                    CError_FATAL(3586);
+                CError_FATAL(3586);
 #endif
             }
         } else if (!strcmp(name, "pop") && data_005F0BC8) {
@@ -1285,6 +1362,7 @@ void func_00483C40(void) {
     }
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 }
+#endif
 #endif
 
 #include "compiler/CInt64.h"
@@ -1314,7 +1392,7 @@ extern void func_00489DE0(MAsmOperand* op);
 #if MWCCPS2
 // b210 (0x4947C0): the R5900 operand letters; "2+" picks VU0's other
 // register class for x/d/s/t, no VFPU constants or write-back forms
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
 // register operand ends a 2/2+ prefix (x/d/s/t, P)
 extern void InlineAsm_FloatOperand(MAsmOperand* op); // 0x4B3420
@@ -1367,7 +1445,7 @@ void* func_00488180(UInt16 opcode) {
         char flag7;
 #endif
     UInt32 i;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
     union {
         float f;
@@ -1615,7 +1693,7 @@ void* func_00488180(UInt16 opcode) {
                 operand++;
                 break;
             case 'f':
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
                 InlineAsm_FloatOperand(operand);
 #else
@@ -1766,7 +1844,7 @@ void* func_00488180(UInt16 opcode) {
                 }
                 break;
             case 'U':
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                 func_00489410(operand, 1, mode); // b145: as 'o'
 #else
                         func_00489410(operand, 0, mode);
@@ -4994,7 +5072,7 @@ void func_00482000(Statement* stmt) {
 // b145 (0x4911C0): volatile asm keeps an instruction marked 0x20 movable and
 // mi->flags & 4 does not pin it; 'l' is 'p' (no relocation kind) and 'U'
 // takes no label; its asserts sit 1054..1078 lines earlier, unevenly
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #define ASM_LINE(line, b145) (b145)
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
         // b69 (0x4B68E0, ASM_PIN_LOW_REG above): a register operand below its class's
@@ -5048,7 +5126,7 @@ void func_00482000(Statement* stmt) {
 #endif
             pc->unk20 = data_00624D84;
             pc->flags |= def->flags;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
             // b69 (0x4B68E0, the hybrid's version above): an instruction is pinned
             // when the statement says so (mi->flags & 4), whatever volatileasm says;
@@ -5382,7 +5460,7 @@ void func_00482000(Statement* stmt) {
                             op++;
                             arg++;
                             break;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                         case 'l':
                         case 'p':
                             arg->kind = 6;

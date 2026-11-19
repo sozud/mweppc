@@ -324,6 +324,11 @@ extern EANode* data_00608DF8[20]; // DAG: the nodes made, by action type
 EANode* func_0049F130(ExceptionAction* ea) {
     EANode* prev;
     EANode* node;
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x4AA850, b210): the parent compared through a copy (the PS2 b198
+    // decompilation's)
+    EANode* parent;
+#endif
 
     for (node = data_00608DF8[ea->type]; node; node = node->dagListNext) {
         if (node->action == ea) {
@@ -335,8 +340,14 @@ EANode* func_0049F130(ExceptionAction* ea) {
     } else {
         prev = NULL;
     }
+#if MWCCPS2 && !MWCC_CORE
+    parent = prev;
+    for (node = data_00608DF8[ea->type]; node; node = node->dagListNext) {
+        if (node->prev == parent && CExcept_ActionCompare(node->action, ea)) {
+#else
     for (node = data_00608DF8[ea->type]; node; node = node->dagListNext) {
         if (node->prev == prev && CExcept_ActionCompare(node->action, ea)) {
+#endif
             return node;
         }
     }

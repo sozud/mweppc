@@ -376,9 +376,11 @@ void CBrowse_AddClassMemberFunction(Object* object, SInt32 startOffset, SInt32 e
     CError_ASSERT(380, object);
 #endif
 
+#if !(MWCCPS2 && !MWCC_CORE) // mwccps2 (b198, b210): temporaries are recorded too
     if (IsTempName(object->name)) {
         return;
     }
+#endif
 
     if (gClassData.data && startOffset > 0 && endOffset >= startOffset) {
         flags = 0;
@@ -508,7 +510,15 @@ void CBrowse_BeginStruct(DeclInfo* di, TypeStruct* tstruct, GList* gl) {
         return;
     }
 
+#if MWCCPS2 && !MWCC_CORE
+    if (InitGList(
+            &gClassData, 0x4000
+        )) { // mwccps2 (b198, b210): checked (the PS2 b198 decompilation's)
+        CError_NoMem();
+    }
+#else
     InitGList(&gClassData, 0x4000);
+#endif
     AppendGListByte(&gClassData, browseClass);
     AppendGListWord(&gClassData, di->file->fileID);
     AppendGListWord(&gClassData, di->file2->fileID);
@@ -624,6 +634,21 @@ void CBrowse_NewTypedef(
 #endif
 
     if (file2 && file2->fileID && startOffset > 0 && endOffset >= startOffset) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198, b210): the qualified name made first (the PS2 b198 decompilation's)
+        char* qname = CError_GetQualifiedName(nspace, name);
+        EmitStandardData(
+            browseTypedef,
+            file1->fileID,
+            file2->fileID,
+            startOffset,
+            endOffset,
+            name->name,
+            name->id,
+            qname,
+            -1
+        );
+#else
         EmitStandardData(
             browseTypedef,
             file1->fileID,
@@ -635,6 +660,7 @@ void CBrowse_NewTypedef(
             CError_GetQualifiedName(nspace, name),
             -1
         );
+#endif
     }
 }
 #if MWCC_CORE == MWCC_CORE_B52
@@ -661,6 +687,21 @@ void CBrowse_NewEnum(
 #endif
 
     if (file2 && file2->fileID && startOffset > 0 && endOffset >= startOffset) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198, b210): the qualified name made first (the PS2 b198 decompilation's)
+        char* qname = CError_GetQualifiedName(nspace, name);
+        EmitStandardData(
+            browseEnum,
+            file1->fileID,
+            file2->fileID,
+            startOffset,
+            endOffset,
+            name->name,
+            name->id,
+            qname,
+            -1
+        );
+#else
         EmitStandardData(
             browseEnum,
             file1->fileID,
@@ -672,6 +713,7 @@ void CBrowse_NewEnum(
             CError_GetQualifiedName(nspace, name),
             -1
         );
+#endif
     }
 }
 #if MWCC_CORE == MWCC_CORE_B52
@@ -729,6 +771,86 @@ static HashNameNode* CBrowse_GetLinkName(Object* object) {
 #endif
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x004D25A0, b210): the PS2 b198 decompilation's RecordFunction
+static void RecordFunction(
+    Object* object, int fileID1, int fileID2, SInt32 startOffset, SInt32 endOffset
+) {
+    TypeMemberFunc* tfunc;
+    SInt32 flags;
+    SInt32 funcid;
+    char* namestr;
+    SInt32 nameid;
+    char* namestr2;
+    SInt32 nameid2;
+    HashNameNode* objname;
+    char dtorname[256];
+    char* opname;
+
+    CError_ASSERT(761, object->type && IS_TYPE_FUNC(object->type));
+
+    tfunc = TYPE_METHOD(object->type);
+    if ((tfunc->flags & (FUNC_AUTO_GENERATED | FUNC_INTRINSIC)) && (!fileID2 || startOffset < 0)) {
+        return;
+    }
+
+    objname = GetHashNameNodeExport(CError_GetObjectName(object));
+    namestr2 = objname->name;
+    nameid2 = objname->id;
+
+    if (tfunc->flags & FUNC_IS_CTOR) {
+        namestr = tfunc->theclass->classname->name;
+        nameid = tfunc->theclass->classname->id;
+    } else if (tfunc->flags & FUNC_IS_DTOR) {
+        dtorname[0] = '~';
+        strncpy(&dtorname[1], tfunc->theclass->classname->name, sizeof(dtorname) - 1);
+        dtorname[255] = 0;
+        namestr = dtorname;
+        nameid = -1;
+    } else if ((opname = CMangler_GetOperator(object->name)) != NULL) {
+        namestr = opname;
+        nameid = -1;
+    } else if (!IsTempName(object->name)) {
+        namestr = object->name->name;
+        nameid = object->name->id;
+    } else {
+        namestr = namestr2;
+        nameid = nameid2;
+    }
+
+    EmitStandardData(
+        browseFunction, fileID1, fileID2, startOffset, endOffset, namestr, nameid, namestr2, nameid2
+    );
+
+    flags = 0;
+    if (object->qual & Q_INLINE) {
+        flags |= kInline;
+    }
+    if (object->qual & Q_PASCAL) {
+        flags |= kPascal;
+    }
+    if (object->qual & Q_ASM) {
+        flags |= kAsm;
+    }
+    if (object->sclass == TK_STATIC) {
+        flags |= kStatic;
+    }
+    if (tfunc->flags & FUNC_METHOD) {
+        flags |= kMember;
+    }
+    AppendGListLong(&gBrowseData, flags);
+
+    funcid = 0;
+    if (tfunc->flags & FUNC_METHOD) {
+        funcid = tfunc->funcid;
+        if (funcid <= 0) {
+            funcid = gNextMemberFuncID++;
+            tfunc->funcid = funcid;
+        }
+    }
+    AppendGListLong(&gBrowseData, funcid);
+}
+#else
 static void RecordFunction(
     Object* object, int fileID1, int fileID2, SInt32 startOffset, SInt32 endOffset
 ) {
@@ -856,6 +978,7 @@ static void RecordFunction(
     }
     AppendGListLong(&gBrowseData, funcid);
 }
+#endif
 
 void CBrowse_NewFunction(
     Object* object, CPrepFileInfo* file1, CPrepFileInfo* file2, SInt32 startOffset, SInt32 endOffset
@@ -962,9 +1085,30 @@ void CBrowse_NewMacro(Macro* macro, CPrepFileInfo* file, SInt32 startOffset, SIn
 void CBrowse_NewTemplateClass(
     TemplClass* tmclass, CPrepFileInfo* file, SInt32 startOffset, SInt32 endOffset
 ) {
+#if MWCCPS2 && !MWCC_CORE
+    CError_ASSERT(1025, !file || file->recordbrowseinfo);
+#else
     CError_ASSERT(965, !file || file->recordbrowseinfo);
+#endif
 
     if (file && file->fileID && startOffset > 0 && endOffset >= startOffset) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198 0x004D20C0, b210): recorded under its full type name (the PS2 b198
+        // decompilation's)
+        HashNameNode* objname =
+            GetHashNameNodeExport(CError_GetTypeName(TYPE(&tmclass->theclass), 0, 0));
+        EmitStandardData(
+            browseTemplate,
+            file->fileID,
+            file->fileID,
+            startOffset,
+            endOffset,
+            objname->name,
+            objname->id,
+            NULL,
+            -1
+        );
+#else
         EmitStandardData(
             browseTemplate,
             file->fileID,
@@ -976,17 +1120,37 @@ void CBrowse_NewTemplateClass(
             NULL,
             -1
         );
+#endif
         AppendGListByte(&gBrowseData, templateClass);
     }
 }
 
 void CBrowse_NewTemplateFunc(TemplateFunction* tmfunc) {
+#if MWCCPS2 && !MWCC_CORE
+    CError_ASSERT(1047, !tmfunc->srcfile || tmfunc->srcfile->recordbrowseinfo);
+#else
     CError_ASSERT(979, !tmfunc->srcfile || tmfunc->srcfile->recordbrowseinfo);
+#endif
 
     if (tmfunc->srcfile &&
         tmfunc->srcfile->fileID &&
         tmfunc->startoffset > 0 &&
         tmfunc->endoffset >= tmfunc->startoffset) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198 0x004D1F90, b210): recorded under its full name (the PS2 b198 decompilation's)
+        HashNameNode* objname = GetHashNameNodeExport(CError_GetObjectName(tmfunc->tfunc));
+        EmitStandardData(
+            browseTemplate,
+            tmfunc->srcfile->fileID,
+            tmfunc->srcfile->fileID,
+            tmfunc->startoffset,
+            tmfunc->endoffset,
+            objname->name,
+            objname->id,
+            NULL,
+            -1
+        );
+#else
         EmitStandardData(
             browseTemplate,
             tmfunc->srcfile->fileID,
@@ -998,6 +1162,7 @@ void CBrowse_NewTemplateFunc(TemplateFunction* tmfunc) {
             NULL,
             -1
         );
+#endif
         AppendGListByte(&gBrowseData, templateFunction);
     }
 }

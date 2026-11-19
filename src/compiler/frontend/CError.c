@@ -889,6 +889,26 @@ char* CError_GetQualifiedName(NameSpace* nspace, HashNameNode* name) {
     return strcpy(ptr, eb.start);
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 CError_GetFunctionName, b210): a name that outgrew the stack buffer is
+// returned as is, only one still in it is copied (the PS2 b198 decompilation's)
+char* CError_GetFunctionName(NameSpace* nspace, HashNameNode* name, TypeFunc* tfunc) {
+    char buf[256];
+    CErrorBuffer eb;
+    char* ptr;
+
+    CError_BufferInit(&eb, buf, sizeof(buf));
+    CError_AppendFunctionName(&eb, nspace, name, 0, tfunc);
+    CError_BufferTerminate(&eb);
+
+    if (eb.start != buf) {
+        ptr = eb.start;
+    } else {
+        ptr = strcpy(lalloc(eb.size + 1), eb.start);
+    }
+    return ptr;
+}
+#else
 char* CError_GetFunctionName(NameSpace* nspace, HashNameNode* name, TypeFunc* tfunc) {
     CErrorBuffer eb;
     char buf[256];
@@ -901,6 +921,7 @@ char* CError_GetFunctionName(NameSpace* nspace, HashNameNode* name, TypeFunc* tf
     ptr = lalloc(eb.size + 1);
     return strcpy(ptr, eb.start);
 }
+#endif
 
 char* CError_GetObjectName(Object* obj) {
     CErrorBuffer eb;

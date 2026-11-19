@@ -2748,7 +2748,7 @@ static void statement(DeclThing* thing) {
     switch (tk) {
         case TK_RETURN:
             tk = lex();
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 always has a return type here
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 always has a return type here
             if (!thing->thetype) {
                 CError_Error(ERR_ILLEGAL_USE, "return");
                 if (tk != ';') {
@@ -3164,7 +3164,7 @@ static void statement(DeclThing* thing) {
             tk = TK_IDENTIFIER;
 
         default:
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 declares in statements only in C++
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 and b198 declare in statements only in C++
             if (copts.cplusplus && isdeclaration(1, 0, 0, 0)) {
 #else
             if ((copts.c9x || copts.cplusplus) && isdeclaration(1, 0, 0, 0)) {
@@ -3214,7 +3214,7 @@ static void CFunc_LoopStatement(DeclThing* thing, Boolean isFor) {
 
     if (isFor) {
         if (tk != ';') {
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 declares in statements only in C++
+#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 and b198 declare in statements only in C++
             if (copts.cplusplus && isdeclaration(1, 0, 0, 0)) {
 #else
             if ((copts.cplusplus || copts.c9x) && isdeclaration(1, 0, 0, 0)) {

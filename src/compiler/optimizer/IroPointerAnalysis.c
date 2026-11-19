@@ -75,6 +75,13 @@
             : __assertion_failed(text, "IroPointerAnalysis.c", (line) + CError_LINE_SHIFT))
 #endif
 
+#if MWCCPS2 && !MWCC_CORE // mwccps2 (b198, b210): no assertions here either
+#undef IRO_ASSERT
+#undef IRO_ASSERT_MSG
+#define IRO_ASSERT(line, expr) ((void)0)
+#define IRO_ASSERT_MSG(line, expr, text) ((void)0)
+#endif
+
 #pragma pack(push, 2)
 typedef struct EvalExprAction3Params {
     LocationSetSet* set;
@@ -4703,6 +4710,33 @@ static void PointerAnalysis_Term(void) {
     stCallingContextStack = NULL;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2: out of the pointer analysis, so the first node comes from IRO_FunctionFirstNode
+// (IroRepositionCode.c) and there is no assert (the PS2 b198 decompilation's)
+extern IRONode* IRO_FunctionFirstNode(Object* proc);
+void InvalidatePointsToFunctions(Object* proc) {
+    IRONode* fnode;
+    IROLinear* nd;
+
+    for (fnode = IRO_FunctionFirstNode(proc); fnode; fnode = fnode->nextnode) {
+        if (fnode->last) {
+            if (fnode->addressed) {
+                ObjectSet_Term(fnode->addressed);
+                ObjectSet_Delete(fnode->addressed);
+                fnode->addressed = NULL;
+            }
+
+            for (nd = fnode->first; nd && nd != fnode->last->next; nd = nd->next) {
+                if (nd->pointsToFunction) {
+                    PointsToFunction_Term(nd->pointsToFunction);
+                    PointsToFunction_Delete(nd->pointsToFunction);
+                    nd->pointsToFunction = NULL;
+                }
+            }
+        }
+    }
+}
+#else
 static void InvalidatePointsToFunctions(Object* proc) {
     IRONode* fnode;
     IROLinear* nd;
@@ -4727,6 +4761,7 @@ static void InvalidatePointsToFunctions(Object* proc) {
         }
     }
 }
+#endif
 
 static void InitialSetup(void) {}
 
@@ -5729,13 +5764,21 @@ void PointerAnalysis_PragmaMode(void) {
             }
         }
 
+#if MWCCPS2 && !MWCC_CORE
+        CPrep_Warning(6); // mwccps2 (b198 0x4DAAB0, b210 0x4DAE20): PS2's warning numbers
+#else
         CPrep_Warning(105);
+#endif
         skipendofline();
         return;
     }
 
     if (copts.warn_illpragma) {
+#if MWCCPS2 && !MWCC_CORE
+        CPrep_Warning(0x57);
+#else
         CPrep_Warning(186);
+#endif
     }
     skipendofline();
 }

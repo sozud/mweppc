@@ -158,7 +158,7 @@ Boolean IROUseDef_FoldMul(CInt64 a, CInt64 b, Type* type, Type* type2, CInt64* r
 // 0x566AC0: a is a use of the variable b (x op= c) defined; fold c into a's
 // father "a op2 c2" when possible, else replace a by "a op c".
 // The original inlines the folders into the switch cases.
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #define B145_M6 -6 // b145 asserts
 #else
 #define B145_M6

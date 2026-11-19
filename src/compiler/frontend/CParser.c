@@ -723,9 +723,16 @@ SInt32 CParser_GetUniqueID(void) {
 }
 
 void CParser_PrintUniqueID(char* buf) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b210, b198): the pointer declared first (the PS2 b198 decompilation's)
+    char* ptr;
+    SInt32 id;
+    char mybuf[16];
+#else
     SInt32 id;
     char mybuf[16];
     char* ptr;
+#endif
 
     ptr = mybuf;
     id = CParser_GetUniqueID();

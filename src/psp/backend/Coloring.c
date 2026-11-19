@@ -510,9 +510,17 @@ void func_004B3740(void) {
 
 // Remove instructions whose results are never used, until nothing changes.
 void func_004B35D0(void) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x4BE010, b210): the block and instruction declared first (the
+    // PS2 b198 decompilation's eliminatedeadcode); it changes the register allocation
+    MPCodeBlock* block;
+    MPCode* pc;
+    SInt32 changed;
+#else
     SInt32 changed;
     MPCodeBlock* block;
     MPCode* pc;
+#endif
 
     do {
         changed = 0;

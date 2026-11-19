@@ -56,7 +56,7 @@ def load_addresses():
 
 AMAP = None
 HEX_NAME = re.compile(r"(?:data|func)_([0-9A-F]{8})$")
-B210_NAME = re.compile(r"b210_(?:data|func)_([0-9A-F]{8})$")
+B210_NAME = re.compile(r"b\d+_(?:data|func)_([0-9A-F]{8})$")  # b210_/b198_: a PS2 address
 
 
 def load_addresses_ps2():

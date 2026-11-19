@@ -172,6 +172,49 @@ restart:
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (-234)
 #endif
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x471DA0, b210): the masked bits in a local and an if-chain (the PS2 b198
+// decompilation's)
+int func_00466720(UInt32 qual) {
+    UInt32 align = 0;
+    UInt32 masked = qual & Q_ALIGNED_MASK;
+
+    if (masked) {
+        if (masked == Q_ALIGNED_1) {
+            align = 0x1;
+        } else if (masked == Q_ALIGNED_2) {
+            align = 0x2;
+        } else if (masked == Q_ALIGNED_4) {
+            align = 0x4;
+        } else if (masked == Q_ALIGNED_8) {
+            align = 0x8;
+        } else if (masked == Q_ALIGNED_16) {
+            align = 0x10;
+        } else if (masked == Q_ALIGNED_32) {
+            align = 0x20;
+        } else if (masked == Q_ALIGNED_64) {
+            align = 0x40;
+        } else if (masked == Q_ALIGNED_128) {
+            align = 0x80;
+        } else if (masked == Q_ALIGNED_256) {
+            align = 0x100;
+        } else if (masked == Q_ALIGNED_512) {
+            align = 0x200;
+        } else if (masked == Q_ALIGNED_1024) {
+            align = 0x400;
+        } else if (masked == Q_ALIGNED_2048) {
+            align = 0x800;
+        } else if (masked == Q_ALIGNED_4096) {
+            align = 0x1000;
+        } else if (masked == Q_ALIGNED_8192) {
+            align = 0x2000;
+        } else {
+            CError_Internal("CMachine.c", CError_B145_LINE(340));
+        }
+    }
+    return align;
+}
+#else
 int func_00466720(UInt32 qual) {
     int align = 0;
 
@@ -225,6 +268,7 @@ int func_00466720(UInt32 qual) {
     }
     return align;
 }
+#endif
 #if MWCC_CORE == MWCC_CORE_B52
 #undef CError_B52_SHIFT
 #define CError_B52_SHIFT (0)

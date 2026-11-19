@@ -88,8 +88,8 @@ FLAGS = [
 ]
 GROUPS = {
     "False": [],
-    "psp": ["-DMWCCPSP=1", "-DMWCCPS2=1", "-DMWCCPS2_BUILD=69"],
-    "True": ["-DMWCCPSP=1", "-DMWCCPS2=1", "-DMWCCPS2_BUILD=69"],
+    "psp": ["-DMWCCPSP=1", "-DMWCCPS2=1", "-DMWCCPS2_BUILD=145"],
+    "True": ["-DMWCCPSP=1", "-DMWCCPS2=1", "-DMWCCPS2_BUILD=145"],
     "b52": ["-DMWCCPSP=1"],
 }
 DARWIN = sys.platform == "darwin"

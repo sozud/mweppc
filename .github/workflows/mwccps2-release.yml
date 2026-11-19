@@ -9,6 +9,7 @@ on:
       - 'mwccps2-*'
       - '!mwccps2-b52-*' # 3.0 build 52: mwccps2-b52-release.yml
       - '!mwccps2-b69-*' # build 69: mwccps2-b69-release.yml
+      - '!mwccps2-b198-*' # 3.0.1 build 198: mwccps2-b198-release.yml
   workflow_dispatch:
 
 jobs:

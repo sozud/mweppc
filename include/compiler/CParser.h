@@ -763,7 +763,9 @@ enum {
 #if MWCCPS2 && !defined(MWCCPS2_BUILD)
 #define MWCCPS2_BUILD 210
 #endif
-#define COPTS_B210_FIELDS (!MWCCPS2 || MWCCPS2_BUILD >= 210)
+/* b198 already has b210's layout (identical compileroptions tables), so the
+   fields arrived between b145 and b198. */
+#define COPTS_B210_FIELDS (!MWCCPS2 || MWCCPS2_BUILD >= 198)
 /* COPTS_B210_OPTION (a compileroptions entry) and COPTS_B210_SET (a store)
    vanish in such a build; they keep the line numbers asserts encode. */
 /* b145's processor setup sets conditional_move where b210's sets

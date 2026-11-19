@@ -438,7 +438,7 @@ Boolean IRO_ExprsSame(IROLinear* a, IROLinear* b) {
     ENode* nb;
 
 #endif
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 masks the same flags for casts
         mask = 0xFDFF;
 #else
 #if MWCC_CORE != MWCC_CORE_B52
@@ -1414,9 +1414,17 @@ IROLinear* func_00552E90(IROLinear* nd) {
 #define CError_B145_SHIFT -32 // b145 asserts
 #endif
 void IRO_Paste(IROLinear* first, IROLinear* last, IROLinear* before) {
-    IROLinear* scan;
-    IROLinear* prev;
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x564FA0, b210): the node declared first (the PS2 b198
+    // decompilation's); it changes the register allocation
     IRONode* node;
+    IROLinear* prev;
+    IROLinear* scan;
+#else
+            IROLinear* scan;
+            IROLinear* prev;
+            IRONode* node;
+#endif
 
 #if !MWCCPSP // 3.0.1 has no check
     CError_ASSERT(1011, before && before->type != IROLinearLabel);

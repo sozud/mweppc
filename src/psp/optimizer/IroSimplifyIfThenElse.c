@@ -135,7 +135,7 @@ Boolean func_005551B0(IROLinear* a, IROLinear* b, int depth) {
     int argc;
     Boolean same;
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 masks the same flags for casts
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 masks the same flags for casts
     mask = 0xFDFF;
 #else
     if (a->type == IROLinearOp1Arg &&

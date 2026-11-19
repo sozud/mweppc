@@ -36,6 +36,57 @@ static MPCodeBlock* nextnonempty(MPCodeBlock* block) {
 #if MWCCPS2
 extern void ps2_padloop_4C2960(MPCodeBlock* block); // b210 only: #pragma padloop
 #endif
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x004C3DA0, b210): the opcode and flags in locals, the padding as an else (the PS2
+// b198 decompilation's fill_block_delay_slot_simple)
+void func_004B8240(MPCodeBlock* block) {
+    MPCode* last;
+    MPCode* nop;
+    MPCodeBlock* target;
+    MPCodeBlock* next;
+    UInt16 opcode;
+    UInt32 flags;
+
+    target = NULL;
+    if (block->flags2E & 0x4000) {
+        return;
+    }
+    last = block->last;
+    if (!last || !((flags = last->flags) & 0x20000000)) {
+        return;
+    }
+    opcode = last->op;
+    if ((opcode == 0x39 || opcode == 0x38A || opcode == 0x38B || (flags & 0x10000000)) &&
+        last->unk38 == 0 &&
+        !(flags & 0x800000)) {
+        target = LABEL_BLOCK(func_0048FAE0(last));
+        next = nextnonempty(block);
+        if (next && target && target->number == next->number) {
+            deletepcode(last);
+            return;
+        }
+    }
+    if (last->prev && (last->prev->flags & 0x40000000)) {
+        if (target && target->number == last->block->number && target->pcodecount == 2) {
+            nop = makepcode(func_004903F0());
+            insertpcodebefore(last, nop);
+        }
+        return;
+    }
+    nop = makepcode(func_004903F0());
+    nop->unk20 = last->unk20;
+    nop->flags |= 0x40000000;
+    insertpcodebefore(last, nop);
+    if (target && target->number == last->block->number && target->pcodecount <= 7) {
+        if (copts.padloop) {
+            ps2_padloop_4C2960(block);
+        } else {
+            nop = makepcode(func_004903F0());
+            insertpcodebefore(last, nop);
+        }
+    }
+}
+#else
 void func_004B8240(MPCodeBlock* block) {
     MPCode* last;
     MPCodeBlock* target;
@@ -93,6 +144,7 @@ void func_004B8240(MPCodeBlock* block) {
         insertpcodebefore(last, makepcode(func_004903F0()));
     }
 }
+#endif
 
 // The branch optimizer after scheduling (0x4B7A50..0x4B7D80): branches to
 // a block that only jumps go straight to its target, a jump to the next
@@ -398,6 +450,13 @@ static Boolean b69_independent(MPCode* pc, MPCodeBlock* block) {
 }
 
 #endif
+// b198 (0x4C3C66) copies a target's first instruction marked 6 into a
+// branch-likely slot too: only 5 stays out, tested before the move
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+#define B198_SLOT_COPY 1
+#else
+#define B198_SLOT_COPY 0
+#endif
 void func_004B7E20(MPCodeBlock* block, Boolean special) {
     MPCode* br;
     MPCode* pc;
@@ -517,6 +576,12 @@ void func_004B7E20(MPCodeBlock* block, Boolean special) {
     first = target->first;
     if (first && !(first->flags & 0x48000106) && !b69_writeslive(first, block)) {
 #endif
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+        // b198 (0x4C3AB7) keeps an instruction marked 5 out of a branch-likely slot
+        if (first->unk38 == 5) {
+            goto nop;
+        }
+#endif
         pred = target->predecessors;
         if (pred && !pred->nextpred) {
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
@@ -576,7 +641,7 @@ copy:
     }
     goto done;
 }
-if (first->unk38 == 5 || first->unk38 == 6) {
+if (!B198_SLOT_COPY && (first->unk38 == 5 || first->unk38 == 6)) {
 #endif
                 goto nop;
             }

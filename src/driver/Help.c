@@ -129,7 +129,11 @@ static void Side_DumpLine(Side* s) {
             afterspace = len;
             eol = (c == '\n') || (c == '\r');
             eol += (c == '\r');
+#if MWCCPS2 && !MWCC_CORE
+            ind = (c == '\t') || (c == '\b'); // mwccps2 (b198, b210): the tab tested first
+#else
             ind = (c == '\b') || (c == '\t');
+#endif
             ind += (c == '\b');
         }
 

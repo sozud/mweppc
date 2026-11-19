@@ -10,6 +10,7 @@ can use them instead of running the Windows executables under wibo or Wine.
 | `mwccps2` | PS2 3.0.1 build 210 | Persona 4 | `mwccps2-*` | ![mwccps2 b210](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sozud/mwcc-info/main/mwccps2.json) |
 | `mwccps2` b52 | PS2 3.0 build 52 | [Monster Hunter](https://github.com/itsbigcforme67/mh1-xbox) | `mwccps2-b52-*` | ![mwccps2 b52](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sozud/mwcc-info/main/mwccps2-b52.json) |
 | `mwccps2` b69 | PS2 build 69 (version string 3.0.3) | Silent Hill 3 | `mwccps2-b69-*` | ![mwccps2 b69](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sozud/mwcc-info/main/mwccps2-b69.json) |
+| `mwccps2` b198 | PS2 3.0.1 build 198 | | `mwccps2-b198-*` | ![mwccps2 b198](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sozud/mwcc-info/main/mwccps2-b198.json) |
 
 Each release has `<compiler>-native64-<os>-<arch>.tar.gz` for linux-amd64, darwin-amd64 and darwin-arm64.
 
@@ -20,13 +21,15 @@ corpora below check.
 
 ## How they are built
 
-All four come from one set of sources (`src/`, `include/`), a fork of [doldecomp/mweppc](https://github.com/doldecomp/mweppc),
+All five come from one set of sources (`src/`, `include/`), a fork of [doldecomp/mweppc](https://github.com/doldecomp/mweppc),
 the decompilation of CodeWarrior for GameCube. A build picks its version with defines:
 
 - `MWCCPSP`: the PSP compiler's changes to the shared front end and optimizer; its MIPS back end, driver and the
   optimizer passes 3.0.1 rewrote are in `src/psp/`.
 - `MWCCPS2` (with `MWCCPSP`): PS2 3.0.1 build 210 (a 128-bit `CInt64`, its options, the R5900 opcode table and
-  instruction set, assert line numbers); `MWCCPS2_BUILD` names the build.
+  instruction set, assert line numbers); `MWCCPS2_BUILD` names the build. `MWCCPS2_BUILD=198` is build 198: where it
+  differs from 210 the code is under `MWCCPS2_BUILD < 198` / `>= 198` (it has b210's code there) or `< 210` (it has the
+  older code, as b145 does), and its own assert lines are `CError_B198_SHIFT`.
 - `MWCC_CORE` (`include/compiler/mwcc_core.h`): the older PS2 builds 69 and 52, ordered by their code (b69, then b52,
   then 3.0.1). Their differences are guarded by position: `#if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52` for what
   both have, `MWCC_CORE < MWCC_CORE_B52` for b69 only, `MWCC_CORE == MWCC_CORE_B52` for b52 only. `-DMWCCPS2_B69=1`
@@ -67,6 +70,24 @@ names through `config/PS2_3_0_1/symbols.txt` and `config/PS2_3_0_1/addrmap.csv` 
 
 Every unit of the Persona 4 decompilation (1,008 C files, RenderWare at `-O4,p`) gives identical objects except
 `g_data.c`, which the original itself doesn't reproduce from its captured inputs.
+
+## mwccps2 build 198 (PS2 3.0.1 build 198, 2005-10-11)
+
+```sh
+python3 tools/mwccps2/b198/get_orig.py      # orig/PS2_3_0_1_b198/, from decomp.me's public image, checked by digest
+python3 tools/mwccps2/b198/native_b198.py -o build/PS2_3_0_1_b198/mwccps2
+```
+
+or `docker build -f tools/mwccps2/b198/Dockerfile -t mwccps2-b198 .`. The same sources as b210 with
+`-DMWCCPS2_BUILD=198`; `native_b198.py --gen` regenerates its data tables in `src/native/ps2/b198/`, and the build maps
+names through `config/PS2_3_0_1b198/native/` (generated from the research tree's b198 name map).
+
+Its corpus is every PS2 corpus above replayed through the original b198 (7,499 cases: Persona 4, Persona 3 FES,
+Yakuza, Monster Hunter, Silent Hill 3, Yu-Gi-Oh! Duelists of the Roses). The native gives identical objects for 6,614.
+The other 885 depend on b198 reading memory it never initialised: 40 the original itself doesn't reproduce from one work
+directory to another, and 845 follow an operand's rclass/flags left over on the stack (`func_004C3C60` never writes
+them; copy propagation tests `flags & 8`). Replaying the words the original reads there into the native makes all 845
+match (`tools/mwccps2/b198/residue/` and `tools/mwccps2/b198/corpus-ub.txt`).
 
 ## mwccps2 builds 69 and 52 (Silent Hill 3, Monster Hunter)
 

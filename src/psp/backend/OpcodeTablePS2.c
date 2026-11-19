@@ -285,7 +285,7 @@ void func_0046FFB0(void) {
     func_00478ED0(0xe, "bc1t", "p;1", 0x45010000, 0x38000001, 0, 0x4000, 1);
     func_00478ED0(0x14, "bc3f", "p;3", 0x4d000000, 0x38000001, 0, 0x4000, 1);
     func_00478ED0(0x16, "bc3t", "p;3", 0x4d010000, 0x38000001, 0, 0x4000, 1);
-#if MWCCPS2_BUILD < 210
+#if MWCCPS2_BUILD < 198
     if (copts.no_branch_likely != 0) {
         goto L14a3; // b145: no branch-likely opcodes
     }
@@ -306,7 +306,7 @@ void func_0046FFB0(void) {
     func_00478ED0(0xf, "bc1tl", "p;1", 0x45030000, 0x38800001, 0, 0x4000, 1);
     func_00478ED0(0x15, "bc3fl", "p;3", 0x4d020000, 0x38800001, 0, 0x4000, 1);
     func_00478ED0(0x17, "bc3tl", "p;3", 0x4d030000, 0x38800001, 0, 0x4000, 1);
-#if MWCCPS2_BUILD < 210
+#if MWCCPS2_BUILD < 198
 L14a3:
 #endif
     func_00478ED0(0x3e, "breakc", "B", 0xd, 0x8000100, "__I_break", 0x30000, 1);
@@ -360,7 +360,7 @@ L15a0:
     func_00478ED0(0xcc, "swc0", "E,o(s)", 0xe0000000, 4, "__I_swc0", 0x8000, 1);
     func_00478ED0(0xcf, "swc3", "E,o(s)", 0xec000000, 4, "__I_swc3", 0x8000, 1);
     func_00478ED0(0x9b, "ll", "=t,o(s)", 0xc0000000, 2, "__I_ll", 0x8000, 7);
-#if MWCCPS2_BUILD < 210
+#if MWCCPS2_BUILD < 198
     func_00478ED0(0xa8, "mfhi", "=d;h", 0x10, 0x8004000, "__I_mfhi", 0x10000, 3);
     func_00478ED0(0xa9, "mflo", "=d;h", 0x12, 0x8004000, "__I_mflo", 0x10000, 3);
 #else

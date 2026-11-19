@@ -208,7 +208,7 @@ void func_0048ED20(MPCode* pc) {
     deletepcode(pc);
 }
 
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 expands .start inline (func_0048B5D0)
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 expands .start inline (func_0048B5D0)
 // .start: the prologue.
 void func_0048EE70(MPCode* pc) {
     MPCode* p;
@@ -530,7 +530,7 @@ static MPCode* at_hi(MPCode* pc, SInt32 value) {
 // b145's asserts sit 18 lines earlier, the flag checks (607) 22 lines earlier
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -18
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #define FLAG_LINE 585
 #else
 #define FLAG_LINE 607
@@ -548,7 +548,7 @@ void func_0048B5D0(MPCode** ppc, Boolean flag) {
     SInt32 value;
     ObjAddress addr;
     MOperand tmp;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     CInt64 size;
 #endif
 
@@ -558,7 +558,7 @@ void func_0048B5D0(MPCode** ppc, Boolean flag) {
     }
     switch (op) {
         case MACRO_OP(0xA3): // .start
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             // b145: func_0048EE70 inline, without recording the frame (.end does)
             if (data_0062597C + data_00624FCC) {
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
@@ -614,7 +614,7 @@ void func_0048B5D0(MPCode** ppc, Boolean flag) {
             deletepcode(pc);
             break;
         case MACRO_OP(0x81): // sext
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             // b145: func_0048F750 inline
             value = 64 - pc->args[2].value;
             if (value >= 32) {

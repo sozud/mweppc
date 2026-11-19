@@ -3839,11 +3839,19 @@ static SInt32 EstimateExpandedSizeOfExpr(ENode* expr, SInt32 level) {
                 expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata &&
                 CInline_CanExpand(expr->data.funccall.funcref)) {
                 if (level) {
+#if MWCCPS2 && !MWCC_CORE
+                    // mwccps2 (b198 0x50BB60, b210 0x50BEE0): the callee is estimated from 0, not from
+                    // the size so far
+                    SInt32 est = CInline_EstimateSizeOfFunc(
+                        expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata, 0, level - 1
+                    );
+#else
                     SInt32 est = CInline_EstimateSizeOfFunc(
                         expr->data.funccall.funcref->data.objref->u.func.u.ifuncdata,
                         size,
                         level - 1
                     );
+#endif
                     if (est > inline_max_size) {
                         size++;
                     } else {

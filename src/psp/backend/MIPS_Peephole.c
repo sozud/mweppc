@@ -256,7 +256,7 @@ void func_005469C0(void) {
     func_004AFD20(0x455, func_005486E0);
     func_004AFD20(0x460, func_005486E0);
     func_004AFD20(0xa1, func_005486E0);
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no func_00548510 patterns
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 has no func_00548510 patterns
     func_004AFD20(0xcb, func_00548510);
     func_004AFD20(0x481, func_00548510);
     func_004AFD20(0xca, func_00548510);
@@ -1242,9 +1242,16 @@ int func_00548510(MPCode* pc) {
     int n;
     SInt32 kind;
     int changed;
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+    SInt32 size;
+#endif
 
     changed = 0;
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+    size = func_0048FBE0(pc->op);
+#else
     func_0048FBE0(pc->op);
+#endif
     if (pc->flags & 0x180) {
         return 0;
     }
@@ -1266,7 +1273,19 @@ int func_00548510(MPCode* pc) {
                 p->args[1].value == pc->args[1].value &&
                 (kind = func_0048FFA0(pc, p))) {
 #endif
+#if MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
+                // b198 (0x5594E0): a byte or halfword store's value is
+                // sign-extended by the store's own size (func_0048FFA0 says 1)
+                if (size == 1) {
+                    q = makepcode(MACRO_OP(0x81), p->args[0].reg, pc->args[0].reg, 8);
+                } else if (size == 2) {
+                    q = makepcode(MACRO_OP(0x81), p->args[0].reg, pc->args[0].reg, 0x10);
+                } else {
+                    q = func_0048FDC0(kind, &pc->args[0], &p->args[0]);
+                }
+#else
                 q = func_0048FDC0(kind, &pc->args[0], &p->args[0]);
+#endif
                 insertpcodebefore(p, q);
                 deletepcode(p);
                 p = q;

@@ -22,7 +22,7 @@ void func_00439EA0(void) {
 #else
     copts.opt_decomposeaggregates = copts.optimizationlevel >= 3;
 #endif
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if MWCC_CORE != MWCC_CORE_B52
     // b145 also sets copts+0x0EE (unnamed) at level 3 and leaves opt_repositioncode
     copts.unknownEE[0] = copts.optimizationlevel >= 3;
@@ -75,7 +75,13 @@ Boolean func_004C5A00(Object* obj) {
     ObjectList* list;
 
     for (list = arguments; list; list = list->next) {
+#if MWCCPS2 && !MWCC_CORE
+        // mwccps2 (b198 0x4D1D10, b210): the test is written twice (the PS2 b198
+        // decompilation's; the compiler keeps both compares)
+        if (list->object == obj && list->object == obj) {
+#else
         if (list->object == obj) {
+#endif
             return TRUE;
         }
     }
@@ -679,7 +685,7 @@ Boolean func_004C3EC0(IROLinear* nd) {
                         return FALSE;
                     }
                 } else if (nd->u.diadic.left->type == IROLinearOperand &&
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145: only an object that is not a local
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145: only an object that is not a local
                            nd->u.diadic.left->u.node->type == EOBJREF &&
                            nd->u.diadic.left->u.node->data.objref &&
                            nd->u.diadic.left->u.node->data.objref->datatype != DLOCAL) {
@@ -702,6 +708,60 @@ extern Boolean func_004B8980(Object* obj);
 // b210 0x439CD0: quadword values are subable only with cse_vector_type; a
 // read of a local that lives in a register only with that class's
 // cse_hard_reg_* option (the class byte at VarInfo +0x2E)
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x439CA0, b210): the tests folded into assignments, the special class
+// as an if (the PS2 b198 decompilation's fn_00439CA0)
+static Boolean FE_Hook0(IROLinear* linear) {
+    IROLinear* x;
+    Type* type;
+    ENode* node;
+    Object* obj;
+    VarInfo* vi;
+
+    if (!func_004C3EC0(linear)) {
+        return FALSE;
+    }
+    if (!copts.cse_vector_type &&
+        ((type = linear->rtype) == TYPE(&ps2_int128_5E5EF4) || ps2_IsQuadwordClass(type))) {
+        return FALSE;
+    }
+    if (linear->nodetype != EINDIRECT) {
+        return TRUE;
+    }
+    x = linear->u.monadic;
+    if (!x) {
+        CError_FATAL(567);
+        return FALSE;
+    }
+    if (x->nodetype != EOBJREF || !(node = x->u.node)) {
+        return TRUE;
+    }
+    if (node->type != EOBJREF || (obj = node->data.objref) == NULL) {
+        return TRUE;
+    }
+    if (!func_004B8980(obj)) {
+        return TRUE;
+    }
+    vi = Registers_GetVarInfo(obj);
+    if (vi) {
+        switch ((signed char)vi->unk24[2]) {
+            case 0:
+                return copts.cse_hard_reg_gpr;
+            case 1:
+                return copts.cse_hard_reg_fpr;
+            case 5:
+            case 6:
+                return copts.cse_hard_reg_vu0;
+            default:
+                if (!copts.cse_hard_reg_special) {
+                    return FALSE;
+                }
+                return TRUE;
+        }
+    }
+    return TRUE;
+}
+#else
 static Boolean FE_Hook0(IROLinear* linear) {
     IROLinear* x;
     ENode* node;
@@ -771,6 +831,7 @@ static Boolean FE_Hook0(IROLinear* linear) {
 #endif
     }
 }
+#endif
 #else
 static Boolean FE_Hook0(IROLinear* linear) {
     if (!func_004C3EC0(linear)) {

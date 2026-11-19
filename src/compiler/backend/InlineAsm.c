@@ -192,6 +192,72 @@ Boolean InlineAsm_LookupSymbol(HashNameNode* name, IALookupResult* result) {
 #endif
 #if MWCCPSP
 // 3.0.1's lookup for the MIPS assembler: values are 64-bit, no tags
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x0053B320, b210): the label search written out and the scope walk inside its
+// test, the object read once (the PS2 b198 decompilation's InlineAsm_LookupSymbolOrTag)
+Boolean InlineAsm_LookupSymbolMIPS(HashNameNode* name, MLookupResult* result) {
+    CLabel* label;
+    NameSpace* nspace;
+    NameSpaceObjectList* list;
+    Object* object;
+    CInt64 value;
+
+    result->name = name;
+    result->object = NULL;
+    result->label = NULL;
+    result->type = NULL;
+    result->has_value = FALSE;
+
+    for (label = Labels; label; label = label->next) {
+        if (name == label->name) {
+            break;
+        }
+    }
+    result->label = label;
+    if (result->label == NULL) {
+        for (nspace = cscope_current; nspace; nspace = nspace->parent) {
+            list = CScope_FindName(nspace, name);
+            if (list) {
+                object = OBJECT(list->object);
+                switch (object->otype) {
+                    case OT_ENUMCONST:
+                        result->has_value = TRUE;
+                        result->value = OBJ_ENUM_CONST(list->object)->val;
+                        return TRUE;
+                    case OT_OBJECT:
+                        if (object->datatype == DABSOLUTE) {
+                            result->has_value = TRUE;
+                            CInt64_SetLong(&value, object->u.address);
+                            result->value = value;
+                        } else {
+                            if (object->datatype == DDATA && (object->qual & Q_INLINE_DATA)) {
+                                CInit_ExportConst(object);
+                            }
+                            if (object->datatype == DALIAS) {
+                                result->object = object->u.alias.object;
+                            } else {
+                                result->object = object;
+                            }
+                        }
+                        return TRUE;
+                    case OT_TYPE:
+                        result->type = OBJ_TYPE((ObjBase*)object)->type;
+                        return TRUE;
+                    case OT_TYPETAG:
+                    case OT_NAMESPACE:
+                    case OT_MEMBERVAR:
+                        return FALSE;
+                    default:
+                        CError_FATAL(237);
+                        break;
+                }
+            }
+        }
+        return FALSE;
+    }
+    return TRUE;
+}
+#else
 Boolean InlineAsm_LookupSymbolMIPS(HashNameNode* name, MLookupResult* result) {
     CInt64 value;
     Object* object;
@@ -247,6 +313,7 @@ Boolean InlineAsm_LookupSymbolMIPS(HashNameNode* name, MLookupResult* result) {
 
     return FALSE;
 }
+#endif
 #endif
 
 #if MWCCPSP
@@ -733,7 +800,7 @@ void ScanStatements(volatile short endToken) {
                 while (tk == TK_EOL) {
                     CPrep_TokenStreamFlush();
                     tk = lex();
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 and b198 do not refresh it in the string loop
                     sourceoffset = CPrep_GetFileOffsetInfo(&cparser_fileoffset);
 #endif
                 }
@@ -758,7 +825,7 @@ void ScanStatements(volatile short endToken) {
             } else {
                 InlineAsm_gccmode = TRUE;
                 copts.cplusplus = FALSE;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                 copts.asmpoundcomment = TRUE; // b145
 #endif
                 tk = lex();
@@ -1217,7 +1284,7 @@ void InlineAsm_PackAsmStatement(Statement* stmt, Statement* first, void** output
                 break;
             case MOpnd_Reg:
             case MOpnd_LocalObj:
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 converts every object operand
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 converts every object operand
                 op->u.reg.object = (Object*)CInline_GetLocalID(op->u.reg.object);
 #else
                 if (op->u.obj.obj && op->u.obj.obj->datatype == DLOCAL) {

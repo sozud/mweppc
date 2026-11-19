@@ -17,10 +17,15 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
-CONFIG = os.path.join(REPO, "config", "PS2_3_0_1")
-
-# MWCCPS2_BUILD picks the PS2 compiler build; only b210 has its data here
+# MWCCPS2_BUILD picks the PS2 compiler build: b210's map is config/PS2_3_0_1,
+# b198's config/PS2_3_0_1b198/native (generated from the sotn-decomp tree's
+# MWCCPS2_BUILD=198 name map)
 PS2_BUILD = int(os.environ.get("MWCCPS2_BUILD", "210"))
+CONFIG = (
+    os.path.join(REPO, "config", "PS2_3_0_1")
+    if PS2_BUILD == 210
+    else os.path.join(REPO, "config", f"PS2_3_0_1b{PS2_BUILD}", "native")
+)
 
 
 class AddrMap:
@@ -46,11 +51,12 @@ class AddrMap:
         return None  # neighbours disagree: unknown
 
 
-def ps2_address_map():
-    """name -> b210 address, and the PSP -> b210 AddrMap."""
+def ps2_address_map(config=None):
+    """name -> PS2 address, and the PSP -> PS2 AddrMap (CONFIG's build, or config's)."""
+    config = config or CONFIG
     addr = {}
-    for line in open(os.path.join(CONFIG, "symbols.txt")):
+    for line in open(os.path.join(config, "symbols.txt")):
         m = re.match(r"\s*(\S+)\s*=\s*0x([0-9A-Fa-f]+);", line)
         if m:
             addr[m.group(1)] = int(m.group(2), 16)
-    return addr, AddrMap(os.path.join(CONFIG, "addrmap.csv"))
+    return addr, AddrMap(os.path.join(config, "addrmap.csv"))

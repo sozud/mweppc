@@ -949,9 +949,19 @@ SInt32 CABI_GetCtorOffsetOffset(TypeClass* tclass, TypeClass* baseclass) {
     }
 
     saveAlignMode = copts.structalignment;
+#if MWCCPS2 && !MWCC_CORE
+    {
+        // mwccps2 (b198 0x0052C860, b210): the alignment bits in a local (the PS2 b198 decompilation's)
+        int alignBits = tclass->eflags & CLASS_EFLAGS_STRUCT_ALIGN;
+        if (alignBits) {
+            copts.structalignment = (alignBits >> 4) - 1;
+        }
+    }
+#else
     if (tclass->eflags & CLASS_EFLAGS_STRUCT_ALIGN) {
         copts.structalignment = ((tclass->eflags & CLASS_EFLAGS_STRUCT_ALIGN) >> 4) - 1;
     }
+#endif
 #if MWCCPSP
     size += CMach_MemberAlignValue(TYPE(&stunsignedint), size);
 #else

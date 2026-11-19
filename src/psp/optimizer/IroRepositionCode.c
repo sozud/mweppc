@@ -1241,3 +1241,11 @@ static void QueueInsert(RCQueue* queue, IRONode* node) {
         queue->tail = entry;
     }
 }
+
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x58BAB0, b210 0x58BE20): the first flow-graph node, out of line (the PS2
+// b198 decompilation's IRO_FunctionFirstNode); the pointer analysis's invalidation calls it
+IRONode* IRO_FunctionFirstNode(Object* proc) {
+    return IRO_FirstNode;
+}
+#endif

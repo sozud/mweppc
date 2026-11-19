@@ -32,7 +32,7 @@ MLookupResult gcc_name_list[30];
 #endif
 int gcc_name_list_index;
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145: the constraint keeps the letter itself ('i', 'r', 'f', 'j', 'm', 'o');
 // gcc_parse_name maps it to the table's kind (0 i/I, 1 r, 2 f, 3 j, 4 m, 5 o;
 // no 'n' or 'g'). The table is 6-byte records (b145 0x6363CC) and has no
@@ -157,7 +157,7 @@ static GCCConstraint gcc_parse_attribute(Boolean isOutput) {
     GCCConstraint c;
 
     c.flags = 0;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     c.kind = 0;
 #else
     c.kind = 0xFF;
@@ -209,7 +209,7 @@ static GCCConstraint gcc_parse_attribute(Boolean isOutput) {
     }
 
     if (tk == ')') {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         c.flags = -1;
         c.kind = 0xFF;
         c.mode = 0xFF;
@@ -232,7 +232,7 @@ static GCCConstraint gcc_parse_attribute(Boolean isOutput) {
             CError_Error(ERR_ILLEGAL_OPERAND);
         }
     } else if (tk == TK_IDENTIFIER) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         c.kind = tkidentifier->name[0];
         if (c.kind != 0xFF) {
             copts.cplusplus = data_00625FD6;
@@ -344,7 +344,7 @@ static void gcc_parse_name(Boolean isOutput, GCCConstraint c) {
     next = lookahead();
 
     if (isOutput) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         ++gcc_name_list_index;
         gcc_operands[gcc_name_list_index].mode = c.mode;
         GCC_SET_KIND(gcc_name_list_index, c.kind);
@@ -546,7 +546,7 @@ static void gcc_parse_name(Boolean isOutput, GCCConstraint c) {
             memset(entry, 0, sizeof(MLookupResult));
 #endif
             gcc_operands[gcc_name_list_index].mode = c.mode;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             GCC_SET_KIND(gcc_name_list_index, c.kind);
             gcc_operands[gcc_name_list_index].flags = c.flags;
 #else
@@ -563,7 +563,7 @@ static void gcc_parse_name(Boolean isOutput, GCCConstraint c) {
             }
             entry->value = expr->data.intval;
             entry->has_value = TRUE;
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198
         } else if (gcc_operands[i].kind == 1) {
             if (!ENODE_IS(expr, EINTCONST)) {
                 CError_Error(ERR_ILLEGAL_OPERAND);
@@ -876,7 +876,7 @@ static void gcc_replace_arg_st_asm(Statement* stmt) {
     SInt16 effect;
     SInt16 rclass;
     char xyzw;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
     SInt8 kind;
 #else
     UInt8 kind;
@@ -1101,7 +1101,7 @@ static void gcc_replace_arg_st_asm(Statement* stmt) {
                             temp->u.var.info->used = TRUE;
                         }
                         op->u.reg.object = temp;
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198
                         if (gcc_operands[n].mode == 1) {
                             gcc_operands[n].mode = 3;
                             gcc_operands[n].flags |= 3;
@@ -1608,7 +1608,7 @@ void InlineAsm_gcc_parse(void) {
 #else
         for (i = 0; i < 30; i++) {
 #endif
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
     gcc_operands[i].mode = 0xFF;
     gcc_operands[i].kind = 0xFF;

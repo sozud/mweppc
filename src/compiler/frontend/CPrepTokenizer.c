@@ -3951,6 +3951,8 @@ static void CPrep_StringConCat(Boolean isWide) {
 #if MWCCPSP
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT -88 // b145 asserts
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT -88
 #endif
 short lex(void) {
     short t;
@@ -4084,6 +4086,8 @@ skipped:
 #define CError_B69_SHIFT 0
 #endif
 #if MWCCPSP
+#undef CError_B198_SHIFT
+#define CError_B198_SHIFT 0
 #undef CError_B145_SHIFT
 #define CError_B145_SHIFT 0
 #endif

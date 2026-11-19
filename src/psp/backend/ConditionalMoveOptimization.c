@@ -672,6 +672,42 @@ void func_004B0AD0(
 
 // Does block (pc reads its first instruction) end in a jump, or (with one
 // instruction) is that instruction a jump writing `reg`?
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x4C24F0, b210): the flags and the result index in locals (the PS2 b198
+// decompilation's fn_004C24F0)
+Boolean func_004B1030(MPCodeBlock* block, SInt32 reg) {
+    MPCode* first = block->first;
+    UInt16 op;
+    UInt32 flags;
+    int idx;
+
+    if (!first) {
+        return 0;
+    }
+    flags = first->flags;
+    if (flags & 2) {
+        return 0;
+    }
+    if (block->pcodecount == 1) {
+        op = block->last->op;
+        if (op == 0x39 || (UInt16)(op - 0x38A) <= 1) {
+            if (flags & 0x80000000) {
+                idx = 1;
+            } else {
+                idx = 0;
+            }
+            if (first->args[idx].reg == reg) {
+                return 1;
+            }
+        }
+    }
+    op = first->op;
+    if (op == 0x39 || (UInt16)(op - 0x38A) <= 1) {
+        return 1;
+    }
+    return 0;
+}
+#else
 Boolean func_004B1030(MPCodeBlock* block, SInt32 reg) {
     MPCode* first = block->first;
     UInt16 op;
@@ -701,9 +737,49 @@ Boolean func_004B1030(MPCodeBlock* block, SInt32 reg) {
     return op == 0x39 || (UInt16)(op - 0x38A) <= 1;
 #endif
 }
+#endif
 
 // Is block a single instruction with a result (optionally followed by a
 // jump) that does not write `reg` and can be conditionally moved?
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x4C2590, b210): one condition, the flags and the result index in
+// locals (the PS2 b198 decompilation's fn_004C2590)
+Boolean func_004B10D0(MPCodeBlock* block, SInt32 reg) {
+    MPCode* first;
+    UInt16 count = block->pcodecount;
+    UInt16 op;
+    UInt32 flags;
+    UInt32 bit;
+    int idx;
+
+    first = block->first;
+    if (count == 1 ||
+        (count == 2 && ((op = block->last->op) == 0x39 || (UInt16)(op - 0x38A) <= 1))) {
+        flags = first->flags;
+        if (flags & 0x10) {
+            bit = flags & 0x80000000;
+            if (bit) {
+                idx = 1;
+            } else {
+                idx = 0;
+            }
+            if (first->args[idx].reg == reg) {
+                return 0;
+            }
+            if (copts.conditional_move && copts.mips_isa < 4) {
+                if (bit) {
+                    idx = 1;
+                } else {
+                    idx = 0;
+                }
+                return first->args[idx].rclass == 0;
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+#else
 Boolean func_004B10D0(MPCodeBlock* block, SInt32 reg) {
     MPCode* first = block->first;
     UInt16 op;
@@ -732,6 +808,7 @@ Boolean func_004B10D0(MPCodeBlock* block, SInt32 reg) {
     }
     return first->args[RESULTIDX(first)].rclass == 0;
 }
+#endif
 
 // Is pc a branch the late pass can turn into a conditional move?
 Boolean func_004B1170(MPCode* pc) {
@@ -749,9 +826,17 @@ Boolean func_004B1170(MPCode* pc) {
 #else
     if (op == 0x18 || op == 0x28) {
 #endif
+#if MWCCPS2 && !MWCC_CORE
+        // the register read into an int first (the PS2 b198 decompilation's fn_004C2630)
+        int reg = pc->args[1].reg;
+        if (reg == 0) {
+            return 1;
+        }
+#else
         if (pc->args[1].reg == 0) {
             return 1;
         }
+#endif
     }
     if (!copts.conditional_move || copts.mips_isa >= 4) {
         if (op == 0x0E || op == 0x0C) {

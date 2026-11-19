@@ -1490,7 +1490,7 @@ void func_00588CC0(IRONaturalLoop* loop) {
             continue;
         }
         for (;;) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
             // b145 takes each linear's kills on their own (below)
             Bv_Clear(IRO_VarKills);
             IRO_GetKills(nd);
@@ -1614,7 +1614,7 @@ void func_00588CC0(IRONaturalLoop* loop) {
                     }
                 }
             } else {
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
                 for (var = IRO_FirstVar; var; var = var->next) {
                     if (Bv_IsBitSet(var->index, IRO_VarKills)) {
                         var->inductionState = 0;
@@ -1630,7 +1630,7 @@ void func_00588CC0(IRONaturalLoop* loop) {
             nd = nd->next;
         }
     }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 dropped the killed variables as it went
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 dropped the killed variables as it went
     for (var = IRO_FirstVar; var; var = var->next) {
         if (Bv_IsBitSet(var->index, IRO_VarKills)) {
             var->inductionState = 0;
@@ -2522,7 +2522,7 @@ IROLinear* func_00585DC0(IROLinear* a, ENodeType op, IROLinear* b, IROList* list
         op = (op == EADDV) ? EADD : ESUB;
         r = func_00585DC0(a, op, b, list);
         if (op == EADD) {
-#if MWCCPS2 && MWCCPS2_BUILD < 210 // b145 checks overflow of zero operands too
+#if MWCCPS2 && MWCCPS2_BUILD < 198 // b145 checks overflow of zero operands too
             {
 #else
             if (!IRO_IsConstantZero(a) && !IRO_IsConstantZero(b)) {
@@ -2544,7 +2544,7 @@ IROLinear* func_00585DC0(IROLinear* a, ENodeType op, IROLinear* b, IROList* list
                     }
                 }
             }
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         } else {
 #else
         } else if (!IRO_IsConstantZero(b)) {
@@ -4517,6 +4517,85 @@ CInt64 func_00583FD0(IROLoopInd301* ind, Type* type) {
 // 0x583D30: dump loop flags by name
 #if MWCCPS2
 // b210 tests each flag in turn (no name table)
+#if !MWCC_CORE
+// mwccps2 (b198 IRO_DumpLoopFlags, b210): an else for the flags, high bits in hex (the PS2
+// b198 decompilation's)
+void func_00583D30(UInt32 flags) {
+    if (!flags) {
+        IRO_Dump("LP_FLAGS_NONE");
+    } else {
+        if (flags & 0x1) {
+            IRO_Dump("LP_INDUCTION_AT_LEFT ");
+        }
+        if (flags & 0x2) {
+            IRO_Dump("LP_HAS_CALLS ");
+        }
+        if (flags & 0x4) {
+            IRO_Dump("LP_HAS_CNTRLFLOW ");
+        }
+        if (flags & 0x8) {
+            IRO_Dump("LP_HAS_NONASSIGN ");
+        }
+        if (flags & 0x10) {
+            IRO_Dump("LP_INDUCTION_NOT_FOUND ");
+        }
+        if (flags & 0x20) {
+            IRO_Dump("LP_IF_EXPR_NONCANONICAL ");
+        }
+        if (flags & 0x40) {
+            IRO_Dump("LP_HAS_MULTIPLE_INDUCTIONS ");
+        }
+        if (flags & 0x80) {
+            IRO_Dump("LP_STEP_IS_ONE ");
+        }
+        if (flags & 0x100) {
+            IRO_Dump("LP_HEADER_FOLLOWS_UPDATE ");
+        }
+        if (flags & 0x200) {
+            IRO_Dump("LP_STEP_IS_POS ");
+        }
+        if (flags & 0x400) {
+            IRO_Dump("LP_IND_USED_IN_LOOP ");
+        }
+        if (flags & 0x800) {
+            IRO_Dump("LP_HAS_MULTIPLE_EXITS ");
+        }
+        if (flags & 0x1000) {
+            IRO_Dump("LP_STEP_IS_NEG_ONE ");
+        }
+        if (flags & 0x2000) {
+            IRO_Dump("LP_STEP_IS_NEG ");
+        }
+        if (flags & 0x4000) {
+            IRO_Dump("LP_HAS_ASM ");
+        }
+        if (flags & 0x8000) {
+            IRO_Dump("LP_WHILE_LOOP ");
+        }
+        if (flags & 0x10000) {
+            IRO_Dump("LP_RECURSIVE_LOOP ");
+        }
+        if (flags & 0x20000) {
+            IRO_Dump("LP_IS_REDUCTION_CAND ");
+        }
+        if (flags & 0x40000) {
+            IRO_Dump("LP_HAS_NONCANONICAL_STEP ");
+        }
+        if (flags & 0x80000) {
+            IRO_Dump("LP_INNER_LOOP ");
+        }
+        if (flags & 0x100000) {
+            IRO_Dump("LP_TO_BE_VISITED ");
+        }
+        if (flags & 0x200000) {
+            IRO_Dump("LP_FORM_UNRECOGNIZABLE ");
+        }
+        if (flags & 0xFFC00000) {
+            IRO_Dump("%x", flags & 0xFFC00000);
+        }
+    }
+}
+#else
 void func_00583D30(UInt32 flags) {
     if (!flags) {
         IRO_Dump("LP_FLAGS_NONE");
@@ -4592,6 +4671,7 @@ void func_00583D30(UInt32 flags) {
         IRO_Dump("%ul", flags & 0xFFC00000);
     }
 }
+#endif
 #else
 void func_00583D30(UInt32 flags) {
     static const char* names[22] = {
@@ -4941,7 +5021,7 @@ void func_005916C0(Type** pa, Type** pb) {
 void func_00591C70(IROLinear* nd) {
     IROElmList* elm;
 
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not look through casts
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 does not look through casts
 #if MWCC_CORE != MWCC_CORE_B52
     while (nd->type == IROLinearOp1Arg && nd->nodetype == ETYPCON && func_0055A3F0(nd)) {
         nd = nd->u.monadic;
@@ -4964,7 +5044,7 @@ void func_00591C70(IROLinear* nd) {
     }
 }
 
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 // b145: result + a copy of addend, typed as the pointer side or the addend
 // (no balancing of the two types)
 static inline IROLinear* AddAddend301(
@@ -5362,7 +5442,7 @@ void func_00591250(IROLinear* nd) {
         inv = right;
         var = left;
     }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not look through casts
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 does not look through casts
     while (var && var->type == IROLinearOp1Arg && var->nodetype == ETYPCON && func_0055A3F0(var)) {
         var = var->u.monadic;
     }
@@ -5491,7 +5571,7 @@ Boolean IRO_RemoveAllEmptyLoops(void) {
         ComputeLoopBody(loop);
         IRO_Dump("IRO_RemoveAllEmptyLoops:Found loop with header %d\n", loop->header->index);
         IRO_DumpBits("Loop includes: ", loop->nodes);
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
         // b145 refreshes the flags after every loop, changed or not
         if (func_0058DB90(loop)) {
             changed = TRUE;

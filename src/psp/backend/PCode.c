@@ -322,6 +322,47 @@ typedef struct DFSEntry {
 extern SInt32 data_005EDCD8; // next free slot (counting down)
 
 // Order the blocks by reverse postorder of a depth-first walk from the entry.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x47C460, b210): a signed index that starts at zero and a while loop (the
+// PS2 b198 decompilation's)
+void computedepthfirstordering(void) {
+    MPCodeBlock* block;
+    MPBlockLink* link;
+    DFSEntry* stack;
+    SInt32 sp;
+
+    data_00625418 = lalloc(sizeof(MPCodeBlock*) * data_00624D40);
+    data_005EDCD8 = data_00624D40;
+    for (block = data_00624FD0; block; block = block->next) {
+        block->flags2E &= ~4;
+    }
+    stack = oalloc(sizeof(DFSEntry) * data_00624D40);
+    sp = 0;
+    data_00624FD0->flags2E |= 4;
+    stack[sp].block = data_00624FD0;
+    stack[sp].succ = data_00624FD0->successors;
+    sp++;
+    while (sp) {
+        if ((link = stack[sp - 1].succ)) {
+            stack[sp - 1].succ = link->next;
+            block = link->block;
+            if (!(block->flags2E & 4)) {
+                block->flags2E |= 4;
+                stack[sp].block = block;
+                stack[sp].succ = block->successors;
+                sp++;
+            }
+        } else {
+            block = stack[--sp].block;
+            data_00625418[--data_005EDCD8] = block;
+        }
+    }
+
+    while (data_005EDCD8) {
+        data_00625418[--data_005EDCD8] = NULL;
+    }
+}
+#else
 void computedepthfirstordering(void) {
     MPCodeBlock* block;
     MPBlockLink* link;
@@ -357,6 +398,7 @@ void computedepthfirstordering(void) {
         data_00625418[--data_005EDCD8] = NULL;
     }
 }
+#endif
 
 // Put a new block on the fall-through edge from -> to.
 MPCodeBlock* func_0046F660(MPCodeBlock* from, MPCodeBlock* to) {

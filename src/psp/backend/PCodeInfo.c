@@ -593,7 +593,7 @@ extern SInt32 func_0048FBE0(UInt16 op); // bytes an opcode moves
 
 // 0x48FFA0: how load can take the value store wrote (func_0048FDC0's kind,
 // 0 when it cannot)
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #include "compiler/Alias.h"
 // b145 (0x49AF40): the store opcode whose list holds the stores a load
 // (flags 0x20002) can read; other instructions keep their own opcode
@@ -870,11 +870,19 @@ SInt32 func_0048FFA0(MPCode* store, MPCode* load) {
     }
     if ((store->op == 0xCA && load->op == 0x94) ||
         (store->op == MACRO_OP(0x76) && load->op == MACRO_OP(0x51))) {
+#if MWCCPS2_BUILD < 210
+        return 1; // b198 (0x49B660) copies these two pairs whole
+#else
         return 5;
+#endif
     }
     if ((store->op == 0xC3 && load->op == 0x91) ||
         (store->op == MACRO_OP(0x75) && load->op == MACRO_OP(0x50))) {
+#if MWCCPS2_BUILD < 210
+        return 1;
+#else
         return 3;
+#endif
     }
     if ((store->op == 0xCB && load->op == 0x91) ||
         (store->op == MACRO_OP(0x77) && load->op == MACRO_OP(0x50))) {
@@ -962,6 +970,45 @@ extern SInt16 data_00625E3E; // frame register
 // Whether the instruction just copies or makes a value it can be dropped or
 // repeated for: x = $zero op imm, a nop-like 0x90 / 0x55E, or 0x55C off $gp or
 // the frame register.
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 is_location_independent, b210): the register and the opcode in locals,
+// the stack-pointer test first in the switch (the PS2 b198 decompilation's)
+int func_004901D0(MPCode* pc) {
+    UInt16 op;
+    SInt32 reg;
+
+    if (pc->flags & 0x100) {
+        return 0;
+    }
+    if (pc->unk38) {
+        return 0;
+    }
+    if (pc->argcount == 3 &&
+        (UInt8)(pc->args[2].kind - 2) <= 1 &&
+        pc->args[1].kind == 0 &&
+        pc->args[1].rclass == 0) {
+        reg = pc->args[1].reg;
+        if (reg == 0) {
+            return 1;
+        }
+    }
+    op = pc->op;
+    switch (op) {
+        case MACRO_OP(0x44):
+            if (pc->args[2].kind == 0 &&
+                pc->args[1].rclass == 0 &&
+                ((UInt16)pc->args[2].reg == 28 ||
+                 (UInt16)pc->args[2].reg == (UInt16)data_00625E3E)) {
+                return 1;
+            }
+            return 0;
+        case 0x90:
+        case MACRO_OP(0x46):
+            return 1;
+    }
+    return 0;
+}
+#else
 int func_004901D0(MPCode* pc) {
     if (pc->flags & 0x100) {
         return 0;
@@ -1006,6 +1053,7 @@ int func_004901D0(MPCode* pc) {
             return 0;
     }
 }
+#endif
 
 // In a heavily weighted (loop) block, emit 0x5C3 with the configured value
 // (from the CodeGen panel) unless optimizing for size.
@@ -1189,7 +1237,7 @@ MPCode* func_00490400(UInt16 op, va_list args) {
                 arg->kind = 0;
                 arg->rclass = 2;
                 arg->reg = 0;
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
                 arg->flags = effect;
 #endif

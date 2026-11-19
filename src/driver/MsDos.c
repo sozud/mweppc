@@ -180,6 +180,42 @@ int __stdcall OS_Open(const OSSpec* spec, OSOpenMode mode, int* ref) {
     return 0;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198/b210 0x004093F0): unsigned positions, the handle cast at each use (the PS2 b198
+// decompilation's)
+int __stdcall OS_Write(int ref, const void* buffer, UInt32* length) {
+    static char zeroes[32] = {0};
+    DWORD chunk;
+    DWORD end;
+    unsigned int pos;
+    DWORD written;
+
+    pos = SetFilePointer((HANDLE)ref, 0, NULL, FILE_CURRENT);
+    if (pos == 0xffffffff || (end = GetFileSize((HANDLE)ref, NULL)) == 0xffffffff) {
+        return GetLastError();
+    }
+    if (pos > end) {
+        if (SetFilePointer((HANDLE)ref, end, NULL, FILE_BEGIN) == 0xffffffff) {
+            return GetLastError();
+        }
+        while (pos > end) {
+            chunk = pos - end > sizeof(zeroes) ? sizeof(zeroes) : pos - end;
+            if (!WriteFile((HANDLE)ref, zeroes, chunk, &written, NULL)) {
+                return GetLastError();
+            }
+            if (written < chunk) {
+                *length = 0;
+                return 0;
+            }
+            end += chunk;
+        }
+    }
+    if (!WriteFile((HANDLE)ref, buffer, *length, length, NULL)) {
+        return GetLastError();
+    }
+    return 0;
+}
+#else
 int __stdcall OS_Write(int ref, const void* buffer, UInt32* length) {
     static char zeroes[32] = {0};
     HANDLE h;
@@ -214,6 +250,7 @@ int __stdcall OS_Write(int ref, const void* buffer, UInt32* length) {
     }
     return 0;
 }
+#endif
 
 int __stdcall OS_Read(int ref, void* buffer, UInt32* length) {
     if (!ReadFile((HANDLE)ref, buffer, *length, length, NULL)) {
@@ -367,7 +404,12 @@ int __stdcall OS_Execute(
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     for (arg = argv, pos = 0; *arg != NULL; arg++) {
+#if MWCCPS2 && !MWCC_CORE
+        if (**arg == '\0' ||
+            strchr(*arg, ' ') != NULL) { // mwccps2 (b198, b210): empty arguments quoted too
+#else
         if (strchr(*arg, ' ') != NULL) {
+#endif
             cmdline[pos] = '"';
             pos++;
             strcpy(cmdline + pos, *arg);
@@ -377,10 +419,18 @@ int __stdcall OS_Execute(
         } else if (strchr(*arg, '"') != NULL) {
             char* ch;
             for (ch = *arg; *ch != '\0'; ch++, pos++) {
+#if MWCCPS2 && !MWCC_CORE
+                if (*ch == '"') {
+                    SInt32 oldpos = pos;
+                    cmdline[oldpos] = '\\';
+                    pos++;
+                    cmdline[oldpos + 1] = '"';
+#else
                 if (*ch == '"') {
                     cmdline[pos] = '\\';
                     cmdline[pos + 1] = '"';
                     pos++;
+#endif
                 } else {
                     cmdline[pos] = *ch;
                 }
@@ -453,6 +503,84 @@ char* __stdcall OS_GetDirPtr(char* path) {
     return path;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00409C30, b210): a leading / is rooted at MW_CYGWIN_ROOT when that is set; no
+// //x/ or /cygdrive/x/ drive forms (the PS2 b198 decompilation's)
+int __stdcall OS_CanonPath(const char* src, char* dst) {
+    const char* read;
+    char* write;
+    const char* rest;
+    char ch;
+    UInt32 len;
+
+    if (strlen(src) > 259) {
+        return ERROR_BUFFER_OVERFLOW;
+    }
+    if (dst == NULL) {
+        dst = (char*)src;
+    }
+
+    read = src;
+    write = dst;
+
+    if (cygdrive_prefix != NULL && ustrncmp(cygdrive_prefix, src, strlen(cygdrive_prefix)) == 0) {
+        rest = src + strlen(cygdrive_prefix);
+        if (*rest == '/' || *rest == '\\') {
+            rest++;
+        }
+        ch = *rest;
+        if (isalpha(ch) && (rest[1] == '/' || rest[1] == '\\')) {
+            dst[0] = toupper(ch);
+            dst[1] = ':';
+            dst[2] = '\\';
+            write += 3;
+            rest += 2;
+            read = rest;
+        }
+    }
+
+    if (cygwin_root != NULL && read[0] == '/' && read[1] != '/') {
+        len = strlen(cygwin_root);
+        if ((int)(len + 1) > 259) {
+            return ERROR_BUFFER_OVERFLOW;
+        }
+        ch = cygwin_root[len - 1];
+        if (ch == '\t' || ch == '\\') {
+            len--;
+        }
+        if (strlen(src) + (len + 1) > 259) {
+            return ERROR_BUFFER_OVERFLOW;
+        }
+        strncpy(write, cygwin_root, len);
+        write[len] = '\\';
+        write += len + 1;
+        read++;
+    }
+
+    ch = *read;
+    if (isalpha(ch) && read[1] == ':') {
+        write[0] = toupper(ch);
+        write[1] = ':';
+        write += 2;
+        read += 2;
+    }
+
+    ch = *read;
+    while (ch != 0) {
+        if (ch == '/') {
+            *write = '\\';
+            write++;
+        } else {
+            *write = ch;
+            write++;
+        }
+        read++;
+        ch = *read;
+    }
+    *write = 0;
+    return 0;
+}
+#else
 #if MWCCPSP
 int __stdcall OS_CanonPath(const char* src, char* dst) {
 #else
@@ -520,6 +648,7 @@ int OS_CanonPath(const char* src, char* dst) {
     *write = 0;
     return 0;
 }
+#endif
 
 int __stdcall OS_IsFullPath(const char* path) {
     int cyg;
@@ -590,6 +719,11 @@ int __stdcall OS_EqualPath(const char* a, const char* b) {
     return ustrcmp(a, b) == 0;
 }
 
+#if MWCCPS2 && !MWCC_CORE
+#define MWCCPS2_INTLEN(x) (int)(x) // mwccps2 (b198, b210): the length as an int
+#else
+#define MWCCPS2_INTLEN(x) (x)
+#endif
 int __stdcall OS_MakeSpec(const char* path, OSSpec* spec, Boolean* isfile) {
     const char* ptr;
     char canon[260];
@@ -597,7 +731,11 @@ int __stdcall OS_MakeSpec(const char* path, OSSpec* spec, Boolean* isfile) {
     char* name;
     char* end;
     int attr;
+#if MWCCPS2 && !MWCC_CORE
+    DWORD err; // mwccps2 (b198, b210)
+#else
     int err;
+#endif
     int len;
 
     spec->name.s[0] = spec->path.s[0] = 0;
@@ -615,7 +753,10 @@ int __stdcall OS_MakeSpec(const char* path, OSSpec* spec, Boolean* isfile) {
     } else {
         ptr = path;
     }
-    if (memcmp(ptr, "..", 3) && memcmp(ptr, ".", 2) && ptr[strlen(ptr) - 1] == '.' && *end != '.') {
+    if (memcmp(ptr, "..", 3) &&
+        memcmp(ptr, ".", 2) &&
+        ptr[MWCCPS2_INTLEN(strlen(ptr)) - 1] == '.' &&
+        *end != '.') {
         *++end = '.';
         end[1] = 0;
     }
@@ -754,8 +895,13 @@ int __stdcall OS_MakeNameSpec(const char* name, OSNameSpec* spec) {
 }
 
 char* __stdcall OS_SpecToString(const OSSpec* spec, char* path, int size) {
+#if MWCCPS2 && !MWCC_CORE
+    int plen; // mwccps2 (b198/b210 0x0040A510): the path length declared first (the PS2 b198 decompilation's)
+    int nlen;
+#else
     int nlen;
     int plen;
+#endif
 
     if (size == 0) {
         size = sizeof(spec->path.s);

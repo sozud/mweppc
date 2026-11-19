@@ -26,10 +26,19 @@ void Bv_AllocVector(BitVector** bv, UInt32 size) {
 #endif
 
 void Bv_AllocVectorLocal(BitVector** bv, UInt32 size) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x5B37B0, b210): the word count kept in the parameter (the PS2
+    // b198 decompilation's)
+    size = (size / 32) + 1;
+    *bv = lalloc(sizeof(BitVector) + sizeof(UInt32) * size);
+    (*bv)->size = size;
+    Bv_Clear(*bv);
+#else
     UInt32 long_size = (size / 32) + 1;
     *bv = lalloc(sizeof(BitVector) + sizeof(UInt32) * long_size);
     (*bv)->size = long_size;
     Bv_Clear(*bv);
+#endif
 }
 
 #if MWCCPSP
@@ -107,6 +116,48 @@ Boolean Bv_BitsInCommon(const BitVector* a, const BitVector* b) {
 
 #if MWCCPSP
 // 3.0.1: the longer vector's extra words must be zero
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x005B35A0, b210): separate counters and a copy of the common length (the PS2
+// b198 decompilation's)
+Boolean Bv_Compare(const BitVector* a, const BitVector* b) {
+    UInt32 i;
+    UInt32 sizeA;
+    UInt32 sizeB;
+    UInt32 len;
+    UInt32 len2;
+
+    sizeB = b->size;
+    sizeA = a->size;
+    if (sizeA < sizeB) {
+        len = sizeA;
+    } else {
+        len = sizeB;
+    }
+
+    len2 = len;
+    for (i = 0; i < len2; i++) {
+        if (a->data[i] != b->data[i]) {
+            return FALSE;
+        }
+    }
+
+    if (sizeA < sizeB) {
+        for (i = sizeA; i < sizeB; i++) {
+            if (b->data[i]) {
+                return FALSE;
+            }
+        }
+    } else if (sizeB < sizeA) {
+        for (i = sizeB; i < sizeA; i++) {
+            if (a->data[i]) {
+                return FALSE;
+            }
+        }
+    }
+
+    return TRUE;
+}
+#else
 Boolean Bv_Compare(const BitVector* a, const BitVector* b) {
     UInt32 i, len, alen, blen;
 
@@ -136,6 +187,7 @@ Boolean Bv_Compare(const BitVector* a, const BitVector* b) {
     }
     return TRUE;
 }
+#endif
 #else
 Boolean Bv_Compare(const BitVector* a, const BitVector* b) {
     UInt32 i;

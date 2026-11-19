@@ -373,7 +373,13 @@ static void Option_SpellList(char* buffer, OptionList* conflicts, int flags) {
 }
 
 int Option_ForTool(Option* opt, int which) {
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x421AEA, b210): the mask tested against zero (the PS2 b198
+    // decompilation's)
+    return which == 0 || (opt->avail & which) != 0;
+#else
     return which == 0 || (opt->avail & which);
+#endif
 }
 
 int Option_ThisTool(void) {

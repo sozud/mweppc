@@ -38,7 +38,7 @@ static AsmRegister* asm_registers[0x200]; // 0x606070
 void* func_0053E980(char* name) {
 #endif
 #if MWCCPS2
-#if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
+#if MWCC_CORE && MWCC_CORE > MWCC_CORE_B52
     int h;
 #endif
 #endif
@@ -47,7 +47,17 @@ void* func_0053E980(char* name) {
 
 #endif
 #if MWCCPS2
-#if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
+#if !MWCC_CORE
+    // mwccps2 (b198 0x54E930, b210): a while loop over the masked hash (the PS2
+    // b198 decompilation's gcc_find_name)
+    m = asm_mnemonics[CHash(name) & 0xFF];
+    while (m) {
+        if (strcmp(m->name, name) == 0) {
+            return &m->name;
+        }
+        m = m->next;
+    }
+#elif MWCC_CORE > MWCC_CORE_B52
     h = CHash(name);
     for (m = asm_mnemonics[(UInt8)h]; m; m = m->next) {
         if (!strcmp(m->name, name)) {

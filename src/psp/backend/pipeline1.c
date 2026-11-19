@@ -170,7 +170,7 @@ static void topipe1(MPCode* pc) {
 #endif
             pc->op = 0x1FE;
             break;
-#if MWCCPS2_BUILD >= 210
+#if MWCCPS2_BUILD >= 198
         case 0x7C:
             pc->op = 0x1D3;
             break;
@@ -300,7 +300,7 @@ static void pipeline1block(MPCodeBlock* block) {
             case 0x202:
             case 0x203:
 #endif
-#if MWCCPS2_BUILD >= 210
+#if MWCCPS2_BUILD >= 198
             case 0x440:
 #endif
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
@@ -349,7 +349,7 @@ static void pipeline1block(MPCodeBlock* block) {
         a = pipeof(&pc->args[1]);
         b = pipeof(&pc->args[2]);
 #endif
-#if MWCCPS2_BUILD < 210
+#if MWCCPS2_BUILD < 198
 #if !MWCC_CORE || MWCC_CORE > MWCC_CORE_B52
             // b145: an operand from pipeline 1 moves only this instruction
             if (a != -1 || b != -1) {

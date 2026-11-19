@@ -144,7 +144,14 @@ int func_004A3930(char* name) {
 // written it tests the second argument twice, so it is always a real call.
 void func_004A3840(ENode* expr) {
     ENodeList* args = expr->data.funccall.args;
+#if MWCCPS2 && !MWCC_CORE
+    // mwccps2 (b198 0x4AEF80, b210): the second argument's type read once into a
+    // local (the PS2 b198 decompilation's)
+    UInt8 kind;
 
+    if (args->node->type == EOBJREF &&
+        (args = args->next, kind = args->node->type, kind == EOBJREF && kind == EINTCONST)) {
+#else
 #if MWCC_CORE && MWCC_CORE <= MWCC_CORE_B52
     if (ENODE_IS(args->node, EOBJREF) &&
         ENODE_IS(args->next->node, EOBJREF) &&
@@ -153,6 +160,7 @@ void func_004A3840(ENode* expr) {
         ENODE_IS(args->next->node, EOBJREF) &&
 #endif
         ENODE_IS(args->next->node, EINTCONST)) {
+#endif
         func_0045B8C0(expr, 9);
     } else {
         expr->hascall = TRUE;
@@ -246,7 +254,7 @@ void func_004A25E0(Statement* stmt) {
                 if (((PspInlineAsm*)scan->expr)->flags & 8) {
                     data_00624810 = 1;
                 }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 has no data_0062525C
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 has no data_0062525C
                 if (((PspInlineAsm*)scan->expr)->opcode == 0x3B ||
                     ((PspInlineAsm*)scan->expr)->opcode == 0x3D) {
                     data_0062525C = 1;
@@ -827,7 +835,7 @@ assignop:
                 } else if (sub->type == EDIV && sub->data.diadic.right->type == EFUNCCALL &&
                            func_004A3930(CMangler_GetLinkName(sub->data.diadic.right->data.funccall.funcref->data.objref)->name) ==
                                0x10
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not test the option
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 does not test the option
                            && copts.mips_option23
 #endif
                            ) {

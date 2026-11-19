@@ -369,6 +369,49 @@ void func_0049F5A0(Object* obj, Object* func, SInt32 index) {
 
 // 0x49F480: the name of a static local's guard: "@GUARD@" and the local's
 // link name, without a leading "@LOCAL@"
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 CMangler_SetupGuardVarName, b210): the scan pointer becomes the name
+// (the PS2 b198 decompilation's)
+void func_0049F480(Object* guard, Object* obj) {
+    char* orig_name;
+    char* name;
+    HashNameNode* hash;
+
+    CError_ASSERT(1209, CParser_IsDataObject(guard));
+    CError_ASSERT(1210, CParser_IsDataObject(obj) && obj->u.data.linkname != NULL);
+
+    orig_name = obj->u.data.linkname->name;
+    for (name = orig_name;; name++) {
+        if (name[0] == '\0') {
+            name = orig_name;
+            break;
+        }
+        if (name[0] == '@') {
+            if (name[1] == 'L' &&
+                name[2] == 'O' &&
+                name[3] == 'C' &&
+                name[4] == 'A' &&
+                name[5] == 'L' &&
+                name[6] == '@') {
+                name += 7;
+            } else {
+                name = orig_name;
+            }
+            break;
+        }
+    }
+
+    name_mangle_list.size = 0;
+    AppendGListName(&name_mangle_list, "@GUARD@");
+    AppendGListName(&name_mangle_list, name);
+    AppendGListByte(&name_mangle_list, 0);
+
+    COS_LockHandle(name_mangle_list.data);
+    hash = GetHashNameNodeExport(*name_mangle_list.data);
+    COS_UnlockHandle(name_mangle_list.data);
+    guard->u.data.linkname = hash;
+}
+#else
 void func_0049F480(Object* guard, Object* obj) {
     char* name;
     char* p;
@@ -397,6 +440,7 @@ void func_0049F480(Object* guard, Object* obj) {
     guard->u.data.linkname = GetHashNameNodeExport(*name_mangle_list.data);
     COS_UnlockHandle(name_mangle_list.data);
 }
+#endif
 #endif
 
 HashNameNode* CMangler_VTableName(TypeClass* theclass) {

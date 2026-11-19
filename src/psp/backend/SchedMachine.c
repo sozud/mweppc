@@ -10,7 +10,7 @@
 // no CError.h here (its declarations would renumber statics): its b145 line macro
 #ifndef CError_B145_LINE
 #define CError_B145_SHIFT 0
-#if MWCCPS2 && MWCCPS2_BUILD < 210
+#if MWCCPS2 && MWCCPS2_BUILD < 198
 #define CError_B145_LINE(line) ((line) + CError_B145_SHIFT)
 #else
 #define CError_B145_LINE(line) (line)
@@ -100,7 +100,7 @@ static int func_004B4EC0(MPCode* instr) {
         case 0xB6:
         case 0xB7:
 #endif
-#if MWCCPS2_BUILD >= 210 // b145 has no latency for these
+#if MWCCPS2_BUILD >= 198 // b145 has no latency for these
         case 0x400:
         case 0x401:
         case 0x405:

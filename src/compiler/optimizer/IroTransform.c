@@ -2152,7 +2152,12 @@ static void DoTransformations21(IROLinear* nd) {
 collapse:
                                 nd->u.diadic.left = left->u.monadic;
                                 nd->u.diadic.right = right->u.monadic;
+#if MWCCPS2 && !MWCC_CORE
+                                left->type = IROLinearNop; // mwccps2 (b198, b210): two stores
+                                right->type = IROLinearNop;
+#else
                                 left->type = right->type = IROLinearNop;
+#endif
                                 changed = TRUE;
                             }
                             break;
@@ -2664,7 +2669,7 @@ done:
                 break;
         }
 
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 does not look through casts
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 does not look through casts
             // 3.0.1: look through casts that keep every value
 #if MWCC_CORE != MWCC_CORE_B52
         while (left->type == IROLinearOp1Arg && left->nodetype == ETYPCON && func_0055A3F0(left)) {
@@ -4078,6 +4083,108 @@ static inline void RemoveUnreffed(IROLinear* nd) {
 // integer type; a float cast of a wchar_t only goes when wchar_t is
 // unsigned short; and any other cast of a cast drops the inner one when
 // func_0055A3F0 says both keep every value.
+#if MWCCPS2 && !MWCC_CORE && MWCCPS2_BUILD >= 198
+// mwccps2 (b198 0x00584830, b210): the PS2 b198 decompilation's RemoveRedundantMonadicOp
+static void RemoveRedundantMonadicOp(IROLinear* nd) {
+    IROLinear* father;
+    IROLinear* grandfather;
+
+    if (nd->type == IROLinearOp1Arg &&
+        (father = IRO_LocateFather(nd)) &&
+        father->nodetype == nd->nodetype) {
+        switch (nd->nodetype) {
+            case ELOGNOT:
+                grandfather = IRO_LocateFather(father);
+                if (grandfather) {
+                    if (grandfather->rtype &&
+                        IS_TYPE_INT(grandfather->rtype) &&
+                        TYPE_INTEGRAL(grandfather->rtype)->integral == IT_BOOL &&
+                        nd->u.monadic->rtype &&
+                        IS_TYPE_INT(nd->u.monadic->rtype) &&
+                        TYPE_INTEGRAL(nd->u.monadic->rtype)->integral == IT_BOOL) {
+                        goto remove;
+                    }
+
+                    if (grandfather->type == IROLinearIf) {
+                        goto remove;
+                    }
+                    if (grandfather->type == IROLinearIfNot) {
+                        goto remove;
+                    }
+                    if (grandfather->type == IROLinearOp3Arg && nd == grandfather->u.args3.a) {
+                        goto remove;
+                    }
+
+                    switch (grandfather->nodetype) {
+                        case ELOGNOT:
+                        case ELAND:
+                        case ELOR:
+                            goto remove;
+                        default:
+                            break;
+                    }
+                }
+
+                if (nd->u.monadic->type == IROLinearOp1Arg ||
+                    nd->u.monadic->type == IROLinearOp2Arg) {
+                    switch (nd->u.monadic->nodetype) {
+                        case ELOGNOT:
+                        case ELESS:
+                        case EGREATER:
+                        case ELESSEQU:
+                        case EGREATEREQU:
+                        case EEQU:
+                        case ENOTEQU:
+                        case ELAND:
+                        case ELOR:
+                            goto remove;
+                        default:
+                            break;
+                    }
+                }
+                break;
+
+            case EMONMIN:
+            case EBINNOT:
+remove:
+                IRO_LocateFather_Cut_And_Paste_Without_Nopping(father, nd->u.monadic);
+                nd->type = IROLinearNop;
+                father->type = IROLinearNop;
+                break;
+
+            case ETYPCON:
+                if (TYPE_INTEGRAL(nd->rtype)->integral == IT_FLOAT) {
+                    switch (TYPE_INTEGRAL(father->rtype)->integral) {
+                        case IT_DOUBLE:
+                        case IT_LONGDOUBLE:
+                            switch (TYPE_INTEGRAL(nd->u.monadic->rtype)->integral) {
+                                case IT_WCHAR_T:
+                                    if (!copts.ushort_wchar_t) {
+                                        break;
+                                    }
+                                case IT_BOOL:
+                                case IT_CHAR:
+                                case IT_SCHAR:
+                                case IT_UCHAR:
+                                case IT_SHORT:
+                                case IT_USHORT:
+                                    nd->type = IROLinearNop;
+                                    father->u.monadic = nd->u.monadic;
+                                    break;
+                            }
+                            break;
+                    }
+                } else if (func_0055A3F0(father) && func_0055A3F0(nd)) {
+                    nd->type = IROLinearNop;
+                    father->u.monadic = nd->u.monadic;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+}
+#else
 static void RemoveRedundantMonadicOp(IROLinear* nd) {
     IROLinear* father;
     IROLinear* grandfather;
@@ -4178,7 +4285,7 @@ remove:
                             break;
                     }
                 }
-#if !MWCCPS2 || MWCCPS2_BUILD >= 210 // b145 drops no other cast of a cast
+#if !MWCCPS2 || MWCCPS2_BUILD >= 198 // b145 drops no other cast of a cast
 #if MWCC_CORE != MWCC_CORE_B52
                 else if (func_0055A3F0(father) && func_0055A3F0(nd)) {
                     nd->type = IROLinearNop;
@@ -4192,6 +4299,7 @@ remove:
         }
     }
 }
+#endif
 #else
 static void RemoveRedundantMonadicOp(IROLinear* nd) {
     IROLinear* father;
@@ -4653,6 +4761,53 @@ IROLinear* func_00554640(IROLinear* nd, Boolean toBool) {
 
 // 0x56F6C0: c ? 1 : 0 becomes !!c, c ? 0 : 1 !c, and with -1 for 1 their
 // negation
+#if MWCCPS2 && !MWCC_CORE
+// mwccps2 (b198 0x00584640, b210): one guarded block, the condition variable reused for the result
+// (the PS2 b198 decompilation's DoTransformations26)
+void func_0056F6C0(IROLinear* nd) {
+    IROLinear* cond = nd->u.args3.a;
+    IROLinear* a = nd->u.args3.b;
+    IROLinear* b = nd->u.args3.c;
+
+    IRO_UnqualifiedType(nd->rtype);
+
+    if (nd &&
+        nd->type == IROLinearOp3Arg &&
+        nd->nodetype == ECOND &&
+        IRO_IsIntConstant(a) &&
+        IRO_IsIntConstant(b) &&
+        ((IRO_IsConstantOne(a) && IRO_IsConstantZero(b)) ||
+         (IRO_IsConstantZero(a) && IRO_IsConstantOne(b)) ||
+         (IRO_IsConstantNegativeOne(a) && IRO_IsConstantZero(b)) ||
+         (IRO_IsConstantZero(a) && IRO_IsConstantNegativeOne(b)))) {
+        if (IRO_IsConstantZero(a)) {
+            cond = func_00554640(cond, 1);
+        }
+        cond = func_005544D0(cond, 1);
+        if (!IRO_TypesEqual(cond->rtype, nd->rtype)) {
+            cond = IRO_MakeTypeConversion(cond, nd->rtype, NULL);
+        }
+        if (IRO_IsConstantNegativeOne(a) || IRO_IsConstantNegativeOne(b)) {
+            IROLinear* mon = IRO_NewLinear(IROLinearOp1Arg);
+
+            *mon = *a;
+            mon->type = IROLinearOp1Arg;
+            mon->nodetype = EMONMIN;
+            mon->index = IRO_NumLinear++;
+            mon->u.monadic = cond;
+            IRO_PasteAfter(mon, mon, cond);
+            cond = mon;
+        }
+        a->type = IROLinearNop;
+        a->expr = NULL;
+        b->type = IROLinearNop;
+        b->expr = NULL;
+        nd->type = IROLinearNop;
+        nd->expr = NULL;
+        IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, cond);
+    }
+}
+#else
 void func_0056F6C0(IROLinear* nd) {
     IROLinear* cond = nd->u.args3.a;
     IROLinear* a = nd->u.args3.b;
@@ -4717,6 +4872,7 @@ void func_0056F6C0(IROLinear* nd) {
     nd->expr = NULL;
     IRO_LocateFather_Cut_And_Paste_Without_Nopping(nd, value);
 }
+#endif
 #endif
 
 #if MWCCPS2
