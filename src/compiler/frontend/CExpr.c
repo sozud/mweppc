@@ -1,5 +1,6 @@
 #include "compiler/mwcc_core.h"
 #include "compiler/CExpr.h"
+#include "compiler/ub_probe.h"
 #include "compiler/CABI.h"
 #include "compiler/CClass.h"
 #include "compiler/CDecl.h"
@@ -2540,7 +2541,11 @@ static ENode* primary_expression(Boolean isAddressOf) {
             // constant in place (a cast or an argument converted to float),
             // which keeps the hascall byte lalloc left; native takes b69's
             // usual 0
+#if MWCCPSP_NATIVE
+            expr->hascall = mwcc_ub_fill("hascall", 0);
+#else
             expr->hascall = 0;
+#endif
 #endif
 #endif
 #if MWCC_CORE != MWCC_CORE_B52
@@ -2562,7 +2567,11 @@ static ENode* primary_expression(Boolean isAddressOf) {
             // 32-bit arena reads 0 there for 508 of 587 float-constant arguments
             // in a corpus sample (ptrace at 0x4A4063); the native arena holds
             // other bytes, so native takes b69's usual value.
+#if MWCCPSP_NATIVE
+            expr->hascall = mwcc_ub_fill("hascall", 0);
+#else
             expr->hascall = 0;
+#endif
 #endif
             expr->type = EFLOATCONST;
             expr->cost = 0;
@@ -3574,6 +3583,28 @@ typedef struct ObjMemberVarPath301 {
     ObjMemberVar* inner;
 } ObjMemberVarPath301;
 
+#if MWCCPSP_NATIVE
+// native build: the class among tclass and its bases that declares the plain
+// (pathless) member `name`
+static TypeClass* CExpr_NativeMemberClass(TypeClass* tclass, HashNameNode* name) {
+    ObjMemberVar* ivar;
+    ClassList* base;
+    TypeClass* found;
+
+    for (ivar = tclass->ivars; ivar; ivar = ivar->next) {
+        if (ivar->name == name && !ivar->has_path) {
+            return tclass;
+        }
+    }
+    for (base = tclass->bases; base; base = base->next) {
+        if ((found = CExpr_NativeMemberClass(base->base, name))) {
+            return found;
+        }
+    }
+    return NULL;
+}
+#endif
+
 // 0x518550: the object expression (`this` without one) converted from its
 // class to `tclass`, then to the class that declares the member
 ENode* CExpr_ClassAccessNode301(
@@ -3627,6 +3658,19 @@ ENode* CExpr_ClassAccessNode301(
         expr = CClass_ClassPointerCast(expr, tclass, memberclass, FALSE, TRUE, TRUE);
     }
 
+#if MWCCPSP_NATIVE
+    // native build: a member with a path comes from 2.4.7's CScope_AddUsingObject
+    // (a using-declaration), not 3.0.1's class/inner pair; its BClassList is only
+    // partly redone in a class template's instance, so the object is cast to the
+    // base class that declares the member itself
+    if (ivar && ivar->has_path) {
+        TypeClass* declclass = CExpr_NativeMemberClass(memberclass, ivar->name);
+
+        if (declclass && declclass != memberclass) {
+            expr = CClass_ClassPointerCast(expr, memberclass, declclass, FALSE, TRUE, FALSE);
+        }
+    }
+#else
     if (ivar) {
         while (ivar->has_path) {
             expr = CClass_ClassPointerCast(
@@ -3636,6 +3680,7 @@ ENode* CExpr_ClassAccessNode301(
             ivar = ((ObjMemberVarPath301*)ivar)->inner;
         }
     }
+#endif
 
     if (obj) {
         while (obj->datatype == DALIAS) {

@@ -2859,6 +2859,30 @@ static Type* CExpr_NextArithmeticType(int* p) {
 }
 
 static Type* CExpr_NextPromotedArithmeticType(int* p) {
+#if MWCCPSP && !MWCC_CORE
+    // 3.0.1 counts float among the promoted arithmetic types (so float * float
+    // resolves to the float operator, not double's)
+    switch (++(*p)) {
+        case 1:
+            return TYPE(&stsignedint);
+        case 2:
+            return TYPE(&stunsignedint);
+        case 3:
+            return TYPE(&stsignedlong);
+        case 4:
+            return TYPE(&stunsignedlong);
+        case 5:
+            return TYPE(&stfloat);
+        case 6:
+            return TYPE(&stdouble);
+        case 7:
+            return TYPE(&stlongdouble);
+        case 8:
+            return copts.longlong ? TYPE(&stsignedlonglong) : NULL;
+        case 9:
+            return copts.longlong ? TYPE(&stunsignedlonglong) : NULL;
+    }
+#else
     switch (++(*p)) {
         case 1:
             return TYPE(&stsignedint);
@@ -2877,6 +2901,8 @@ static Type* CExpr_NextPromotedArithmeticType(int* p) {
         case 8:
             return copts.longlong ? TYPE(&stunsignedlonglong) : NULL;
     }
+
+#endif
 
     return NULL;
 }

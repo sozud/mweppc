@@ -5,6 +5,7 @@
 #include "compiler/CError.h"
 #include "compiler/CInt64.h"
 #include "compiler/CFunc.h"
+#include "compiler/ub_probe.h"
 
 // mwccpsp 3.0.1 VReg.c (named by its assertions; 0x4C3B00..0x4C40B0):
 // making operands. A VOperand (0x24 bytes) describes a value for the code
@@ -154,7 +155,7 @@ MOperand func_004C3C60(VOperand* v) {
             // b198 leaves rclass/flags as stack residue (often the high half of a heap or
             // code pointer); copypropagatestouse tests flags & 8 on every operand
             op.rclass = 0;
-            op.flags = 0;
+            op.flags = mwcc_ub_fill("operand", 0);
             b119_replay_residue(&op, 4);
 #endif
             op.value = v->offset;
@@ -171,7 +172,7 @@ MOperand func_004C3C60(VOperand* v) {
 #if MWCCPSP_NATIVE && MWCCPS2 && MWCCPS2_BUILD >= 198 && MWCCPS2_BUILD < 210
             // and an immediate's ([esp+0x19..0x1b] at 0x4D00A4)
             imm.rclass = 0;
-            imm.flags = 0;
+            imm.flags = mwcc_ub_fill("operand", 0);
 #endif
             *(CInt64*)&imm.value = v->imm;
             op = imm;
